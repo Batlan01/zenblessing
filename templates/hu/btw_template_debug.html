@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <title>BarTender sablon diagnosztika</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{--bg:#0f172a;--panel:#111827;--panel2:#0b1220;--txt:#e5e7eb;--muted:#9ca3af;--ok:#10b981;--bad:#ef4444;--warn:#f59e0b;--acc:#60a5fa}
+    html,body{height:100%}
+    body{margin:0;background:linear-gradient(180deg,#0b1020,#0b1220);font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--txt)}
+    .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
+    .card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:16px 18px;margin-bottom:16px;backdrop-filter:blur(6px)}
+    h1{font-size:20px;margin:4px 0 16px}
+    h2{font-size:16px;margin:0 0 10px;color:#d1d5db}
+    h3{margin:0 0 6px}
+    label{font-size:13px;color:var(--muted)}
+    select,textarea,input[type="text"]{width:100%;background:#0b1220;color:var(--txt);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:10px;outline:none}
+    textarea{min-height:120px;resize:vertical}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .btn{appearance:none;border:0;border-radius:12px;padding:10px 14px;background:#1f2937;color:#e5e7eb;cursor:pointer;font-weight:600}
+    .btn.primary{background:linear-gradient(90deg,#2563eb,#7c3aed)}
+    .btn.ghost{background:#0b1220;border:1px solid rgba(255,255,255,0.1)}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .kpi{display:flex;gap:12px;flex-wrap:wrap}
+    .chip{padding:6px 10px;border-radius:999px;background:#0b1220;border:1px solid rgba(255,255,255,0.1);font-size:12px}
+    .chip.ok{border-color:rgba(16,185,129,.5);color:#a7f3d0}
+    .chip.bad{border-color:rgba(239,68,68,.5);color:#fecaca}
+    .chip.warn{border-color:rgba(245,158,11,.5);color:#fde68a}
+    pre{background:#0b1220;border:1px solid rgba(255,255,255,0.1);padding:12px;border-radius:12px;overflow:auto;max-height:420px}
+    .muted{color:var(--muted)}
+    .inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .sep{height:1px;background:rgba(255,255,255,0.08);margin:10px 0}
+    .status{padding:10px 14px;border-radius:12px;font-weight:700;display:inline-block}
+    .status.ok{background:rgba(16,185,129,.2);border:1px solid rgba(16,185,129,.5);color:#a7f3d0}
+    .status.bad{background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.5);color:#fecaca}
+    ul.reasons{margin:8px 0 0 18px;color:var(--muted)}
+    .quick{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:8px}
+    .quick label{display:flex;gap:8px;align-items:center;background:#0b1220;border:1px solid rgba(255,255,255,.08);padding:8px 10px;border-radius:10px;cursor:pointer}
+    .quick input{accent-color:#60a5fa}
+    @media (max-width:820px){.row{grid-template-columns:1fr}.quick{grid-template-columns:repeat(2,1fr)}}
+    /* toast */
+    .toast{position:fixed;right:16px;bottom:16px;z-index:9999;background:#0b1220;border:1px solid rgba(255,255,255,.14);
+      padding:10px 14px;border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.35);opacity:0;transform:translateY(8px);transition:.25s ease}
+    .toast.ok{border-color:rgba(16,185,129,.5)}
+    .toast.bad{border-color:rgba(239,68,68,.5)}
+    .toast.show{opacity:1;transform:translateY(0)}
+    /* mini számláló a fájl lista mellett */
+.counts{font-size:12px;color:var(--muted);margin-left:8px}
+.counts .ok{color:#a7f3d0}
+.counts .warn{color:#fde68a}
+.counts .bad{color:#fecaca}
+
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="card">
+    <h1>BarTender sablon diagnosztika</h1>
+    <div class="row">
+      <div>
+        <label>.btw fájl</label>
+        <div class="inline">
+          <select id="btwSelect" style="flex:1 1 auto">
+            <option value="">— betöltés… —</option>
+          </select>
+          <span id="btwStatusChip" class="chip" title="Utolsó eredmény" style="min-width:46px;text-align:center">•</span>
+        </div>
+        <div class="inline" style="margin-top:8px">
+          <button class="btn" id="reloadBtn" title="Újratöltés">Frissítés</button>
+          <span id="fileCount" class="muted"></span>
+        </div>
+        <div class="muted" style="margin-top:6px;font-size:12px">
+          Jelölések a listában: ✅ sikeres • ⚠️ figyelmeztetés • ❌ sikertelen • • még nem tesztelt
+        </div>
+      </div>
+      <div>
+        <label>Mód a mezőkhöz</label>
+        <div class="inline">
+          <label><input type="radio" name="mode" value="list" checked /> Lista (PN, WO, REV…)</label>
+          <label><input type="radio" name="mode" value="json" /> Kulcs→érték JSON</label>
+        </div>
+        <div class="sep"></div>
+
+        <!-- Gyors mezőválasztó -->
+        <div class="inline" style="justify-content:space-between">
+          <label class="muted">Gyors mezőválasztó</label>
+          <div class="inline">
+            <button class="btn ghost" id="selectAllBtn" type="button">Mind</button>
+            <button class="btn ghost" id="selectNoneBtn" type="button">Semmi</button>
+            <button class="btn" id="syncBtn" type="button" title="Checkboxok ↔ beviteli mezők">Szinkronizálás</button>
+          </div>
+        </div>
+        <div id="quickFields" class="quick" style="margin-bottom:12px"></div>
+
+        <!-- Kitöltős részek -->
+        <div id="listMode">
+          <label>Mezőnevek (soronként vagy vesszővel elválasztva)</label>
+          <textarea id="fieldList" placeholder="PN&#10;WO&#10;REV"></textarea>
+        </div>
+        <div id="jsonMode" style="display:none">
+          <label>Mezők JSON (pl. FROM_UP/TO_UP stb.)</label>
+          <textarea id="fieldJson" placeholder='{"FROM_UP":"J1","FROM_DOWN":"MOTOR 1"}'></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="inline" style="margin-top:16px">
+      <button class="btn primary" id="runBtn">Diagnosztika</button>
+      <button class="btn" id="prefillID">PN/WO/REV minták</button>
+      <button class="btn" id="prefillFROM">FROM_UP/DOWN minták</button>
+      <button class="btn" id="prefillTO">TO_UP/DOWN minták</button>
+      <span class="muted" id="hint"></span>
+    </div>
+  </div>
+
+  <div id="result" class="card" style="display:none">
+    <h2>Eredmény</h2>
+
+    <div class="kpi" style="margin-bottom:10px">
+      <div class="chip" id="sideChip">oldal: ?</div>
+      <div class="chip" id="printerChip">nyomtató: ?</div>
+      <div class="chip ok" id="okChip" style="display:none">Nincs hiányzó/extra mező</div>
+      <div class="chip bad" id="badChip" style="display:none">Hiányzó mezők</div>
+      <div class="chip warn" id="warnChip" style="display:none">Extra mezők</div>
+    </div>
+
+    <div id="verdictBox" class="status bad" style="display:none">NEM FELEL MEG</div>
+    <ul id="reasonsList" class="reasons"></ul>
+
+    <div class="row" style="margin-top:12px">
+      <div>
+        <h3 class="muted">Elvárt mezők</h3>
+        <pre id="expectedBox"></pre>
+      </div>
+      <div>
+        <h3 class="muted">Átment mezők (L* kidobva)</h3>
+        <pre id="keptBox"></pre>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <h3 class="muted">Hiányzó elvárt mezők</h3>
+        <pre id="missingBox"></pre>
+      </div>
+      <div>
+        <h3 class="muted">Extra mezők (nem elvártak)</h3>
+        <pre id="extraBox"></pre>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <h3 class="muted">Minta substrings (ID logika alapján)</h3>
+        <pre id="sampleIDBox"></pre>
+      </div>
+      <div>
+        <h3 class="muted">Beküldött mezőkből képezve</h3>
+        <pre id="sampleFromInputBox"></pre>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+    <h3 class="muted">Nyers válasz</h3>
+    <pre id="rawBox"></pre>
+
+    <div class="sep"></div>
+    <div class="inline" style="justify-content:space-between">
+      <h3 class="muted">Utolsó naplóbejegyzések</h3>
+      <div class="inline">
+        <button class="btn" id="showLogBtn">Frissítés (20)</button>
+        <a class="btn ghost" href="/api/bartender/debug/diag_log_download">Teljes log letöltése</a>
+      </div>
+    </div>
+    <pre id="logBox" style="max-height:260px"></pre>
+  </div>
+
+</div>
+
+<!-- toast -->
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script>
+  const $ = sel => document.querySelector(sel);
+
+  const COMMON_KEYS = ["PN","WO","REV","FROM_UP","FROM_DOWN","TO_UP","TO_DOWN","CON"];
+  let lastStatusMap = {}; // filename -> {status, ts, reasons[]}
+
+  // ---- UI init: quick checkboxes
+  function renderQuick() {
+    const host = $("#quickFields");
+    host.innerHTML = "";
+    COMMON_KEYS.forEach(k => {
+      const id = "q_" + k;
+      const lab = document.createElement("label");
+      lab.innerHTML = `<input type="checkbox" id="${id}" data-key="${k}"><span>${k}</span>`;
+      host.appendChild(lab);
+      lab.querySelector("input").addEventListener("change", onQuickToggle);
+    });
+  }
+
+  function getMode() {
+    return document.querySelector('input[name="mode"]:checked').value;
+  }
+
+  function parseList() {
+    const raw = $("#fieldList").value || "";
+    return raw.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+  }
+  function writeList(keys) {
+    const set = new Set(keys.map(k => k.trim()).filter(Boolean));
+    const ordered = [
+      ...COMMON_KEYS.filter(k => set.has(k)),
+      ...[...set].filter(k => !COMMON_KEYS.includes(k)).sort()
+    ];
+    $("#fieldList").value = ordered.join("\n");
+  }
+
+  function parseJsonObj() {
+    const raw = $("#fieldJson").value || "";
+    if (!raw.trim()) return {};
+    try { return JSON.parse(raw); } catch { return {}; }
+  }
+  function writeJsonObj(obj) {
+    $("#fieldJson").value = JSON.stringify(obj, null, 2);
+  }
+
+  // quick ↔ inputs sync
+  function onQuickToggle(e) {
+    const key = e.target.dataset.key;
+    const checked = e.target.checked;
+    const mode = getMode();
+
+    if (mode === "list") {
+      const keys = parseList();
+      const has = keys.includes(key);
+      if (checked && !has) { keys.push(key); }
+      if (!checked && has) { writeList(keys.filter(k => k !== key)); return; }
+      writeList(keys);
+    } else {
+      const obj = parseJsonObj();
+      if (checked && !(key in obj)) obj[key] = "";
+      if (!checked && (key in obj)) delete obj[key];
+      writeJsonObj(obj);
+    }
+  }
+
+  function syncFromInputsToQuick() {
+    const mode = getMode();
+    const selected = new Set(mode === "list" ? parseList() : Object.keys(parseJsonObj()));
+    COMMON_KEYS.forEach(k => { const cb = $("#q_" + k); if (cb) cb.checked = selected.has(k); });
+  }
+
+  function toggleMode() {
+    const mode = getMode();
+    $("#listMode").style.display = mode === "list" ? "" : "none";
+    $("#jsonMode").style.display = mode === "json" ? "" : "none";
+    syncFromInputsToQuick();
+  }
+  document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', toggleMode));
+
+  $("#selectAllBtn").addEventListener("click", () => {
+    COMMON_KEYS.forEach(k => { $("#q_"+k).checked = true; });
+    COMMON_KEYS.forEach(k => onQuickToggle({ target:{ dataset:{key:k}, checked:true } }));
+  });
+  $("#selectNoneBtn").addEventListener("click", () => {
+    COMMON_KEYS.forEach(k => { $("#q_"+k).checked = false; });
+    COMMON_KEYS.forEach(k => onQuickToggle({ target:{ dataset:{key:k}, checked:false } }));
+  });
+  $("#syncBtn").addEventListener("click", syncFromInputsToQuick);
+
+  // ---- Állapot ikon
+  function statusIcon(s){
+    if (s === "ok")   return "✅ ";
+    if (s === "warn") return "⚠️ ";
+    if (s === "bad")  return "❌ ";
+    return "• ";
+  }
+  function applyChipStatus(st){
+    const chip = $("#btwStatusChip");
+    chip.textContent = st ? statusIcon(st).trim() : "•";
+    chip.className = "chip " + (st==="ok"?"ok":(st==="bad"?"bad":(st==="warn"?"warn":"")));
+  }
+
+  // ---- BTW file list + utolsó teszt állapot
+  async function loadBtwFiles() {
+    try {
+      $("#btwSelect").innerHTML = `<option value="">— betöltés… —</option>`;
+
+      const [filesResp, mapResp] = await Promise.all([
+        fetch("/api/bartender/get_btw_files"),
+        fetch("/api/bartender/debug/diag_last_map")
+      ]);
+
+      const filesData = await filesResp.json();
+      const mapData   = await mapResp.json();
+
+      const files = Array.isArray(filesData.files) ? filesData.files : [];
+      lastStatusMap = (mapData && mapData.map) ? mapData.map : {};
+
+      // problémások elöl
+      files.sort((a,b)=>{
+        const rank = s => s==="bad"?0 : s==="warn"?1 : s==="ok"?2 : 3;
+        return (rank(lastStatusMap[a]?.status)-rank(lastStatusMap[b]?.status)) || a.localeCompare(b,'hu');
+      });
+
+      files.forEach(f => {
+        const info = lastStatusMap[f] || {};
+        const opt = document.createElement("option");
+        opt.value = f;
+        opt.textContent = statusIcon(info.status) + f;
+        const reasons = Array.isArray(info.reasons) ? info.reasons.join(", ") : "";
+        opt.title = [info.ts, reasons].filter(Boolean).join(" — ");
+        $("#btwSelect").appendChild(opt);
+      });
+
+      $("#fileCount").textContent = files.length ? `${files.length} fájl` : "nincs fájl";
+      // alap chip
+      const cur = $("#btwSelect").value;
+      applyChipStatus(cur ? (lastStatusMap[cur]?.status) : "");
+    } catch {
+      $("#fileCount").textContent = "hiba a fájlok betöltésénél";
+    }
+  }
+
+  $("#btwSelect").addEventListener("change", ()=>{
+    const f = $("#btwSelect").value;
+    applyChipStatus(f ? (lastStatusMap[f]?.status) : "");
+  });
+
+  // ---- Result helpers
+  function setChips({ side, printer_found, printer_name, missing_expected, extra_vs_expected, conforms, reasons }) {
+    $("#sideChip").textContent = `oldal: ${side}`;
+    $("#printerChip").textContent = `nyomtató: ${printer_found ? printer_name : "nincs"}`;
+    $("#printerChip").className = "chip " + (printer_found ? "ok" : "bad");
+
+    const hasMissing = (missing_expected || []).length > 0;
+    const hasExtra   = (extra_vs_expected || []).length > 0;
+    $("#okChip").style.display   = (!hasMissing && !hasExtra) ? "" : "none";
+    $("#badChip").style.display  = hasMissing ? "" : "none";
+    $("#warnChip").style.display = hasExtra ? "" : "none";
+
+    const verdict = $("#verdictBox");
+    const reasonsList = $("#reasonsList");
+    verdict.style.display = "";
+    verdict.className = "status " + (conforms ? "ok" : "bad");
+    verdict.textContent = conforms ? "MEGFELEL" : "NEM FELEL MEG";
+    reasonsList.innerHTML = "";
+    if (!conforms && Array.isArray(reasons) && reasons.length){
+      reasons.forEach(r => {
+        const li = document.createElement("li");
+        li.textContent = r;
+        reasonsList.appendChild(li);
+      });
+    }
+  }
+
+  function showResult(data) {
+    $("#result").style.display = "";
+    setChips(data);
+    $("#expectedBox").textContent = (data.expected_fields || []).join("\n");
+    $("#keptBox").textContent     = (data.kept_fields || []).join("\n");
+    $("#missingBox").textContent  = (data.missing_expected || []).join("\n");
+    $("#extraBox").textContent    = (data.extra_vs_expected || []).join("\n");
+    $("#sampleIDBox").textContent = JSON.stringify(data.sample_substrings_if_ID || {}, null, 2);
+    $("#sampleFromInputBox").textContent = JSON.stringify(data.sample_substrings_from_input || {}, null, 2);
+    $("#rawBox").textContent      = JSON.stringify(data, null, 2);
+
+    // siker/hiba állapot frissítés a helyi mapben és a selectben
+    const f = $("#btwSelect").value;
+    if (f) {
+      const st = data.conforms ? "ok" : "bad";
+      lastStatusMap[f] = { status: st, ts: new Date().toISOString(), reasons: data.reasons || [] };
+      const opt = [...$("#btwSelect").options].find(o=>o.value===f);
+      if (opt) {
+        opt.textContent = statusIcon(st) + f;
+        opt.title = [lastStatusMap[f].ts, (lastStatusMap[f].reasons||[]).join(", ")].filter(Boolean).join(" — ");
+      }
+      applyChipStatus(st);
+    }
+  }
+
+  // ---- Toast + log nézet
+  function toast(msg, ok=true){
+    const el = $("#toast");
+    el.textContent = msg;
+    el.className = "toast " + (ok ? "ok" : "bad") + " show";
+    setTimeout(()=>{ el.classList.remove("show"); }, 2200);
+  }
+
+  async function refreshLog(limit=20){
+    try{
+      const r = await fetch(`/api/bartender/debug/diag_log_json?limit=${limit}`);
+      const data = await r.json();
+      const pretty = (data.items || []).map(x=>JSON.stringify(x,null,2)).join("\n");
+      $("#logBox").textContent = pretty || "(nincs bejegyzés)";
+    }catch(e){
+      $("#logBox").textContent = "Hiba a log olvasásakor.";
+    }
+  }
+  $("#showLogBtn")?.addEventListener("click", ()=>refreshLog(20));
+
+  // ---- Futtatás
+  async function runDiag() {
+    const template = $("#btwSelect").value;
+    if (!template) { alert("Válaszd ki a .btw fájlt!"); return; }
+
+    syncFromInputsToQuick();
+
+    const mode = getMode();
+    const fields = (mode === "list") ? parseList() : parseJsonObj();
+
+    $("#runBtn").disabled = true;
+    $("#hint").textContent = "kérés folyamatban…";
+    try {
+      const resp = await fetch("/api/bartender/debug/template_support", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ template, fields })
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.ok === false) { alert(data.error || "Hiba történt."); return; }
+      showResult(data);
+      toast("Ellenőrzés naplózva (JSONL).", true);
+      refreshLog(20);
+    } catch {
+      alert("Hálózati hiba.");
+      toast("Hiba a naplózásnál.", false);
+    }
+    finally { $("#runBtn").disabled = false; $("#hint").textContent = ""; }
+  }
+
+  // Gyors előtöltők
+  $("#prefillID").addEventListener("click", () => {
+    document.querySelector('input[name="mode"][value="list"]').checked = true; toggleMode();
+    $("#fieldList").value = "PN\nWO\nREV";
+    syncFromInputsToQuick();
+  });
+  $("#prefillFROM").addEventListener("click", () => {
+    document.querySelector('input[name="mode"][value="json"]').checked = true; toggleMode();
+    $("#fieldJson").value = JSON.stringify({FROM_UP:"J1", FROM_DOWN:"MOTOR 1"}, null, 2);
+    syncFromInputsToQuick();
+  });
+  $("#prefillTO").addEventListener("click", () => {
+    document.querySelector('input[name="mode"][value="json"]').checked = true; toggleMode();
+    $("#fieldJson").value = JSON.stringify({TO_UP:"J2", TO_DOWN:"CTRL UNIT"}, null, 2);
+    syncFromInputsToQuick();
+  });
+
+  $("#runBtn").addEventListener("click", runDiag);
+  $("#reloadBtn").addEventListener("click", loadBtwFiles);
+
+  // init
+  renderQuick();
+  loadBtwFiles();
+  toggleMode();
+</script>
+</body>
+</html>

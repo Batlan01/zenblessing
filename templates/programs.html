@@ -1,0 +1,174 @@
+{% extends 'hu/base.html' %}
+{% block title %}Raspberry Pi – Programok{% endblock %}
+{% set active = 'programs' %}
+
+{% block content %}
+<div class="card shadow-sm bg-dark text-light border-0 mb-4">
+  <div class="card-body d-flex align-items-center gap-2 flex-wrap">
+    <h2 class="h5 mb-0">Raspberry Pi program állapot</h2>
+    <div class="ms-auto small text-muted" id="status-area"></div>
+  </div>
+</div>
+
+<div class="card shadow-sm bg-dark-2 text-light border-0">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-dark table-hover mb-0 align-middle">
+        <thead class="table-dark sticky-top">
+          <tr>
+            <th style="width: 20%">Eszköz</th>
+            <th style="width: 15%">IP</th>
+            <th style="width: 20%">Program státusz</th>
+            <th style="width: 15%">Fájl</th>
+            <th>Akció</th>
+          </tr>
+        </thead>
+        <tbody id="tbl-body">
+          <tr><td colspan="5" class="text-center py-4 text-muted">Betöltés…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Progress sáv -->
+<div id="progress-wrap" class="position-fixed bottom-0 start-50 translate-middle-x mb-3" style="min-width: 480px; display:none;">
+  <div class="card shadow bg-dark text-light border-0">
+    <div class="card-body">
+      <div id="progress-text" class="small mb-2">Folyamatban…</div>
+      <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+        <div id="progress-bar" class="progress-bar" style="width: 0%"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .bg-dark-2{background:#2b2f34;}
+  .btn-slim{padding:.35rem .65rem;}
+</style>
+
+<script>
+// --- helper UI
+const els = {
+  body: document.getElementById('tbl-body'),
+  status: document.getElementById('status-area'),
+  pw: document.getElementById('progress-wrap'),
+  pb: document.getElementById('progress-bar'),
+  pt: document.getElementById('progress-text'),
+};
+const showProgress = (txt, pct=0) => {
+  els.pt.textContent = txt || '';
+  els.pb.style.width = `${pct}%`;
+  els.pw.style.display = 'block';
+};
+const hideProgress = () => { els.pw.style.display = 'none'; els.pb.style.width='0%'; els.pt.textContent=''; };
+const setStatus = t => els.status.textContent = t || '';
+
+// --- API hívások
+async function api(url, method='GET', json=null){
+  const res = await fetch(url, {
+    method,
+    headers: json ? {'Content-Type':'application/json'} : undefined,
+    body: json ? JSON.stringify(json) : undefined
+  });
+  if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+// --- táblázat betöltése
+async function loadDevices(){
+  try{
+    setStatus('Betöltés…');
+    const data = await api('/api/devices');
+    els.body.innerHTML = '';
+    if(!data || !data.length){
+      els.body.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-muted">Nincs adat.</td></tr>`;
+      setStatus('Találatok: 0');
+      return;
+    }
+    data.forEach(d=>{
+      const tr = document.createElement('tr');
+
+      const fileCell = (d.file_exists === 'Not Installed')
+        ? `<button class="btn btn-sm btn-outline-light btn-slim" onclick="downloadFile('${d.ip}')">Telepítés</button>`
+        : `<span class="badge text-bg-success">Installed</span>`;
+
+      tr.innerHTML = `
+        <td class="fw-semibold">${d.name || '-'}</td>
+        <td><code>${d.ip || '-'}</code></td>
+        <td>${d.program_status || '-'}</td>
+        <td>${fileCell}</td>
+        <td class="d-flex gap-2">
+          <button class="btn btn-sm btn-primary btn-slim" onclick="startProgram('${d.ip}')">
+            <i class="fa-solid fa-play me-1"></i>Start
+          </button>
+          <button class="btn btn-sm btn-warning btn-slim" onclick="stopProgram('${d.ip}')">
+            <i class="fa-solid fa-stop me-1"></i>Stop
+          </button>
+          <button class="btn btn-sm btn-outline-info btn-slim" onclick="updateProgram('${d.ip}')">
+            <i class="fa-solid fa-rotate me-1"></i>Update
+          </button>
+        </td>`;
+      els.body.appendChild(tr);
+    });
+    setStatus(`Találatok: ${data.length}`);
+  }catch(e){
+    console.error(e);
+    els.body.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-danger">Hiba a betöltésnél.</td></tr>`;
+    setStatus('Hiba.');
+  }
+}
+
+async function downloadFile(ip){
+  try{
+    showProgress(`Telepítés indul: ${ip}`, 10);
+    const r = await api('/api/download_file','POST',{ip});
+    showProgress(r.result || 'Kész', 100);
+  }catch(e){
+    showProgress('Telepítés sikertelen', 0);
+  }finally{
+    setTimeout(()=>{ hideProgress(); loadDevices(); }, 1000);
+  }
+}
+async function startProgram(ip){
+  try{
+    showProgress(`Program indítása: ${ip}`, 25);
+    await api('/api/start_program','POST',{ip});
+    showProgress('Fut', 100);
+  }catch(e){
+    showProgress('Indítás sikertelen', 0);
+  }finally{
+    setTimeout(()=>{ hideProgress(); loadDevices(); }, 800);
+  }
+}
+async function stopProgram(ip){
+  try{
+    showProgress(`Leállítás: ${ip}`, 25);
+    await api('/api/stop_program','POST',{ip});
+    showProgress('Leállítva', 100);
+  }catch(e){
+    showProgress('Leállítás sikertelen', 0);
+  }finally{
+    setTimeout(()=>{ hideProgress(); loadDevices(); }, 800);
+  }
+}
+async function updateProgram(ip){
+  if(!confirm(`${ip} – biztosan frissíted?`)) return;
+  try{
+    showProgress('Frissítés…', 30);
+    await api('/api/update_program','POST',{ip});
+    showProgress('Kész', 100);
+  }catch(e){
+    showProgress('Frissítés sikertelen', 0);
+  }finally{
+    setTimeout(()=>{ hideProgress(); loadDevices(); }, 1000);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  loadDevices();
+  setInterval(loadDevices, 10000);
+});
+</script>
+{% endblock %}

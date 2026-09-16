@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Raspberry Pi Monitoring{% endblock %}
+
+{% block content %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-messages">
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}" id="flash-message">
+          <span>{{ message }}</span>
+          <button class="close-btn" onclick="closeFlashMessage()">✖</button>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<div class="table-container">
+  <h3>State of devices</h3>
+  <table id="devices-table">
+    <thead>
+      <tr>
+        <th>Device Name</th>
+        <th>IP address</th>
+        <th>Device State</th>
+        <th>Temperature (*C)</th>
+        <th>Device Started</th>
+        <th>CPU</th>
+        <th>RAM</th>
+        <th>I/O statistics</th>
+        <th>SD card</th>
+        <th>Program state</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<script>
+  function closeFlashMessage() {
+    document.getElementById('flash-message').style.display = 'none';
+  }
+
+  function loadDeviceData() {
+    fetch('/api/devices')
+      .then(response => response.json())
+      .then(data => {
+        const tableBody = document.querySelector('#devices-table tbody');
+        tableBody.innerHTML = '';
+
+        data.forEach(device => {
+          const row = document.createElement('tr');
+
+          const tempClass = device.temperature > 80 ? 'critical' :
+                            device.temperature > 60 ? 'warning' : 'normal';
+
+          const cpuClass = device.cpu_usage > 90 ? 'critical' :
+                           device.cpu_usage > 70 ? 'warning' : 'normal';
+
+          row.innerHTML = `
+            <td>${device.name}</td>
+            <td>${device.ip}</td>
+            <td>${device.status}</td>
+            <td class="${tempClass}">${device.temperature}°C</td>
+            <td>${device.uptime}</td>
+            <td class="${cpuClass}">${device.cpu_usage}%</td>
+            <td>${device.ram_usage}%</td>
+            <td>${device.io_stats}</td>
+            <td>${device.sd_health}</td>
+            <td>${device.program_status}</td>
+          `;
+
+          tableBody.appendChild(row);
+        });
+      })
+      .catch(error => console.error("Hiba történt:", error));
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadDeviceData();
+    setInterval(loadDeviceData, 5000);
+  });
+</script>
+{% endblock %}

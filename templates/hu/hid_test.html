@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>HID/USB/Serial detektálás – Teszt</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <style>
+    :root{--bg:#0b1220;--panel:#101826;--txt:#e5e7eb;--muted:#9ca3af;--ok:#10b981;--bad:#ef4444;--warn:#f59e0b}
+    html,body{height:100%}
+    body{margin:0;background:linear-gradient(180deg,#0b1020,#0b1220);color:var(--txt);font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial}
+    .wrap{max-width:900px;margin:48px auto;padding:0 16px}
+    .card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:18px 20px;margin-bottom:16px}
+    .big{font-size:36px;font-weight:700;margin:0 0 6px}
+    .muted{color:var(--muted)}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace}
+    pre{white-space:pre-wrap}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="big">HID/USB/Serial detektálás – Teszt</div>
+      <div class="muted">HTTPS hiányában billentyűzet-helyettesítés (prefix/suffix) alapján azonosítunk.</div>
+    </div>
+
+    <div class="card d-flex align-items-center justify-content-between">
+      <div>
+        <strong>RFID/QR olvasó:</strong>
+        <span id="readerInfo" class="muted">{{ reader_label or "felismerés…" }}</span>
+      </div>
+      <div class="d-flex gap-2">
+        <button id="btnDetectReaders" type="button" class="btn btn-sm btn-outline-light">Eszköz kiválasztása</button>
+        <button id="btnClearCache"   type="button" class="btn btn-sm btn-outline-warning">Cache törlése</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <label class="form-label">Teszt input (ide „pötyög” a szkenner)</label>
+      <input id="qr" class="form-control" placeholder="R1- vagy R2- prefix… Enter zár"/>
+      <small class="muted">Prefix példa: <span class="mono">R1-12345</span> / <span class="mono">R2-12345</span></small>
+    </div>
+
+    <div class="card">
+      <div class="mb-2"><strong>Eseménynapló</strong></div>
+      <pre id="log" class="mono muted"></pre>
+    </div>
+  </div>
+
+  <script>
+    // --- szerver endpoint ---
+    const ENDPOINTS = { reader: "{{ url_for('scan.scan_reader_info', lang=lang) }}" };
+
+    const $ = s => document.querySelector(s);
+    const infoEl = () => $("#readerInfo");
+    const log = (m)=>{ const el=$("#log"); el.textContent = `[${new Date().toLocaleTimeString()}] ${m}\n` + el.textContent; };
+
+    // --- billentyűzet-mód minták (ugyanaz, mint a szerveren) ---
+    const KB_PREFIXES = [
+      {prefix:"R1-",  label:"Reader A (R1-)"},
+      {prefix:"R2-",  label:"Reader B (R2-)"},
+      {prefix:"\u0002", label:"Reader A (STX)"},
+    ];
+    const KB_SUFFIXES = [
+      {suffix:"\r\n", label:"CRLF"},
+      {suffix:"\r",   label:"CR"},
+      {suffix:"\n",   label:"LF"},
+      {suffix:"\t",   label:"TAB"},
+      {suffix:"\u0003",label:"ETX"},
+    ];
+
+    function makeLabel({source, label}){ return { source, label, prod: label }; }
+    function show(r){ infoEl().textContent = r.label; log("Detektálva: " + r.label); cacheSet(r); send(r); }
+    function cacheSet(r){ try{ localStorage.setItem("reader_detect", JSON.stringify(r)); }catch(e){} }
+    function cacheGet(){ try{ return JSON.parse(localStorage.getItem("reader_detect")||"null"); }catch(e){ return null; } }
+    function cacheClear(){ try{ localStorage.removeItem("reader_detect"); }catch(e){} }
+
+    async function send(r){
+      try{
+        await fetch(ENDPOINTS.reader, {method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({ transport:r.source, name:r.prod, label:r.label })});
+        log("Szervernek elküldve.");
+      }catch(e){ log("Küldés hiba: "+e); }
+    }
+
+    // --- billentyűzet heurisztika ---
+    function attachKeyboard(){
+      const el = $("#qr"); if (!el) return;
+      let last=0, buf="", t=null, locked=false;
+      function finalize(reason){
+        if (!buf || locked) return;
+
+        for (const p of KB_PREFIXES){
+          if (buf.startsWith(p.prefix)){ show(makeLabel({source:"kb", label:p.label})); locked=true; buf=""; return; }
+        }
+        for (const s of KB_SUFFIXES){
+          if (buf.endsWith(s.suffix)){ show(makeLabel({source:"kb", label:`KB (${s.label}) – suffix`})); locked=true; buf=""; return; }
+        }
+        show(makeLabel({source:"kb", label:"KB (heurisztika)"})); locked=true; buf="";
+      }
+      el.addEventListener("keydown",(e)=>{
+        if (locked) return;
+        const now=performance.now(), dt=now-last; last=now;
+        if (e.key.length===1 || e.key==="Enter" || e.key==="Tab"){
+          buf += (e.key==="Enter" ? "\n" : e.key==="Tab" ? "\t" : e.key);
+          clearTimeout(t); t=setTimeout(()=>finalize(dt<18?"fast":"idle"), dt<18?60:180);
+        }
+      }, true);
+    }
+
+    // --- kézi választó gomb (HTTPS esetére – ha később lesz) ---
+    async function manualRequest(){
+      alert("HTTPS nélkül a kézi eszközválasztó nem használható. Billentyűzet-mód heurisztika aktív.");
+    }
+
+    // init
+    window.addEventListener("load", ()=>{
+      $("#btnDetectReaders").addEventListener("click", manualRequest);
+      $("#btnClearCache").addEventListener("click", ()=>{ cacheClear(); infoEl().textContent="cache törölve"; log("Cache törölve."); });
+      const c = cacheGet(); if (c){ infoEl().textContent = c.label; log("Cache-ből: "+c.label); }
+      $("#qr").focus();
+      attachKeyboard();
+    });
+  </script>
+</body>
+</html>

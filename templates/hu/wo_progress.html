@@ -1,0 +1,750 @@
+{% extends "hu/base.html" %}
+
+{% block title %}WO Folyamat{% endblock %}
+{% set active = 'wo_progress' %}
+
+{% block page_title %}WO Folyamat oldal{% endblock %}
+{% block page_header_right %}
+  <a href="{{ url_for('progress.wo_progress', lang='hu') }}">
+    <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar" width="32" height="20">
+  </a>
+  <a class="ms-2" href="{{ url_for('progress.wo_progress', lang='sk') }}">
+    <img src="{{ url_for('static', filename='flags/sk.png') }}" alt="Slovenský" width="32" height="20">
+  </a>
+{% endblock %}
+
+{% block content %}
+
+<style>
+  /* --- Világosabb, kontrasztosabb kártyák --- */
+  .wo-flow-card,
+  .wo-route-card {
+    border-radius: .9rem;
+    border: 1px solid rgba(148, 163, 184, 0.7);
+    padding: 1rem;
+    background: #020617; /* szinte fekete, nincs átütő háttér */
+    font-size: 0.875rem;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.7);
+    color: #f9fafb;      /* ALAP SZÖVEGSZÍN: FEHÉR */
+  }
+
+  /* minden szöveg legyen világos ezeken belül */
+  .wo-flow-card *,
+  .wo-route-card * {
+    color: #f9fafb;
+  }
+
+  .wo-flow-card .text-muted,
+  .wo-route-card .text-muted {
+    color: #e5e7eb !important;
+  }
+
+  .wo-flow-header .small,
+  .wo-route-header .small {
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+
+  /* --- Schematic flow --- */
+  .wo-flow-steps {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: .75rem;
+    overflow-x: auto;
+    padding-bottom: .5rem;
+  }
+
+  .wo-flow-step-group {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+  }
+
+  .wo-step {
+    text-align: center;
+    min-width: 80px;
+  }
+
+  .wo-step-circle {
+    width: 3.2rem;
+    height: 3.2rem;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 600;
+    border: 2px dashed #e5e7eb; /* világos szürke */
+    background: #020617;
+    color: #f9fafb;
+    white-space: nowrap;
+  }
+
+  .wo-step-qty {
+    margin-top: .25rem;
+    font-size: 0.75rem;
+    color: #f9fafb;
+  }
+
+  .wo-step-connector {
+    width: 34px;
+    height: 2px;
+    border-radius: 999px;
+    background: #9ca3af;
+    flex-shrink: 0;
+  }
+
+  .wo-step--done .wo-step-circle {
+    border-style: solid;
+    border-color: #22c55e;
+    background: rgba(22, 163, 74, 0.25);
+    color: #bbf7d0;
+  }
+
+  .wo-step--inprogress .wo-step-circle {
+    border-style: solid;
+    border-color: #f97316;
+    background: rgba(245, 158, 11, 0.22);
+    color: #fed7aa;
+  }
+
+  .wo-step--waiting .wo-step-circle,
+  .wo-step--not-started .wo-step-circle {
+    border-style: dashed;
+    border-color: #e5e7eb;
+    opacity: 0.9;
+  }
+
+  .wo-flow-empty {
+    font-size: 0.8rem;
+    color: #f9fafb;
+  }
+
+  /* --- Részletes útvonal / timeline --- */
+  .wo-route-timeline {
+    position: relative;
+    margin-top: .75rem;
+    padding-left: 1.2rem;
+  }
+
+  .wo-route-timeline::before {
+    content: "";
+    position: absolute;
+    left: 7px;
+    top: 4px;
+    bottom: 4px;
+    width: 2px;
+    background: #9ca3af;
+    border-radius: 999px;
+    opacity: 0.9;
+  }
+
+  .wo-route-item {
+    position: relative;
+    margin-bottom: .85rem;
+    padding-left: .9rem;
+  }
+
+  .wo-route-dot {
+    position: absolute;
+    left: -2px;
+    top: 4px;
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    background: #38bdf8;
+    border: 2px solid #0b1120;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.35);
+  }
+
+  .wo-route-item:last-child {
+    margin-bottom: 0;
+  }
+
+  .wo-route-meta {
+    font-size: 0.75rem;
+  }
+
+  .wo-route-main {
+    font-size: 0.8rem;
+  }
+
+  .wo-route-empty {
+    font-size: 0.8rem;
+  }
+
+  .wo-route-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    background: #020617;
+    border: 1px solid rgba(148, 163, 184, 0.6);
+  }
+
+  @media (max-width: 768px) {
+    .wo-flow-card,
+    .wo-route-card {
+      padding: .8rem;
+    }
+  }
+</style>
+
+<div class="card card--dim p-3">
+  <!-- Szűrő + WO dropdown + kereső -->
+  <div class="d-flex flex-wrap gap-3 align-items-end mb-3">
+    <div>
+      <label for="startDate" class="form-label">Kezdő dátum</label>
+      <input id="startDate" type="date" class="form-control">
+    </div>
+    <div>
+      <label for="endDate" class="form-label">Végső dátum</label>
+      <input id="endDate" type="date" class="form-control">
+    </div>
+    <div>
+      <button id="filterBtn" class="btn btn-primary mt-2">Szűrés</button>
+    </div>
+    <div class="d-flex gap-2 mt-2">
+      <button id="btn-export-range" class="btn btn-outline-secondary">⬇ Export (tartomány)</button>
+      <button id="btn-export-month" class="btn btn-outline-secondary">⬇ Havi export</button>
+    </div>
+
+    <!-- WO kiválasztás + keresés -->
+    <div class="ms-auto">
+      <label class="form-label">WO kiválasztása / keresés</label>
+      <div class="d-flex gap-2 mb-1">
+        <select id="woSelect" class="form-select form-select-sm" style="min-width: 120px;">
+          <option value="">Válassz WO-t...</option>
+        </select>
+        <div class="input-group input-group-sm" style="min-width: 190px;">
+          <input id="woSearch" type="text" class="form-control" placeholder="WO keresés...">
+          <button id="woSearchBtn" class="btn btn-outline-light">Ugrás</button>
+        </div>
+      </div>
+      <div class="form-text text-muted small">
+        Választhatsz a listából, vagy írd be a WO-t (részleges egyezés is mehet).
+      </div>
+    </div>
+  </div>
+
+  <hr class="text-light">
+
+  <!-- Loader a táblázathoz -->
+  <div id="wo_progress-loader" class="text-center d-none">
+    <div class="spinner-border spinner-border-sm text-light" role="status" aria-label="Betöltés…"></div>
+    <span class="ms-2 text-light">Betöltés…</span>
+  </div>
+
+  <!-- Táblázat -->
+  <div class="table-responsive">
+    <table id="wo_progress" class="table table-striped table-hover align-middle">
+      <thead>
+        <tr>
+          <th>WO Szám</th>
+          <th>WO Mennyiség</th>
+          <th>STANDARD TIME</th>
+          <th>PROD</th>
+          <th>CRIMP</th>
+          <th>SOLD</th>
+          <th>MOLD</th>
+          <th>FIAS</th>   <!-- ÚJ -->
+          <th>TEST</th>
+          <th>QC</th>
+          <th>SHIP</th>
+          <th>WIPRECIEVE</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <!-- Lapozás -->
+  <div class="d-flex justify-content-between align-items-center mt-2">
+    <div class="small text-light" id="table-info"></div>
+    <div>
+      <button id="prevPage" class="btn-pagination me-2" disabled>Előző</button>
+      <button id="nextPage" class="btn-pagination">Következő</button>
+    </div>
+  </div>
+
+  <!-- Schematic / vizuális folyamat nézet -->
+  <div class="mt-4">
+    <h5 class="mb-2">Vizuális folyamat ábra</h5>
+    <p id="wo-schematic-hint" class="wo-flow-empty">
+      Válassz WO-t a listából, keress rá a keresőben, vagy kattints egy sorra a táblázatban.
+    </p>
+    <div id="wo-schematic" class="mt-2 d-none"></div>
+  </div>
+
+  <!-- Részletes útvonal / ping-pong timeline -->
+  <div class="mt-4">
+    <h5 class="mb-2">Részletes útvonal (ping-pong)</h5>
+    <p id="wo-route-hint" class="wo-route-empty">
+      A kiválasztott WO teljes útvonala, időrendben: honnan hova került, mekkora mennyiség, melyik eszközön / operátorral.
+    </p>
+
+    <div id="wo-route-loader" class="text-center d-none">
+      <div class="spinner-border spinner-border-sm text-light" role="status" aria-label="Betöltés…"></div>
+      <span class="ms-2 text-light">Útvonal betöltése…</span>
+    </div>
+
+    <div id="wo-route-error" class="text-danger small d-none"></div>
+    <div id="wo-route" class="mt-2 d-none"></div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const els = {
+    start:  document.getElementById('startDate'),
+    end:    document.getElementById('endDate'),
+    filter: document.getElementById('filterBtn'),
+    loader: document.getElementById('wo_progress-loader'),
+    tbody:  document.querySelector('#wo_progress tbody'),
+    prev:   document.getElementById('prevPage'),
+    next:   document.getElementById('nextPage'),
+    info:   document.getElementById('table-info')
+  };
+
+  const schematicEl      = document.getElementById('wo-schematic');
+  const schematicHintEl  = document.getElementById('wo-schematic-hint');
+
+  const woSelect         = document.getElementById('woSelect');
+  const woSearchInput    = document.getElementById('woSearch');
+  const woSearchBtn      = document.getElementById('woSearchBtn');
+
+  const routeEl          = document.getElementById('wo-route');
+  const routeHintEl      = document.getElementById('wo-route-hint');
+  const routeLoaderEl    = document.getElementById('wo-route-loader');
+  const routeErrorEl     = document.getElementById('wo-route-error');
+
+  for (const [k,v] of Object.entries(els)) {
+    if (!v) console.warn(`[WO] Hiányzó elem: ${k}`);
+  }
+
+  let currentPage = 1;
+  const limit = 50;
+  let selectedRow = null;
+  let currentWO = null;
+
+  // ---- FIAS HOZZÁADÁSA A LÉPÉSEKHEZ ----
+  const PROCESS_STEPS = ["PROD","CRIMP","SOLD","MOLD","FIAS","TEST","QC","SHIP","VYPRISIV"];
+  // táblázat indexek:
+  // 0 WO, 1 total_qty, 2 st_time,
+  // 3 PROD, 4 CRIMP, 5 SOLD, 6 MOLD, 7 FIAS, 8 TEST, 9 QC, 10 SHIP, 11 VYPRISIV
+  const STEP_INDEX = {
+    PROD: 3,
+    CRIMP: 4,
+    SOLD: 5,
+    MOLD: 6,
+    FIAS: 7,
+    TEST: 8,
+    QC: 9,
+    SHIP: 10,
+    VYPRISIV: 11
+  };
+
+  const setLoading = (on) => els.loader && els.loader.classList.toggle('d-none', !on);
+
+  const setPager = (page, totalPages, totalRecords) => {
+    if (els.prev) els.prev.disabled = page <= 1;
+    if (els.next) els.next.disabled = page >= totalPages;
+    if (els.info) els.info.textContent = `Találatok: ${totalRecords} | Oldal: ${page}/${totalPages}`;
+  };
+
+  const clearSchematic = () => {
+    if (!schematicEl) return;
+    schematicEl.classList.add('d-none');
+    schematicEl.innerHTML = '';
+    schematicHintEl && schematicHintEl.classList.remove('d-none');
+  };
+
+  const clearRoute = () => {
+    if (!routeEl) return;
+    routeEl.classList.add('d-none');
+    routeEl.innerHTML = '';
+    if (routeErrorEl) {
+      routeErrorEl.textContent = '';
+      routeErrorEl.classList.add('d-none');
+    }
+    routeHintEl && routeHintEl.classList.remove('d-none');
+  };
+
+  const setRouteLoading = (on) => routeLoaderEl && routeLoaderEl.classList.toggle('d-none', !on);
+
+  const renderSchematicFromRow = (tr) => {
+    if (!schematicEl || !tr) return;
+
+    const wo = tr.cells[0]?.textContent.trim() ?? '';
+    const totalQty = parseInt((tr.cells[1]?.textContent || '0').replace(/\s+/g, ''), 10) || 0;
+
+    const stepsData = PROCESS_STEPS.map(step => {
+      const idx = STEP_INDEX[step];
+      const cell = (idx != null) ? tr.cells[idx] : null;
+      const raw = (cell?.textContent || '0').trim();
+      const numeric = parseInt(raw.replace(/[^\d-]/g, ''), 10);
+      const qty = Number.isNaN(numeric) ? 0 : numeric;
+      return { step, qty };
+    });
+
+    let hasStarted = false;
+    let lastActive = null;
+
+    const withStatus = stepsData.map((s) => {
+      let status = 'not-started';
+
+      if (s.qty > 0) {
+        hasStarted = true;
+        if (totalQty > 0 && s.qty >= totalQty) status = 'done';
+        else status = 'inprogress';
+        lastActive = s;
+      } else if (hasStarted) {
+        status = 'waiting';
+      }
+
+      return Object.assign({}, s, { status });
+    });
+
+    const currentText = lastActive
+      ? `${lastActive.step} (${lastActive.qty} db)`
+      : 'még nem indult el a folyamat';
+
+    schematicEl.innerHTML = `
+      <div class="wo-flow-card">
+        <div class="wo-flow-header d-flex justify-content-between flex-wrap mb-2">
+          <div class="me-3 mb-2 mb-sm-0">
+            <div class="text-muted small">WO</div>
+            <div class="fw-semibold">${wo}</div>
+          </div>
+          <div class="me-3 mb-2 mb-sm-0">
+            <div class="text-muted small">Össz mennyiség</div>
+            <div class="fw-semibold">${totalQty} db</div>
+          </div>
+          <div class="mb-2 mb-sm-0">
+            <div class="text-muted small">Jelenlegi állapot</div>
+            <div class="fw-semibold">${currentText}</div>
+          </div>
+        </div>
+        <div class="wo-flow-steps">
+          ${withStatus.map((s, idx) => `
+            <div class="wo-flow-step-group">
+              <div class="wo-step wo-step--${s.status}">
+                <div class="wo-step-circle">${s.step}</div>
+                <div class="wo-step-qty">${s.qty || 0} db</div>
+              </div>
+              ${idx < withStatus.length - 1 ? '<div class="wo-step-connector"></div>' : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+    schematicEl.classList.remove('d-none');
+    schematicHintEl && schematicHintEl.classList.add('d-none');
+  };
+
+  const renderRoute = (payload) => {
+    if (!routeEl) return;
+
+    const events = payload?.events || [];
+    const wo     = payload?.wo || currentWO || '';
+    const pn     = payload?.pn || '';
+
+    if (!events.length) {
+      routeEl.innerHTML = `
+        <div class="wo-route-card">
+          <div class="wo-route-empty">
+            Nincs részletes útvonal adat ehhez a WO-hoz (${wo || 'ismeretlen WO'}).
+          </div>
+        </div>
+      `;
+      routeEl.classList.remove('d-none');
+      routeHintEl && routeHintEl.classList.add('d-none');
+      return;
+    }
+
+    const headerHtml = `
+      <div class="wo-route-header d-flex justify-content-between flex-wrap mb-2">
+        <div class="me-3 mb-2 mb-sm-0">
+          <div class="text-muted small">WO</div>
+          <div class="fw-semibold">${wo}</div>
+        </div>
+        <div class="me-3 mb-2 mb-sm-0">
+          <div class="text-muted small">PN</div>
+          <div class="fw-semibold">${pn || '-'}</div>
+        </div>
+        <div class="mb-2 mb-sm-0">
+          <span class="wo-route-badge">Események: ${events.length} db</span>
+        </div>
+      </div>
+    `;
+
+    const bodyHtml = `
+      <div class="wo-route-timeline">
+        ${events.map(ev => {
+          const time   = ev.time || '';
+          const from   = ev.from_step || ev.from || '-';
+          const to     = ev.to_step   || ev.to   || '-';
+          const qty    = ev.qty != null ? ev.qty : '';
+          const status = ev.status || '';
+          const pnEv   = ev.pn || '';
+
+          const metaParts = [];
+          if (time)   metaParts.push(time);
+          if (status) metaParts.push(status);
+          if (pnEv && pnEv !== pn) metaParts.push(`PN: ${pnEv}`);
+
+          return `
+            <div class="wo-route-item">
+              <div class="wo-route-dot"></div>
+              <div class="wo-route-main fw-semibold">
+                ${from} <span class="text-muted">→</span> ${to}
+                ${qty !== '' ? `<span class="text-muted ms-1">(${qty} db)</span>` : ''}
+              </div>
+              ${metaParts.length ? `
+                <div class="wo-route-meta">
+                  ${metaParts.join(' • ')}
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    routeEl.innerHTML = `
+      <div class="wo-route-card">
+        ${headerHtml}
+        ${bodyHtml}
+      </div>
+    `;
+    routeEl.classList.remove('d-none');
+    routeHintEl && routeHintEl.classList.add('d-none');
+  };
+
+  const loadRouteForWO = async (wo) => {
+    if (!wo) return;
+    clearRoute();
+    setRouteLoading(true);
+    try {
+      const url = `/api/wo_route_api?wo=${encodeURIComponent(wo)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      renderRoute(data);
+    } catch (err) {
+      console.error('Útvonal betöltési hiba:', err);
+      if (routeErrorEl) {
+        routeErrorEl.textContent = 'Hiba történt a részletes útvonal betöltésekor.';
+        routeErrorEl.classList.remove('d-none');
+      }
+    } finally {
+      setRouteLoading(false);
+    }
+  };
+
+  const selectRow = (tr) => {
+    if (!tr) return;
+    if (selectedRow) selectedRow.classList.remove('table-active');
+    selectedRow = tr;
+    selectedRow.classList.add('table-active');
+
+    const wo = tr.cells[0]?.textContent.trim() ?? '';
+    currentWO = wo;
+
+    if (woSelect && wo) {
+      const opt = Array.from(woSelect.options).find(o => o.value === wo);
+      if (opt) woSelect.value = wo;
+    }
+
+    renderSchematicFromRow(selectedRow);
+    loadRouteForWO(wo);
+  };
+
+  const focusRowForWO = (wo) => {
+    if (!els.tbody) return null;
+    const rows = Array.from(els.tbody.querySelectorAll('tr'));
+    const match = rows.find(r => r.cells[0] && r.cells[0].textContent.trim() === wo);
+    if (match) {
+      selectRow(match);
+      match.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    return match;
+  };
+
+  const handleWOSearch = () => {
+    const termRaw = woSearchInput?.value.trim();
+    if (!termRaw) return;
+    const term = termRaw.toUpperCase();
+
+    if (!woSelect) return;
+    const options = Array.from(woSelect.options).slice(1); // skip placeholder
+
+    let foundValue = null;
+
+    // először exact match
+    const exact = options.find(o => o.value.toUpperCase() === term);
+    if (exact) {
+      foundValue = exact.value;
+    } else {
+      // aztán "contains"
+      const partial = options.find(o => o.value.toUpperCase().includes(term));
+      if (partial) foundValue = partial.value;
+    }
+
+    if (foundValue) {
+      woSelect.value = foundValue;
+      woSelect.dispatchEvent(new Event('change'));
+      if (routeErrorEl) {
+        routeErrorEl.textContent = '';
+        routeErrorEl.classList.add('d-none');
+      }
+    } else {
+      if (routeErrorEl) {
+        routeErrorEl.textContent = 'Nincs ilyen WO az aktuális tartományban.';
+        routeErrorEl.classList.remove('d-none');
+      }
+    }
+  };
+
+  async function fetchData(page = 1) {
+    const startDate = els.start?.value;
+    const endDate   = els.end?.value;
+    if (!startDate || !endDate) {
+      console.error('Hiányzó dátumok!');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const url = `/api/wo_progress_api?page=${page}&limit=${limit}` +
+                  `&start_date=${encodeURIComponent(startDate)}` +
+                  `&end_date=${encodeURIComponent(endDate)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      if (els.tbody) {
+        els.tbody.innerHTML = '';
+        const rows = data?.data ?? [];
+
+        // dropdown feltöltés
+        if (woSelect) {
+          const uniqueWOs = [...new Set(rows.map(r => r.WO))];
+          woSelect.innerHTML = '<option value="">Válassz WO-t...</option>' +
+            uniqueWOs.map(wo => `<option value="${wo}">${wo}</option>`).join('');
+        }
+
+        if (rows.length === 0) {
+          els.tbody.innerHTML = `<tr><td colspan="12" class="text-center text-muted">Nincs adat.</td></tr>`;
+          clearSchematic();
+          clearRoute();
+        } else {
+          rows.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${item.WO}</td>
+              <td>${item.total_qty}</td>
+              <td>${item.st_time ?? '0'}</td>
+              <td>${item.PROD ?? 0}</td>
+              <td>${item.CRIMP ?? 0}</td>
+              <td>${item.SOLD ?? 0}</td>
+              <td>${item.MOLD ?? 0}</td>
+              <td>${item.FIAS ?? 0}</td>
+              <td>${item.TEST ?? 0}</td>
+              <td>${item.QC ?? 0}</td>
+              <td>${item.SHIP ?? 0}</td>
+              <td>${item.VYPRISIV ?? 0}</td>
+            `;
+            els.tbody.appendChild(tr);
+          });
+
+          const firstRow = els.tbody.querySelector('tr');
+          if (firstRow && !firstRow.querySelector('td[colspan]')) {
+            selectRow(firstRow);
+          } else {
+            clearSchematic();
+            clearRoute();
+          }
+        }
+      }
+
+      currentPage = data?.page ?? page;
+      const totalPages   = data?.total_pages ?? currentPage;
+      const totalRecords = data?.total_records ?? (data?.data?.length ?? 0);
+      setPager(currentPage, totalPages, totalRecords);
+    } catch (err) {
+      console.error('Betöltési hiba:', err);
+      if (els.tbody) {
+        els.tbody.innerHTML = `<tr><td colspan="12" class="text-center text-danger">Hiba történt az adatok betöltésekor.</td></tr>`;
+      }
+      clearSchematic();
+      clearRoute();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // események
+  els.filter?.addEventListener('click', () => fetchData(1));
+  els.prev?.addEventListener('click', () => { if (currentPage > 1) fetchData(currentPage - 1); });
+  els.next?.addEventListener('click', () => { fetchData(currentPage + 1); });
+
+  document.getElementById('btn-export-range')?.addEventListener('click', () => {
+    const s = els.start?.value;
+    const e = els.end?.value;
+    if (!s || !e) return alert('Válassz dátum tartományt!');
+    window.location.href = `/api/wo_progress_export?start_date=${encodeURIComponent(s)}&end_date=${encodeURIComponent(e)}`;
+  });
+
+  document.getElementById('btn-export-month')?.addEventListener('click', () => {
+    const s = els.start?.value;
+    if (!s) return alert('Válassz kezdő dátumot!');
+    const [year, month] = s.split('-');
+    window.location.href = `/api/wo_progress_export_month?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`;
+  });
+
+  if (els.tbody) {
+    els.tbody.addEventListener('click', (ev) => {
+      const tr = ev.target.closest('tr');
+      if (!tr || tr.querySelector('td[colspan]')) return;
+      selectRow(tr);
+    });
+  }
+
+  woSelect?.addEventListener('change', () => {
+    const wo = woSelect.value;
+    currentWO = wo || null;
+
+    if (!wo) {
+      clearSchematic();
+      clearRoute();
+      return;
+    }
+
+    const found = focusRowForWO(wo);
+    if (!found) {
+      clearSchematic();
+      loadRouteForWO(wo);
+    }
+  });
+
+  woSearchBtn?.addEventListener('click', handleWOSearch);
+  woSearchInput?.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      handleWOSearch();
+    }
+  });
+
+  // alap dátumok + első lekérés
+  const today = new Date();
+  const lastWeek = new Date(); lastWeek.setDate(today.getDate() - 7);
+  els.start && (els.start.value = lastWeek.toISOString().split('T')[0]);
+  els.end   && (els.end.value   = today.toISOString().split('T')[0]);
+
+  fetchData(1);
+});
+</script>
+
+{% endblock %}

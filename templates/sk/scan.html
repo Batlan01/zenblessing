@@ -1,0 +1,1333 @@
+{% extends lang ~ '/base.html' %}
+{% set active = 'scan' %}
+
+{% block title %}QR skenovanie – Web{% endblock %}
+{% block page_title %}QR skenovanie{% endblock %}
+{% block page_header_right %}
+  <span id="liveClock" class="clock-pill me-2" title="">
+    <i class="bi bi-clock me-1"></i><span data-clock>--:--:--</span>
+  </span>
+
+  <a href="{{ url_for('scan.scan_page', lang='hu') }}">
+    <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar" width="32" height="20">
+  </a>
+  <a class="ms-2" href="{{ url_for('scan.scan_page', lang='sk') }}">
+    <img src="{{ url_for('static', filename='flags/sk.png') }}" alt="Slovenský" width="32" height="20">
+  </a>
+{% endblock %}
+
+{% block extra_head %}
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
+<style>
+/* ===== SAP-printout look: fehér, fekete keretek, monospace, nincs dísz ===== */
+.scan-sap{
+  --sap-border:#000;
+  --sap-bad:#b00000;
+  --sap-ok:#006400;
+  --sap-warn:#8a5a00;
+  font-family:"Courier New", Courier, monospace;
+  color:#000;
+  background:#fff;
+}
+.scan-sap .page-wrap{
+  max-width:none;
+  margin:0;
+  padding:4px 8px 6px;
+}
+.clock-pill{
+  display:inline-flex; align-items:center; gap:.35rem;
+  padding:.25rem .6rem; border:1px solid #e5e7eb; border-radius:999px;
+  background:#fff; font-weight:600; font-variant-numeric: tabular-nums;
+}
+
+/* háttérképek kikapcsolása ezen az oldalon */
+.scan-sap main.content,
+.scan-sap main.content::before,
+.scan-sap main.content::after{
+  background:#fff !important;
+  box-shadow:none !important;
+}
+
+/* ---- Közös SAP elemek ---- */
+.scan-sap .sap-box{
+  border:1px solid var(--sap-border);
+  background:#fff;
+  padding:10px 12px;
+}
+.scan-sap .sap-label{
+  font-size:.8rem; font-weight:700; text-transform:uppercase;
+  letter-spacing:.06em; margin-bottom:4px;
+}
+.scan-sap .inp{
+  height:52px; font-size:1.1rem;
+  border:1px solid var(--sap-border); border-radius:0;
+  font-family:inherit;
+  box-shadow:none;
+}
+.scan-sap .inp:focus{ border-color:var(--sap-border); box-shadow:inset 0 0 0 1px #000; }
+.scan-sap .btn-sap{
+  height:52px; border:1px solid var(--sap-border); border-radius:0;
+  background:#e8e8e8; color:#000; font-weight:700; font-family:inherit;
+}
+.scan-sap .btn-sap:hover{ background:#d8d8d8; }
+.scan-sap .btn-sap.sm{ height:auto; padding:2px 10px; font-size:.85rem; }
+.scan-sap .live{ min-height:22px; font-size:.95rem; }
+.scan-sap .live.ok{ color:var(--sap-ok); }
+.scan-sap .live.warn{ color:var(--sap-warn); }
+.scan-sap .live.bad{ color:var(--sap-bad); }
+
+/* ---- Státusz sor ---- */
+.scan-sap .status-row{
+  display:flex; align-items:stretch; gap:0;
+  border:1px solid var(--sap-border); border-top:0;
+  font-size:.95rem;
+  overflow:hidden;
+}
+.scan-sap .status-cell{
+  padding:3px 10px;
+  border-right:1px solid var(--sap-border);
+  white-space:nowrap;
+  display:flex; align-items:center; gap:6px;
+}
+.scan-sap .status-cell .k{
+  font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+}
+.scan-sap .status-cell .v{ font-weight:700; }
+/* a státusz cellák és a logout gomb közti kitöltő, hogy a gomb jobbra maradjon */
+.scan-sap .status-spacer{ flex:1; }
+/* info / üzenet sor – külön sorban a cellák ALATT, teljes szélességben,
+   fix ~2 sor magasság (a rács magassága így stabil marad, nincs görgetés) */
+.scan-sap .status-msg{
+  border:1px solid var(--sap-border); border-top:0;
+  padding:2px 10px;
+  font-size:.95rem; line-height:1.25;
+  height:2.7em;
+  display:flex; align-items:center;
+  overflow:hidden; white-space:normal; word-break:break-word;
+}
+.scan-sap .status-msg.bad{ color:var(--sap-bad); font-weight:700; }
+.scan-sap .status-msg.ok{ color:var(--sap-ok); }
+.scan-sap .status-msg.warn{ color:var(--sap-warn); font-weight:700; }
+.scan-sap .status-actions{
+  padding:2px 6px; display:flex; align-items:center;
+  border-left:1px solid var(--sap-border);
+}
+
+/* ---- QR rács: a maradék teljes hely, görgetés nélkül ---- */
+.scan-sap .qr-grid{
+  box-sizing:border-box;
+  display:grid;
+  gap:4px;
+  justify-content:center;
+  align-content:center;
+  border:1px solid var(--sap-border); border-top:0;
+  padding:4px;
+  overflow:hidden;
+  background:#fff;
+}
+.scan-sap .qr-cell{
+  width:var(--qr-size, 90px);
+  display:flex; flex-direction:column; align-items:center;
+  background:#fff;
+  outline:2px solid transparent;   /* keret helyfoglalás nélkül (outline nem tolja a layoutot) */
+  outline-offset:-1px;
+}
+/* a most beszkennelt kód visszajelzése – csak vizuális, DB-be nem íródik */
+.scan-sap .qr-cell.scanned{
+  outline:3px solid #0f9d58;
+  background:#eefaf0;
+}
+.scan-sap .qr-cell svg{
+  width:var(--qr-size, 90px);
+  height:var(--qr-size, 90px);
+  display:block;
+}
+.scan-sap .qr-cell .qr-lbl{
+  width:100%;
+  text-align:center;
+  overflow:hidden;
+}
+.scan-sap .qr-cell .qr-lbl .l1{
+  font-size:10px; line-height:12px; height:12px; font-weight:700;
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+}
+.scan-sap .qr-cell .qr-lbl .l2{
+  font-size:9px; line-height:11px; height:11px; color:#333;
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+}
+.scan-sap .qr-cell .qr-lbl .l2.master{ color:#000; font-weight:700; }
+.scan-sap .qr-cell .qr-lbl .l1 .pc{ color:#b00000; }
+
+/* ===== Modalok (SAP stílus: fehér, fekete keret, szögletes) ===== */
+.sap-modal-overlay{
+  display:none; position:fixed; inset:0; z-index:9999;
+  background:rgba(0,0,0,.45); align-items:center; justify-content:center;
+}
+.sap-modal-overlay.active{ display:flex; }
+.sap-modal{
+  background:#fff; border:2px solid #000; border-radius:0;
+  padding:24px 28px;
+  min-width:360px; max-width:520px; width:90%;
+  font-family:"Courier New", Courier, monospace; color:#000;
+  display:flex; flex-direction:column; gap:14px;
+}
+.sap-modal .m-title{ font-size:1.05rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+.sap-modal .m-msg{ font-size:.95rem; white-space:pre-wrap; }
+.sap-modal .m-big{ font-size:2.2rem; font-weight:800; text-align:center; letter-spacing:.03em; }
+.sap-modal input.qty-input{
+  height:52px; font-size:1.3rem; font-weight:700;
+  border:1px solid #000; border-radius:0;
+  padding:0 14px; outline:none; width:100%;
+  text-align:center; letter-spacing:.05em;
+  font-family:inherit; box-sizing:border-box;
+}
+.sap-modal input.qty-input:focus{ box-shadow:inset 0 0 0 1px #000; }
+.sap-modal .m-hint{ font-size:.82rem; text-align:center; color:#444; }
+.sap-modal .m-btns{ display:flex; gap:10px; }
+.sap-modal .m-btns button{
+  flex:1; height:50px; border:1px solid #000; border-radius:0;
+  font-size:1rem; font-weight:700; cursor:pointer;
+  font-family:inherit; background:#e8e8e8; color:#000;
+}
+.sap-modal .m-btns button:hover{ filter:brightness(.92); }
+.sap-modal .m-btns .b-yes{ background:#dff0df; }
+.sap-modal .m-btns .b-no { background:#f4dcdc; }
+.sap-modal .m-history{
+  font-size:.9rem; border:1px solid #000; padding:6px 8px;
+}
+.sap-modal .m-history:empty{ display:none; }
+.sap-modal .m-history .sh-sum{ margin-top:4px; padding-top:4px; border-top:1px dashed #000; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="scan-sap">
+  <div class="page-wrap">
+
+    <!-- ===== RFID PANEL (csak bejelentkezéshez) ===== -->
+    <div id="rfidPanel" class="sap-box {% if worker_name %}d-none{% endif %}">
+      <div class="sap-label">RFID prihlásenie</div>
+      <div class="row g-2 align-items-stretch">
+        <div class="col-lg-9">
+          <input id="rfid" class="form-control inp" placeholder="Načítaj RFID…" {% if not worker_name %}autofocus{% endif %}>
+        </div>
+        <div class="col-lg-3 d-grid">
+          <button id="btnLogin" class="btn btn-sap"><i class="bi-box-arrow-in-right me-2"></i>Prihlásiť sa</button>
+        </div>
+      </div>
+      <div id="rfidMsg" class="mt-1 live"></div>
+    </div>
+
+    <!-- ===== QR PANEL (bejelentkezés után): input + státusz sor + QR rács ===== -->
+    <div id="qrPanel" class="{% if not worker_name %}d-none{% endif %}">
+
+      <!-- 1) Beolvasó mező -->
+      <div class="sap-box" style="padding:6px 8px;">
+        <input id="qr" class="form-control inp" placeholder="Naskenuj WO / PROCESS QR kód…">
+      </div>
+
+      <!-- 2) Státusz sor -->
+      <div class="status-row">
+        <div class="status-cell"><span class="k">Op:</span> <span class="v" id="stWorker">{{ worker_name or '-' }}</span></div>
+        <div class="status-cell"><span class="k">WO:</span> <span class="v" id="stWO">-</span></div>
+        <div class="status-cell"><span class="k">PN:</span> <span class="v" id="stPN">-</span></div>
+        <div class="status-cell"><span class="k">REV:</span> <span class="v" id="stREV">-</span></div>
+        <div class="status-cell"><span class="k">ECN:</span> <span class="v" id="stECN">-</span></div>
+        <div class="status-cell"><span class="k">QTY:</span> <span class="v" id="stQTY">-</span></div>
+        <div class="status-cell"><span class="k">Station:</span> <span class="v" id="stST">-</span></div>
+        <div class="status-cell"><span class="k">Process:</span> <span class="v" id="stPROC">-</span></div>
+        <div class="status-cell"><span class="k">Kódy:</span> <span class="v" id="stCNT">0</span></div>
+        <div class="status-spacer"></div>
+        <div class="status-actions">
+          <button id="btnLogout" class="btn btn-sap sm"><i class="bi-box-arrow-right me-1"></i>Odhlásiť</button>
+        </div>
+      </div>
+
+      <!-- 2b) Info / üzenet sor – a státusz cellák ALATT, teljes szélességben -->
+      <div class="status-msg" id="stMsg"></div>
+
+      <!-- 3) QR kódok -->
+      <div id="qrGrid" class="qr-grid"></div>
+
+    </div>
+
+  </div><!-- /page-wrap -->
+</div><!-- /scan-sap -->
+
+<!-- ===== Mennyiség beviteli modal ===== -->
+<div id="qtyModalOverlay" class="sap-modal-overlay" role="dialog" aria-modal="true">
+  <div class="sap-modal">
+    <div class="m-title">Zadaj počet hotových kusov</div>
+    <div id="qtyModalMsg" class="m-msg"></div>
+    <div id="qtyModalHistory" class="m-history"></div>
+    <input id="qtyModalInput" class="qty-input" type="number" min="0" placeholder="0" autocomplete="off">
+    <div class="m-hint">Potvrď tlačidlom alebo klávesom Enter</div>
+    <div class="m-btns">
+      <button class="b-yes" id="qtyModalOk">Potvrdiť</button>
+      <button class="b-no"  id="qtyModalCancel">Zrušiť</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Mennyiség megerősítő modal ===== -->
+<div id="confirmModalOverlay" class="sap-modal-overlay" style="z-index:10000;" role="dialog" aria-modal="true">
+  <div class="sap-modal" style="text-align:center;">
+    <div class="m-title">Potvrdiť množstvo?</div>
+    <div id="confirmModalQty" class="m-big">—</div>
+    <div class="m-msg">ks</div>
+    <div class="m-btns">
+      <button class="b-yes" id="confirmBtnYes">Áno&nbsp;(1)</button>
+      <button class="b-no"  id="confirmBtnNo">Nie&nbsp;(3)</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Multi-sub WO indítás megerősítő modal ===== -->
+<div id="workConfirmOverlay" class="sap-modal-overlay" style="z-index:10001;" role="dialog" aria-modal="true">
+  <div class="sap-modal">
+    <div class="m-title">Naozaj chceš pracovať s týmto?</div>
+    <div id="workConfirmInfo" class="m-msg"></div>
+    <div class="m-btns">
+      <button class="b-yes" id="workConfirmYes">Áno&nbsp;(1)</button>
+      <button class="b-no"  id="workConfirmNo">Nie&nbsp;(3)</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---- Helpers ---- */
+const $ = (s)=>document.querySelector(s);
+const URL_LOGIN   = '{{ url_for("scan.scan_login",   lang=lang) }}';
+const URL_STATE   = '{{ url_for("scan.scan_state",   lang=lang) }}';
+const URL_QR      = '{{ url_for("scan.scan_qr",      lang=lang) }}';
+const URL_DONE    = '{{ url_for("scan.scan_complete_wo", lang=lang) }}';
+const URL_RELATED = '{{ url_for("scan.scan_related", lang=lang) }}';
+
+// Bejelentkezéskor / oldal újratöltéskor a szerver által visszaadott utolsó állapot
+const LAST_STATE = {{ (last_state or none) | tojson }};
+// Aktuálisan bejelentkezett dolgozó ID-ja (a műszakvégi auto-logout szűréséhez)
+let CURRENT_WID = {{ worker_id or 0 }};
+
+/* ====== Böngésző-gombok tiltása (Home gomb → inkognitó lap ellen) ====== */
+(function(){
+  const BLOCKED_KEYS = new Set([
+    "BrowserHome","HomePage","BrowserFavorites","BrowserSearch","BrowserRefresh",
+    "BrowserStop","BrowserBack","BrowserForward",
+    "LaunchMail","LaunchApp1","LaunchApp2","LaunchMediaPlayer"
+  ]);
+  window.addEventListener("keydown", (e)=>{
+    if (BLOCKED_KEYS.has(e.key)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  }, true);
+})();
+
+/* ====== Ismert (magyar) szerver-üzenetek fordítása szlovákra ====== */
+const MSG_SK = [
+  [/^Hiba:\s*/i, "Chyba: "],
+  [/Üres beolvasás\.?/i, "Prázdne načítanie."],
+  [/Előbb jelentkezz be \(RFID\)\.?/i, "Najprv sa prihlás RFID kartou."],
+  [/Nincs aktív bejelentkezés\.?/i, "Nie si prihlásený."],
+  [/Érvénytelen mennyiség\.?/i, "Neplatné množstvo."],
+  [/Érvénytelen RFID formátum\.?/i, "Neplatný formát RFID."],
+  [/RFID nem található\.?/i, "RFID karta sa nenašla."],
+  [/Hiányzó RFID\.?/i, "Chýba RFID."],
+  [/Nincs aktív WO a dolgozóhoz\.?/i, "Nemáš aktívne WO."],
+  [/Nincs aktív WO\.?/i, "Nemáš aktívne WO."],
+  [/Előbb WO-t kell szkennelni\.?/i, "Najprv naskenuj WO."],
+  [/Előbb STATION-QR szükséges.*$/i, "Najprv je potrebný STATION-QR (nie je nastavené pracovisko)."],
+  [/WO nem található \(nincs HIERARCHY\)\.?/i, "WO sa nenašlo – naskenuj QR kód znova."],
+  [/WO nem található a megadott HIERARCHY alapján\.?/i, "WO sa nenašlo podľa HIERARCHY – naskenuj QR kód znova."],
+  [/Top-level WO kézi lezárása tiltott.*$/i, "TOP LEVEL WO – uzavrie sa automaticky, keď budú hotové všetky SUB WO."],
+  [/Hiba kijelentkezéskor:/i, "Chyba pri odhlasovaní:"],
+  [/Kijelentkezve\.?/i, "Odhlásený."],
+  [/DB hiba a lezáráskor:/i, "Chyba databázy pri uzatváraní:"],
+];
+function translateMsg(s){
+  let out = String(s ?? "");
+  for (const [re, rep] of MSG_SK) out = out.replace(re, rep);
+  return out;
+}
+
+const setLive = (msg, tone="", id="rfidMsg") => {
+  const el = $("#"+id); if(!el) return;
+  el.textContent = translateMsg(msg||"");
+  el.className = "live " + (tone||"");
+};
+function setStatusMsg(msg, tone=""){
+  const el = $("#stMsg"); if(!el) return;
+  el.textContent = translateMsg(msg||"");
+  el.className = "status-msg " + (tone||"");
+}
+function esc(s){ return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* ---- Óra ---- */
+(function(){
+  const el = document.querySelector('#liveClock [data-clock]');
+  const holder = document.getElementById('liveClock');
+  if(!el || !holder) return;
+  const localeMap = { hu: 'hu-HU', sk: 'sk-SK', en: 'en-GB' };
+  const locale = localeMap['{{ lang|e }}'] || 'en-GB';
+  const timeFmt = new Intl.DateTimeFormat(locale,
+    { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
+  const fullFmt = new Intl.DateTimeFormat(locale,
+    { weekday:'short', year:'numeric', month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
+  function tick(){
+    const now = new Date();
+    el.textContent = timeFmt.format(now);
+    holder.title   = fullFmt.format(now);
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+
+async function postJSON(url, data){
+  try{
+    const r = await fetch(url,{ method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data||{}) });
+    const j = await r.json().catch(()=>({ok:false,msg:`Nem JSON válasz (HTTP ${r.status})`}));
+    if(!r.ok) j.ok=false;
+    return j;
+  }catch(e){ return { ok:false, msg:String(e) } }
+}
+
+async function getJSON(url){
+  try{
+    const r = await fetch(url, { headers:{ "Accept":"application/json" } });
+    const j = await r.json().catch(()=>({ok:false}));
+    if(!r.ok) j.ok=false;
+    return j;
+  }catch(e){ return { ok:false, msg:String(e) } }
+}
+
+/* ====== Session-scope állapot (a régi oldal logikája) ====== */
+const SESSION = {
+  wo:null, pn:null, ecn:null, rev:null,
+  expected_qty:null,   // WO-ban lévő elvárt qty
+  entered_qty:null,    // amit a user beírt
+  current_station:null,
+  next_station:null,
+  history:null         // eddig elküldött mennyiségek listája (szervertől)
+};
+let ACTIVE_KEY = null;   // az elindított WO sor kulcsa: "wo|pn|hierarchy"
+let GRID_SIG   = null;   // a kirakott QR rács struktúra-aláírása
+let CODES_CNT  = 0;
+
+function mergeFields(part){
+  if (!part) return;
+  for (const k of ["wo","pn","ecn","rev","expected_qty","entered_qty","current_station","next_station"]) {
+    const v = part[k];
+    if (v !== undefined && v !== null && String(v).trim() !== "") {
+      SESSION[k] = v;
+    }
+  }
+}
+function resetSession(){
+  for (const k of Object.keys(SESSION)) SESSION[k] = null;
+}
+
+/* ---- Mezők kinyerése a beolvasott stringből / szerver üzenetből ---- */
+function extractCoreFields(s, msg){
+  const out = {};
+  const grab = (re, src) => {
+    const m = (src || '').match(re);
+    return m ? m[1] : undefined;
+  };
+  const src  = String(s || '');
+  const msrc = String(msg || '');
+
+  out.wo  = grab(/\bWO[-:\s]*([0-9]+)/i, src) || grab(/\bWO[-:\s]*([0-9]+)/i, msrc);
+  out.pn  = grab(/\bPN[-:\s]*([A-Z0-9\-]+)/i,  src) || grab(/\bPN[-:\s]*([A-Z0-9\-]+)/i,  msrc);
+  out.ecn = grab(/\bECN[-:\s]*([A-Z0-9\-]+)/i, src) || grab(/\bECN[-:\s]*([A-Z0-9\-]+)/i, msrc);
+  out.rev = grab(/\bREV[-:\s]*([A-Z0-9\-]+)/i, src) || grab(/\bREV[-:\s]*([A-Z0-9\-]+)/i, msrc);
+  out.expected_qty =
+      grab(/\bQTY(?:\s+in\s+WO)?[-:\s]*([0-9]+)/i, src) ||
+      grab(/\bQTY(?:\s+in\s+WO)?[-:\s]*([0-9]+)/i, msrc);
+  out.next_station =
+      grab(/Sent to station\s+([A-Z0-9_\-]+)/i, msrc) ||
+      grab(/Erre az állomásra lett küldve:\s*([A-Z0-9_\-]+)/i, msrc);
+
+  return out;
+}
+
+/* Az elindított rekord azonosító kulcsa a beolvasott QR stringből */
+function scanKey(text){
+  const t = String(text || '');
+  const wo = (t.match(/\bWO-([0-9]+)/i) || [])[1] || '';
+  const pn = (t.match(/\bPN-([A-Z0-9\-]+)/i) || [])[1] || '';
+  const h  = (t.match(/HIERARCHY-([^|]+)/i) || [])[1] || '';
+  return `${wo}|${pn}|${h.trim()}`;
+}
+
+/* ---- Zöld státusz sor formázása (régi logika) ---- */
+function formatStatus(rawMsg, fields, mode){
+  const txt = String(rawMsg || '');
+  const wo  =
+    (fields && fields.wo) ||
+    ((txt.match(/WO[-\s]?(\d+)/i) || [])[1]);
+
+  if (mode === 'blocked') {
+    return 'TOP LEVEL WO – netreba znova skenovať, ' +
+           'automaticky sa uzavrie, keď budú všetky SUB WO hotové.';
+  }
+  if (!wo) return rawMsg || '';
+
+  if (/started/i.test(txt)){
+    return `WO ${wo} spustené. Naskenuj PROCESS-QR kód.`;
+  }
+  if (/Sent to station/i.test(txt)){
+    const st = (fields && fields.next_station) ||
+           ((txt.match(/Sent to station\s+([A-Z0-9_\-]+)/i)||[])[1] || '');
+    return `WO ${wo} odoslané na pracovisko ${st}`.trim() + '.';
+  }
+  const mProc = /Erre az állomásra lett küldve:\s*([A-Z0-9_\-]+)/i.exec(txt || '');
+  if (mProc){
+    return `Odoslané na pracovisko: ${mProc[1]}`;
+  }
+  if (/\b(completed|complete\s*ok|finish|befejezve)\b/i.test(txt || '')){
+    return `WO ${wo} ukončené.`;
+  }
+  return `WO ${wo}.`;
+}
+
+/* ---- Elküldött mennyiségek blokk (qty modalban) ---- */
+function historyHtml(h){
+  if (!h || !Array.isArray(h.items) || !h.items.length) return '';
+  const rows = h.items.map(it =>
+    `<div>• <strong>${esc(it.qty)} ks</strong> → ${esc(it.station)}` +
+    (it.time ? ` (${esc(it.time)})` : '') + `</div>`
+  ).join('');
+
+  const exp = parseInt(SESSION.expected_qty, 10) || 0;
+  const tot = Number(h.total || 0);
+  let sum = `Spolu odoslané: <strong>${tot} ks</strong>`;
+  if (exp > 0 && tot < exp)        sum += ` z ${exp} (zostáva ${exp - tot})`;
+  else if (exp > 0 && tot === exp) sum += ` z ${exp} – hotovo ✔`;
+  else if (exp > 0 && tot > exp)   sum += ` z ${exp} – vrátane vrátených / opakovaných kusov`;
+
+  return `<div><strong>Odoslané kusy (toto WO):</strong></div>` + rows +
+         `<div class="sh-sum">${sum}</div>`;
+}
+
+/* ---- Státusz sor frissítése a SESSION-ból ---- */
+function renderStatusCells(){
+  const exp = SESSION.expected_qty ? String(SESSION.expected_qty) : '';
+  const ent = SESSION.entered_qty  ? String(SESSION.entered_qty)  : '';
+  let qty = '-';
+  if (exp && ent) qty = `${exp} / ${ent}`;
+  else if (ent)   qty = ent;
+  else if (exp)   qty = exp;
+
+  $("#stWO").textContent   = SESSION.wo  || '-';
+  $("#stPN").textContent   = SESSION.pn  || '-';
+  $("#stREV").textContent  = SESSION.rev || '-';
+  $("#stECN").textContent  = SESSION.ecn || '-';
+  $("#stQTY").textContent  = qty;
+  $("#stST").textContent   = SESSION.current_station || '-';
+  $("#stPROC").textContent = SESSION.next_station    || '-';
+  $("#stCNT").textContent  = CODES_CNT;
+}
+
+/* ====== Numpad fix – NumLock állapottól FÜGGETLENÜL számot írjon ====== */
+const NUMPAD_CHARS = {
+  Numpad0:'0', Numpad1:'1', Numpad2:'2', Numpad3:'3', Numpad4:'4',
+  Numpad5:'5', Numpad6:'6', Numpad7:'7', Numpad8:'8', Numpad9:'9',
+  NumpadDecimal:'.', NumpadAdd:'+', NumpadSubtract:'-',
+  NumpadMultiply:'*', NumpadDivide:'/'
+};
+function insertChar(el, ch){
+  const start = el.selectionStart ?? el.value.length;
+  const end   = el.selectionEnd   ?? el.value.length;
+  el.value = el.value.slice(0, start) + ch + el.value.slice(end);
+  try { el.setSelectionRange(start + ch.length, start + ch.length); } catch(_) {}
+}
+function attachNumpadFix(el){
+  if (!el) return;
+  el.addEventListener('keydown', (e)=>{
+    const ch = e.code ? NUMPAD_CHARS[e.code] : undefined;
+    if (ch === undefined) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    insertChar(el, ch);
+  }, true);
+}
+
+/* ====== Slovak keyboard wedge ====== */
+function skCharFromCode(code, shift, caps, altgr){
+  if (altgr){
+    const altgrMap = {
+      KeyQ:'\\', KeyW:'|', KeyE:'€',
+      Digit2:'@', Digit3:'#', Digit4:'$', Digit5:'%',
+      BracketLeft:'{', BracketRight:'}', Backslash:'|'
+    };
+    if (altgrMap[code]) return altgrMap[code];
+  }
+  if (code.startsWith('Key')){
+    let ch = code.slice(3);
+    if (ch==='Y') ch='Z'; else if (ch==='Z') ch='Y';
+    const upper = !!shift ^ !!caps;
+    return upper ? ch : ch.toLowerCase();
+  }
+  const top = {
+    Digit1:['+','1'], Digit2:['ľ','2'], Digit3:['š','3'], Digit4:['č','4'],
+    Digit5:['ť','5'], Digit6:['ž','6'], Digit7:['ý','7'], Digit8:['á','8'],
+    Digit9:['í','9'], Digit0:['é','0']
+  }[code];
+  if (top) return shift ? top[1] : top[0];
+
+  const sym = {
+    Minus:['=','%'], Equal:['´','~'], BracketLeft:['ú','/'], BracketRight:['ä','('],
+    Backslash:['\\','|'], Semicolon:[';',':'], Quote:["'",'"'], Comma:[',','<'],
+    Period:['.','>'], Slash:['-','_'], Backquote:['`','ˇ'], Space:[' ',' '],
+  }[code];
+  if (sym) return shift ? sym[1] : sym[0];
+
+  const num = {
+    Numpad0:'0',Numpad1:'1',Numpad2:'2',Numpad3:'3',Numpad4:'4',
+    Numpad5:'5',Numpad6:'6',Numpad7:'7',Numpad8:'8',Numpad9:'9',
+    NumpadDecimal:'.',NumpadAdd:'+',NumpadSubtract:'-',NumpadMultiply:'*',NumpadDivide:'/'
+  }[code];
+  if (num) return num;
+
+  return '';
+}
+
+/* ====== Robusztus szkenner-beolvasó (puffer alapú, kiosztás-detektálással) ======
+   A szkenner nagyon gyorsan gépel, majd Enter/CR-t küld. A leütéseket nyers
+   eseményként (code+key) egy pufferbe gyűjtjük, és a KÉSZ szkennelést EGYBEN
+   fordítjuk karakterekké a flush-nál – nincs DOM-splice, nincs versenyhelyzet.
+
+   Kiosztás-detektálás: az OS billentyűzet-kiosztása lehet illeszkedő (a
+   böngésző e.key-e a helyes karakter) vagy SK (a fizikai kód szerint kell
+   visszafordítani – Y↔Z csere, számsor accentes betűket ad, '-' helyett '='…).
+   Ezt szkennelésenként automatikusan eldöntjük az egyértelmű gombokból
+   (számjegy-sor és Y/Z: mindkettő minden WO/RFID szkennelésben előfordul),
+   és az EGÉSZ szkennelést a detektált móddal fordítjuk. Az utolsó ismert
+   módot megjegyezzük (localStorage), így a ritka, számjegy nélküli bevitel
+   (pl. "logout") is jól fordul.
+
+   Feldolgozás: Enterre AZONNAL. Ha a szkenner nem küld Entert, tétlenségi
+   vész-flush zár le a beolvasást:
+     • szkenner-burst esetén (a leütések < BURST_GAP_MS-en belül követik
+       egymást) a rövidebb idle_fast – az RFID kártyánál ez a felismerés és a
+       bejelentkezés közti holtidő, ezért itt gyors,
+     • kézi gépelésnél (lassú, izolált leütések) marad a régi, hosszú idle,
+       hogy a félig begépelt kód ne menjen el idő előtt. */
+let SCAN_KB_MODE = null;   // 'ascii' (illeszkedő kiosztás) | 'sk' | null
+try { SCAN_KB_MODE = localStorage.getItem("scan_kb_mode") || null; } catch(_) {}
+
+function attachScanBuffer(inputEl, onComplete, opts){
+  if (!inputEl) return;
+  let evs = [];              // nyers események: {code,key,shift,caps,altgr,numpad}
+  let idle = null;
+  const IDLE_MS      = (opts && opts.idle)      || 600;   // kézi gépelés
+  const IDLE_FAST_MS = (opts && opts.idleFast)  || IDLE_MS;  // szkenner-burst
+  const BURST_MS     = (opts && opts.burstGap)  || 60;    // ennél sűrűbb = szkenner
+  let lastKeyTs = 0;
+  let burst = false;
+
+  function detectMode(list){
+    // A döntő bizonyíték a SZÁMSOR (minden WO/RFID szkennelésben van szám):
+    //  • illeszkedő kiosztás: a számgomb sima számot ad (e.key '0'-'9')
+    //  • SK-konfigurált szkenner + US/HU OS: a szkenner a számot SHIFT+szám-
+    //    gombbal küldi (SK-ban a számsorhoz shift kell) → e.key '!','@','#'…
+    //    → az SK fizikai leképezéssel kell visszafordítani ('sk' mód)
+    // Az accentes e.key (SK OS) semleges: ott az SK leképezés ugyanazt adja,
+    // mint az OS, tehát bármelyik mód jó – nem számoljuk bizonyítéknak.
+    let sk = 0, ascii = 0;
+    for (const ev of list){
+      const c = ev.code || "", k = ev.key || "";
+      if (ev.numpad) continue;
+      if (/^Digit[0-9]$/.test(c) && k.length === 1 && k.charCodeAt(0) < 128){
+        if (k >= '0' && k <= '9') ascii++;
+        else if (ev.shift) sk++;     // Shift+számgomb, mégsem szám → SK szkenner
+      }
+    }
+    if (sk > ascii) return 'sk';
+    if (ascii > sk) return 'ascii';
+    return null;
+  }
+
+  function mapEvent(ev, m){
+    if (ev.numpad) return ev.numpad;            // numpad: NumLock-tól függetlenül
+    if (m === 'sk'){
+      const ch = skCharFromCode(ev.code, ev.shift, ev.caps, ev.altgr);
+      if (ch) return ch;
+    }
+    if (ev.key && ev.key.length === 1 && ev.key.charCodeAt(0) < 128) return ev.key;
+    return skCharFromCode(ev.code, ev.shift, ev.caps, ev.altgr) || '';
+  }
+
+  function flush(){
+    if (idle){ clearTimeout(idle); idle = null; }
+    if (!evs.length) return false;
+    const m = detectMode(evs) || SCAN_KB_MODE || 'ascii';
+    if (m !== SCAN_KB_MODE){
+      SCAN_KB_MODE = m;
+      try { localStorage.setItem("scan_kb_mode", m); } catch(_) {}
+    }
+    const text = evs.map(ev => mapEvent(ev, m)).join('');
+    evs = [];
+    burst = false;
+    if (!text) return false;
+    inputEl.value = text;
+    onComplete();               // a callback az inputEl.value-t olvassa
+    return true;
+  }
+  function arm(){
+    if (idle) clearTimeout(idle);
+    idle = setTimeout(flush, burst ? IDLE_FAST_MS : IDLE_MS);
+  }
+
+  // gombos feldolgozáshoz (Prihlásiť): kívülről kérhető azonnali flush
+  inputEl._scanFlush = flush;
+  inputEl._scanReset = ()=>{ evs = []; burst = false; if (idle){ clearTimeout(idle); idle = null; } };
+
+  // a mező menet közben a legjobb tipp szerint mutatja a szöveget (kozmetika,
+  // a végleges érték a flush-nál áll össze)
+  const sync = ()=>{
+    const m = SCAN_KB_MODE || 'ascii';
+    inputEl.value = evs.map(ev => mapEvent(ev, m)).join('');
+  };
+
+  const SKIP = new Set(['Shift','Control','Alt','AltGraph','Meta','CapsLock',
+                        'Tab','Escape','ArrowLeft','ArrowRight','ArrowUp','ArrowDown',
+                        'Home','End','PageUp','PageDown','Insert','Delete','Dead',
+                        'F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12']);
+
+  inputEl.addEventListener('keydown', (e)=>{
+    if (e.key === 'Enter'){ e.preventDefault(); flush(); return; }
+    if (e.key === 'Backspace'){ e.preventDefault(); evs.pop(); sync(); arm(); return; }
+    if (SKIP.has(e.key)) return;
+
+    const numpad = (e.code && NUMPAD_CHARS[e.code] !== undefined) ? NUMPAD_CHARS[e.code] : null;
+    if (!numpad && !(e.key && e.key.length === 1)) return;   // nem karakter gomb
+
+    e.preventDefault();
+
+    // szkenner-burst felismerés: a leütések közti idő alapján
+    const now = (window.performance && performance.now) ? performance.now() : Date.now();
+    if (evs.length) burst = (now - lastKeyTs) < BURST_MS;
+    lastKeyTs = now;
+
+    evs.push({
+      code: e.code || "",
+      key: e.key || "",
+      shift: e.shiftKey,
+      caps: !!(e.getModifierState && e.getModifierState('CapsLock')),
+      altgr: !!(e.getModifierState && e.getModifierState('AltGraph')),
+      numpad: numpad,
+    });
+    sync();
+    arm();
+  }, true);
+}
+/* ====== /szkenner-beolvasó ====== */
+
+// --- csak a kért cserék (szkenner-hibás elválasztók javítása) ---
+function fixDelimiters(s){
+  if(!s) return s;
+  s = s.replace(/([A-Z0-9\)\-_:>])w(?=[A-Z_])/g, '$1|');
+  s = s.replace(/-w/g, '-');
+  s = s.replace(/>\s*/g, ': ');
+  return s;
+}
+
+/* ====== Modal helpers ====== */
+function showQtyModal(msgText) {
+  return new Promise((resolve) => {
+    const overlay = $("#qtyModalOverlay");
+    const input   = $("#qtyModalInput");
+    const msgEl   = $("#qtyModalMsg");
+    const histEl  = $("#qtyModalHistory");
+    const btnOk   = $("#qtyModalOk");
+    const btnCancel = $("#qtyModalCancel");
+
+    msgEl.textContent = translateMsg(msgText || "");
+    if (histEl) histEl.innerHTML = historyHtml(SESSION.history);
+    input.value = "";
+    const qrInput = $("#qr");
+    if (qrInput) qrInput.value = "";
+    overlay.classList.add("active");
+    setTimeout(() => input.focus(), 80);
+
+    function finish(val) {
+      overlay.classList.remove("active");
+      btnOk.removeEventListener("click", onOk);
+      btnCancel.removeEventListener("click", onCancel);
+      document.removeEventListener("keydown", onKey);
+      resolve(val);
+    }
+    function onOk() {
+      const v = input.value.trim();
+      if (!v) { input.focus(); return; }
+      finish(v);
+    }
+    function onCancel() { finish(null); }
+    function onKey(e) {
+      if (e.key === "Enter") { onOk(); }
+      if (e.key === "Escape") { onCancel(); }
+    }
+
+    btnOk.addEventListener("click", onOk);
+    btnCancel.addEventListener("click", onCancel);
+    document.addEventListener("keydown", onKey);
+  });
+}
+
+/* ====== Áno/Nie modal – globális billentyű-őrrel ======
+   A gond: amíg egy Áno/Nie modal nyitva van, a következő beszkennelt kód
+   számjegyei a modálba szivárogtak (pl. a WO-ban lévő '3' lenyomta a Nie-t),
+   a szkennelés pedig elveszett. Megoldás: egyetlen globális, CAPTURE fázisú
+   billentyű-őr, ami amíg egy Áno/Nie modal aktív:
+     • elnyel MINDEN billentyűt (a szkenner-burst nem válaszol, nem kattint
+       gombot, és a szkenner-pufferek sem dolgozzák fel),
+     • csak IZOLÁLT (nem burst) 1 / 3 / Esc számít válasznak.
+   Burst-detektálás: a szkenner nagyon gyorsan gépel (kis időköz), az ember
+   lassan, izoláltan nyom gombot. */
+let ACTIVE_YESNO = null;              // fn(bool) amíg egy Áno/Nie modal nyitva
+let LAST_KEY_TS = 0;
+const BURST_GAP_MS = 140;
+
+document.addEventListener('keydown', (e)=>{
+  const now = (window.performance && performance.now) ? performance.now() : Date.now();
+  const burst = (now - LAST_KEY_TS) < BURST_GAP_MS;
+  LAST_KEY_TS = now;
+
+  if (!ACTIVE_YESNO) return;          // nincs Áno/Nie modal → megy a normál út
+
+  const isYes = (e.key === '1' || e.code === 'Numpad1');
+  const isNo  = (e.key === '3' || e.code === 'Numpad3');
+  const isEsc = (e.key === 'Escape');
+
+  e.preventDefault();
+  e.stopImmediatePropagation();       // ne szivárogjon sehová (gomb, puffer, modal)
+
+  if (isEsc || (!burst && isNo)) { const fn = ACTIVE_YESNO; ACTIVE_YESNO = null; fn(false); return; }
+  if (!burst && isYes)          { const fn = ACTIVE_YESNO; ACTIVE_YESNO = null; fn(true);  return; }
+  // minden más (szkenner-burst, Enter, számjegyek) → elnyeljük, NEM válasz
+}, true);
+
+function _refocusScanInput(){
+  const qp = document.getElementById("qrPanel");
+  if (qp && !qp.classList.contains("d-none")) $("#qr")?.focus();
+  else $("#rfid")?.focus();
+}
+
+/* Közös Áno(1)/Nie(3) megerősítő */
+function showYesNoModal(overlayId, setupFn) {
+  return new Promise((resolve) => {
+    const overlay = $("#"+overlayId);
+    const btnYes  = overlay.querySelector(".b-yes");
+    const btnNo   = overlay.querySelector(".b-no");
+    if (setupFn) setupFn(overlay);
+    overlay.classList.add("active");
+
+    function finish(val) {
+      overlay.classList.remove("active");
+      btnYes.removeEventListener("click", onYes);
+      btnNo.removeEventListener("click", onNo);
+      if (ACTIVE_YESNO === answer) ACTIVE_YESNO = null;
+      _refocusScanInput();
+      resolve(val);
+    }
+    function onYes() { finish(true); }
+    function onNo()  { finish(false); }
+    const answer = (val)=> finish(val);   // ezt hívja a globális billentyű-őr
+
+    btnYes.addEventListener("click", onYes);
+    btnNo.addEventListener("click", onNo);
+    ACTIVE_YESNO = answer;
+  });
+}
+
+function showConfirmModal(qty) {
+  return showYesNoModal("confirmModalOverlay", (ov)=>{
+    ov.querySelector("#confirmModalQty").textContent = qty;
+  });
+}
+
+function showWorkConfirmModal(text, rel, isRescan) {
+  const f = extractCoreFields(text, "");
+  const h = (String(text).match(/HIERARCHY-([^|]+)/i) || [])[1] || "";
+  return showYesNoModal("workConfirmOverlay", (ov)=>{
+    ov.querySelector(".m-title").textContent =
+      isRescan ? "UKONČIŤ TÚTO PRÁCU?" : "NAOZAJ CHCEŠ PRACOVAŤ S TÝMTO?";
+    ov.querySelector("#workConfirmInfo").innerHTML =
+      `WO: <strong>${esc(f.wo || rel?.wo || '?')}</strong>\n` +
+      `PN: <strong>${esc(f.pn || '?')}</strong>` +
+      (h ? `\n${esc(h.trim())}` : '') +
+      (isRescan ? `\n(znova naskenované – nasleduje zadanie množstva)` : '');
+  });
+}
+
+/* ====== QR rács kirakása – görgetés nélkül, maximális cellaméret ====== */
+
+/* A QR kód FELSŐ mérethatára képernyőn.
+ *
+ * A rács addig nagyítja a cellákat, amíg kitöltik a helyet. Sok kódnál ez jó
+ * méretet ad, egyetlen kódnál viszont az egész terület akkorára nőtt, hogy a
+ * kézi szkennerek már nem tudták monitorról beolvasni: a látómezejükbe csak
+ * távolabbról fér bele, ott viszont a monitor pixelrácsa és a szkenner
+ * mélységélessége miatt már nem áll össze a kép.
+ *
+ * 240 CSS px ≈ 6,3 cm 100%-os nagyításnál – ez kényelmesen belefér a kézi
+ * szkennerek látómezejébe, és elég nagy a megbízható beolvasáshoz.
+ * Ha a ti szkennereitekhez más érték kell, elég ezt az egy számot átírni.
+ */
+const QR_MAX_SIZE = 240;
+
+let LAST_ITEMS = [];
+
+function layoutGrid(){
+  const grid = $("#qrGrid");
+  const n = LAST_ITEMS.length;
+  if (!grid) return;
+  if (!n){ grid.style.height = ""; return; }
+
+  // a rács a viewport aljáig ér
+  const top = grid.getBoundingClientRect().top;
+  const H = Math.max(120, window.innerHeight - top - 6);
+  const W = grid.clientWidth || grid.getBoundingClientRect().width;
+  grid.style.height = H + "px";
+
+  const GAP = 4, PAD = 10;  // PAD = 2×(padding+border), border-box
+  // a címke tényleges magassága a kirenderelt DOM-ból (2 soros), fallback 26
+  const lblEl = grid.querySelector(".qr-cell .qr-lbl");
+  const LBL = (lblEl ? Math.ceil(lblEl.getBoundingClientRect().height) : 26) + 2;
+  const aw = W - PAD, ah = H - PAD;
+
+  // legjobb oszlopszám keresése: a legnagyobb QR méret, ami még kifér
+  let best = { size: 0, cols: 1 };
+  for (let c = 1; c <= n; c++){
+    const r = Math.ceil(n / c);
+    const sw = (aw - (c - 1) * GAP) / c;
+    const sh = (ah - (r - 1) * GAP) / r - LBL;
+    const s  = Math.floor(Math.min(sw, sh));
+    if (s > best.size) best = { size: s, cols: c };
+  }
+
+  // ✅ Felső korlát: a kevés kódos eset ne nőjön szkennelhetetlenre.
+  // A rács CSS-e középre igazít (justify-content / align-content: center),
+  // így a maradék hely körben marad, a kódok a képernyő közepén ülnek.
+  const size = Math.min(best.size, QR_MAX_SIZE);
+
+  grid.style.gridTemplateColumns = `repeat(${best.cols}, ${size}px)`;
+  grid.style.setProperty("--qr-size", size + "px");
+}
+
+/* Címke 2. sora: gyökér vagy „melyiknek a subja" */
+function labelLine2(it){
+  if (it.role === "master")
+    return `<div class="l2 master">MASTER</div>`;
+  const par = it.parent_pn ? esc(it.parent_pn) : '—';
+  const d   = it.depth ? `S${esc(it.depth)} ` : '';
+  return `<div class="l2">${d}⊂ ${par}</div>`;
+}
+
+function renderGrid(items){
+  LAST_ITEMS = items || [];
+  CODES_CNT = LAST_ITEMS.length;
+  const grid = $("#qrGrid");
+  grid.innerHTML = LAST_ITEMS.map(it => {
+    const cnt = (it.of && it.of > 1) ? ` <span class="pc">${esc(it.idx)}/${esc(it.of)}</span>` : '';
+    // data-pn/parent: a zöld-keret visszajelzéshez (melyik cellát szkennelték)
+    return `<div class="qr-cell" data-pn="${esc(it.pn)}" data-parent="${esc(it.parent_pn||'')}">${it.svg}` +
+      `<div class="qr-lbl">` +
+        `<div class="l1">${esc(it.pn)}${cnt}</div>` +
+        labelLine2(it) +
+      `</div></div>`;
+  }).join('');
+  layoutGrid();
+}
+
+/* A most beszkennelt kód zöld kerete – csak vizuális visszajelzés.
+   PONTOSAN EGY cellát jelöl: a PN + (ha van) a hierarchy-beli szülő
+   alapján; azonos PN több példányánál (n/N) is csak az elsőt. */
+function highlightScanned(text){
+  const t  = String(text || '');
+  const pn = (t.match(/\bPN-([A-Za-z0-9\-]+)/i) || [])[1] || '';
+  const grid = $("#qrGrid");
+  if (!grid) return;
+  grid.querySelectorAll(".qr-cell.scanned").forEach(c => c.classList.remove("scanned"));
+  if (!pn) return;
+
+  // a szkennelt QR hierarchy láncából a közvetlen szülő PN-je
+  const h = (t.match(/HIERARCHY-([^|]+)/i) || [])[1] || '';
+  const toks = [];
+  const mh = h.match(/PN:\s*(\S+)/);  if (mh) toks.push(mh[1]);
+  for (const sm of h.matchAll(/SUB\d+:\s*(\S+)/g)) toks.push(sm[1]);
+  const parent = toks.length >= 2 ? toks[toks.length - 2] : '';
+
+  const cesc = (s)=> (window.CSS && CSS.escape) ? CSS.escape(s) : s;
+  let cell = null;
+  if (parent){
+    cell = grid.querySelector(`.qr-cell[data-pn="${cesc(pn)}"][data-parent="${cesc(parent)}"]`);
+  }
+  if (!cell) cell = grid.querySelector(`.qr-cell[data-pn="${cesc(pn)}"]`);
+  if (cell) cell.classList.add("scanned");
+}
+
+/* Struktúra-aláírás: csak akkor rajzoljuk újra a rácsot, ha tényleg más */
+function gridSignature(rel){
+  return [
+    rel.wo, rel.pn, rel.rev, rel.ecn,
+    (rel.items || []).map(i => `${i.pn}:${i.depth}:${i.parent_pn||''}:${i.idx||1}/${i.of||1}`).join(',')
+  ].join('|');
+}
+
+window.addEventListener("resize", layoutGrid);
+
+/* ---- UI state ---- */
+function showQRUI(name){
+  $("#rfidPanel")?.classList.add("d-none");
+  $("#qrPanel")?.classList.remove("d-none");
+  $("#stWorker").textContent = name || '-';
+  $("#qr").focus();
+  setStatusMsg("Pripravené. Naskenuj WO QR kód.", "ok");
+}
+function showLoginUI(){
+  LAST_ITEMS = [];
+  CODES_CNT = 0;
+  GRID_SIG = null;
+  ACTIVE_KEY = null;
+  CURRENT_WO = null;
+  resetSession();
+  $("#qrGrid").innerHTML = "";
+  $("#qrGrid").style.height = "";
+  renderStatusCells();
+  $("#qrPanel")?.classList.add("d-none");
+  $("#rfidPanel")?.classList.remove("d-none");
+  $("#qr").value = "";
+  $("#rfid")?.focus();
+}
+
+/* ---- Utolsó állapot visszatöltése (login után / oldal újratöltéskor) ---- */
+function applyLastState(st){
+  if (!st) return;
+  resetSession();
+  mergeFields(st);
+  if (st.history) SESSION.history = st.history;
+  if (st.mode === "resume_active") {
+    ACTIVE_KEY = `${st.wo || ''}|${st.pn || ''}|${(st.hierarchy || '').trim()}`;
+  }
+  renderStatusCells();
+  if (st.message) {
+    setStatusMsg(st.message, (st.mode === "resume_active") ? "warn" : "ok");
+  }
+}
+
+/* Utolsó állapot betöltése a bejelentkezés UTÁN, külön kéréssel.
+   Ez a scan oldal legdrágább lekérdezése (WorkstationWorkorder + előzmények),
+   ezért nem várakoztatjuk vele a bejelentkezést: a dolgozó már a QR panelt
+   látja, mire ez megérkezik. Ha közben már szkennelt, nem írjuk felül. */
+async function loadLastState(){
+  const j = await getJSON(URL_STATE);
+  if (!j || !j.ok || !j.last_state) return;
+  if (SESSION.wo) return;            // időközben már szkennelt – nem nyúlunk hozzá
+  applyLastState(j.last_state);
+}
+
+/* ---- Init ---- */
+window.addEventListener("load", ()=>{
+  {% if worker_name %}
+    showQRUI("{{ worker_name }}");
+    applyLastState(LAST_STATE);
+  {% else %}
+    setTimeout(()=>{ const el = $("#rfid"); if(el){ el.focus(); el.select(); } }, 100);
+  {% endif %}
+
+  // QR: hosszú kód, óvatos (600 ms) vész-flush, hogy lassú gépen se vágódjon ketté
+  attachScanBuffer($("#qr"),   doScan,  { idle: 600 });
+  // RFID: rövid kód, szkenner-burst esetén gyors (250 ms) lezárás – ez a
+  // kártya leolvasása és a bejelentkezés közti holtidő. Kézi gépelésnél
+  // marad a 600 ms.
+  attachScanBuffer($("#rfid"), doLogin, { idle: 600, idleFast: 250 });
+  attachNumpadFix($("#qtyModalInput"));
+
+  // Folyamatos fókusz-visszaállítás az aktív beviteli mezőre
+  setInterval(()=>{
+    const rfidPanel = document.getElementById("rfidPanel");
+    if (rfidPanel && !rfidPanel.classList.contains("d-none")){
+      const rfidInput = document.getElementById("rfid");
+      if (rfidInput && document.activeElement !== rfidInput) rfidInput.focus();
+    }
+  }, 2000);
+});
+
+/* ---- Events ---- */
+// a #rfid és #qr Enter-kezelését az attachScanBuffer végzi (puffer flush);
+// a Prihlásiť gomb: ha van pufferelt beolvasás, azt flush-olja (ez hívja a
+// doLogin-t a helyesen fordított értékkel); különben a mező tartalmával megy
+$("#btnLogin")?.addEventListener("click", ()=>{
+  const el = $("#rfid");
+  if (el && el._scanFlush && el._scanFlush()) return;
+  doLogin();
+});
+$("#btnLogout")?.addEventListener("click", doLogout);
+
+/* ---- Actions ---- */
+async function doLogin(){
+  const raw = $("#rfid").value.trim();
+  if(!raw){ setLive("Zadaj RFID.","warn"); $("#rfid").focus(); return; }
+  setLive("Prihlasujem…", "");   // azonnali visszajelzés, hogy a kártya megvan
+
+  const res = await postJSON(URL_LOGIN, { rfid: raw });
+
+  // SPECIÁLIS PARANCS VÁLASZ az RFID mezőből (*001, *002, …)
+  if (res.action === "cmd_result" || res.action === "reload") {
+    if (res.action === "reload") { location.reload(); return; }
+    setLive(res.message || "", "ok");
+    $("#rfid").value = "";
+    $("#rfid").focus();
+    return;
+  }
+
+  if(res.ok){
+    $("#rfid").value = "";
+    setLive("", "");
+    CURRENT_WID = Number(res.worker_id || 0);
+    // AZONNALI váltás – az utolsó állapotra nem várunk
+    showQRUI(res.name || "");
+    if (res.last_state) applyLastState(res.last_state);
+    else if (res.state_deferred) loadLastState();
+  }else{
+    setLive(res.msg || "Chyba pri prihlasovaní.","bad");
+  }
+}
+
+async function doScan(){
+  const raw  = $("#qr").value.trim();
+  const text = fixDelimiters(raw);
+  $("#qr").value = "";
+  if (!text){
+    setStatusMsg("Prázdne skenovanie.","bad");
+    $("#qr").focus();
+    return;
+  }
+
+  // logout parancs / speciális *00x parancsok a meglévő végponton
+  const low = text.toLowerCase();
+  if (low === "logout" || text.startsWith("*")){
+    const r = await postJSON(URL_QR, { text });
+    if (r && (r.action === "reload" || r.mode === "reload")) { location.reload(); return; }
+    if (r && (r.action === "cmd_result" || r.mode === "cmd_result")){
+      setStatusMsg((r.message || "").split("\n").join("  |  "), "ok");
+      $("#qr").focus();
+      return;
+    }
+    if (r && (r.action === "logout" || /kijelentkezve/i.test(r.msg || r.message || ""))){
+      CURRENT_WID = 0;
+      showLoginUI();
+      setLive("Odhlásený.","ok");
+      return;
+    }
+    setStatusMsg((r && (r.msg || r.message)) || "Chyba pri spracovaní.", "bad");
+    $("#qr").focus();
+    return;
+  }
+
+  // WO QR: kapcsolódó kódok + munkafolyamat; minden más (STATION/PROCESS/…)
+  // csak a meglévő routing végpontra megy
+  if (/^WO[-|]/i.test(text)){
+    await handleWoScan(text);
+  } else {
+    await routeScan(text);
+  }
+  $("#qr").focus();
+}
+
+/* WO-nkénti gyorsítótár: ugyanarra a WO-ra újraszkenneléskor NEM kérdezzük
+   le újra a /related-et (a szerver különben minden szkennelésre újragenerálná
+   mind a ~44 QR SVG-t – lassú gépen ez a fő szűk keresztmetszet). */
+const RELCACHE = {};        // wo -> rel objektum
+let CURRENT_WO = null;
+
+function woNumberOf(text){
+  return (String(text || '').match(/\bWO-([0-9]+)/i) || [])[1] || '';
+}
+
+/* WO QR: 1) kapcsolódó QR kódok (cache-ből vagy szerverről, rács csak
+   strukturális változásnál frissül), 2) multi-SUB megerősítés,
+   3) meglévő WO routing (start / qty / lezárás), 4) zöld keret visszajelzés */
+async function handleWoScan(text){
+  const woNum = woNumberOf(text);
+  let rel = (woNum && RELCACHE[woNum]) ? RELCACHE[woNum] : null;
+
+  if (!rel){
+    setStatusMsg("Načítavam…");
+    rel = await postJSON(URL_RELATED, { text });
+    if (!rel || !rel.ok){
+      // a rács NEM tűnik el – csak hibaüzenet, a kirakott kódok maradnak
+      setStatusMsg((rel && (rel.msg || rel.message)) || "Chyba pri spracovaní.", "bad");
+      return;
+    }
+    if (rel.wo) RELCACHE[String(rel.wo)] = rel;
+    if (woNum)  RELCACHE[woNum] = rel;
+  }
+
+  // rács frissítés CSAK ha más a struktúra (más WO/PN/REV/ECN/kódlista)
+  const sig = gridSignature(rel);
+  if (sig !== GRID_SIG){
+    renderGrid(rel.items || []);
+    GRID_SIG = sig;
+  } else {
+    CODES_CNT = (rel.items || []).length;
+  }
+  CURRENT_WO = String(rel.wo || woNum);
+
+  // új WO → session reset (a régi oldal logikája)
+  if (rel.wo && SESSION.wo && String(rel.wo) !== String(SESSION.wo)){
+    resetSession();
+    ACTIVE_KEY = null;
+  }
+  mergeFields({ wo: rel.wo, rev: rel.rev, ecn: rel.ecn, expected_qty: rel.qty });
+  if (!SESSION.pn) SESSION.pn = rel.pn;
+  renderStatusCells();
+
+  // a most beszkennelt kód zöld kerete (vizuális visszajelzés)
+  highlightScanned(text);
+
+  // MINDEN WO/SUB szkennelés után megerősítés – első szkennelésnél
+  // ("biztos ezzel akarsz dolgozni?") és újraszkennelésnél is (ott a
+  // kérdés a lezárásra vonatkozik, utána jön a mennyiség bekérése).
+  const key = scanKey(text);
+  const isRescan = !!ACTIVE_KEY && key === ACTIVE_KEY;
+  const ok = await showWorkConfirmModal(text, rel, isRescan);
+  if (!ok){
+    setStatusMsg("Zrušené.", "warn");
+    return;
+  }
+
+  await routeScan(text);
+}
+
+/* A régi oldal teljes routing folyamata: start / need_qty / complete / info */
+async function routeScan(text){
+  const r = await postJSON(URL_QR, { text });
+
+  if (r && (r.action === "logout" || /kijelentkezve/i.test((r.msg || r.message || "")))) {
+    CURRENT_WID = 0;
+    showLoginUI();
+    setLive("Odhlásený.","ok");
+    return;
+  }
+
+  if (!r || !r.ok){
+    setStatusMsg((r && (r.msg || r.message)) || "Chyba pri spracovaní.", "bad");
+    return;
+  }
+
+  const msgRaw = r.message || r.msg || "";
+  const msg    = String(msgRaw || "");
+  const mode   = String(r.mode || r.action || "").toLowerCase();
+
+  if (mode === "reload") { location.reload(); return; }
+  if (mode === "cmd_result") {
+    setStatusMsg(msg.split("\n").join("  |  "), "ok");
+    return;
+  }
+
+  const fresh = extractCoreFields(text, msg);
+  // új WO → új session (töröljük az előző WO adatait)
+  if (fresh?.wo && SESSION.wo && String(fresh.wo) !== String(SESSION.wo)) {
+    resetSession();
+    ACTIVE_KEY = null;
+  }
+  // backend auto station visszajelzés
+  if (r && r.auto_station) {
+    fresh.current_station = r.auto_station;
+  }
+  // elküldött mennyiségek listája a szervertől (összes eddigi küldés)
+  if (r && r.history) SESSION.history = r.history;
+  mergeFields(fresh);
+
+  if (mode === "started") {
+    ACTIVE_KEY = scanKey(text);
+  }
+  renderStatusCells();
+
+  const needsQty =
+      mode === "need_qty" ||
+      mode === "needqty"  ||
+      /\bpreparing\s+to\s+complete\b/i.test(msg) ||
+      /\bplease\s+enter\s+finished\s+quantity\b/i.test(msg) ||
+      /\bneed\s*qty\b/i.test(msg);
+
+  if (needsQty){
+    setStatusMsg(msg.split("\n").join("  |  ") || "Je potrebné zadať množstvo.","warn");
+
+    const qtyRaw = await showQtyModal(msg || "Počet hotových kusov?");
+    if (qtyRaw !== null && qtyRaw !== "") {
+      const qty = String(qtyRaw).trim();
+
+      if (!/^\d+$/.test(qty)) {
+        setStatusMsg("Neplatné množstvo. Zadaj celé číslo.", "bad");
+        return;
+      }
+
+      const ok = await showConfirmModal(qty);
+      if (!ok) {
+        setStatusMsg("Zrušené. Zadaj množstvo znova.", "warn");
+        return;
+      }
+
+      SESSION.entered_qty = qty;
+      renderStatusCells();
+
+      const fin = await postJSON(URL_DONE, { qty });
+
+      if (fin && fin.ok){
+        const finMsg  = fin.message || fin.msg || "";
+        const doneFields = extractCoreFields("", finMsg);
+        mergeFields(doneFields);
+        if (fin.history) SESSION.history = fin.history;
+
+        const finMode = String(fin.mode || fin.action || "").toLowerCase();
+        if (finMode === "completed" || finMode === "blocked") {
+          ACTIVE_KEY = null;
+        }
+        renderStatusCells();
+
+        const status2 = formatStatus(finMsg, SESSION, finMode);
+        setStatusMsg(status2 || finMsg || "WO ukončené.", (finMode === "blocked") ? "warn" : "ok");
+      } else {
+        const finErr = (fin && (fin.msg || fin.message)) || "Chyba pri uzatváraní.";
+        setStatusMsg(finErr, "bad");
+      }
+    }
+  } else {
+    const status = formatStatus(msg, SESSION, mode);
+    const tone   = (mode === 'blocked') ? 'warn' : 'ok';
+    setStatusMsg(status || (msg || "OK"), tone);
+  }
+}
+
+async function doLogout(){
+  const r = await postJSON(URL_QR, { text:"logout" });
+  if(r.ok){
+    CURRENT_WID = 0;
+    showLoginUI();
+    setLive("Odhlásený.","ok");
+  }else{
+    setStatusMsg(r.msg || "Odhlásenie sa nepodarilo.","bad");
+  }
+}
+
+/* ====== Műszakvégi automatikus kijelentkeztetés (szerver oldali ütemező) ====== */
+(function(){
+  if (typeof io === "undefined") return;
+  try {
+    const s = io({ transports: ["websocket", "polling"], withCredentials: true });
+    s.on("scan_force_logout", async (data)=>{
+      const ids = ((data && data.worker_ids) || []).map(Number);
+      if (!CURRENT_WID || !ids.includes(Number(CURRENT_WID))) return;
+      try { await postJSON(URL_QR, { text: "logout" }); } catch(e) {}
+      location.reload();
+    });
+  } catch(e) {}
+})();
+</script>
+
+{% endblock %}

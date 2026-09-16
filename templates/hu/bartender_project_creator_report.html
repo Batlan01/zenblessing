@@ -1,0 +1,908 @@
+{# templates/<lang>/bartender_project_creator_report.html #}
+{% extends (lang ~ '/base.html') %}
+
+{% block title %}BarTender Project Activity{% endblock %}
+{% set active = 'bartender_project_report' %}
+{% block page_title %}BarTender projektek – aktivitás riport{% endblock %}
+
+{% block content %}
+<style>
+  /* --- táblázat: scroll + sticky header --- */
+  .activity-table-wrap{
+    max-height: 60vh;
+    overflow: auto;
+    border-radius: 12px;
+  }
+
+  #activityTable{
+    table-layout: fixed;
+    min-width: 1340px;
+  }
+
+  #activityTable thead th{
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #1f2a37 !important;
+    color: #fff !important;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+    font-size: 12px;
+    border-bottom: 1px solid rgba(255,255,255,.15);
+  }
+
+  #activityTable td, #activityTable th{
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+  }
+
+  /* --- oszlop szélességek --- */
+  .col-user    { width: 140px; min-width: 140px; }
+  .col-project { width: 280px; min-width: 220px; }
+  .col-first   { width: 170px; min-width: 170px; }
+  .col-last    { width: 170px; min-width: 170px; }
+  .col-num     { width: 90px;  min-width: 90px;  }
+  .col-action  { width: 240px; min-width: 220px; }
+  .col-ts      { width: 190px; min-width: 190px; }
+  .col-size    { width: 140px; min-width: 130px; }
+
+  /* --- méret pill --- */
+  .size-pill {
+    display: inline-flex;
+    gap: 3px;
+    align-items: center;
+    font-size: 11px;
+  }
+  .size-pill .sp {
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: #1e293b;
+  }
+  .size-pill .sl {
+    color: #94a3b8;
+    font-size: 10px;
+  }
+  .size-loading {
+    color: #94a3b8;
+    font-size: 11px;
+    font-style: italic;
+  }
+
+  /* --- méret szerinti sor kiemelés --- */
+  tr.size-xl td { background: rgba(239,68,68,.06) !important; }
+  tr.size-lg td { background: rgba(245,158,11,.05) !important; }
+
+  /* --- jobbklikk menü --- */
+  .row-menu{
+    position: fixed;
+    z-index: 9999;
+    min-width: 240px;
+    background: #fff;
+    border: 1px solid rgba(0,0,0,.12);
+    border-radius: 10px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.18);
+    padding: 6px;
+    display: none;
+  }
+  .row-menu button{
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    padding: 10px 10px;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #0f172a;
+    font-weight: 600;
+  }
+  .row-menu button i{
+    color: inherit;
+    opacity: .9;
+  }
+  .row-menu button:hover{
+    background: rgba(13,110,253,.14);
+    color: #0b5ed7;
+  }
+  .row-menu button:active{
+    background: rgba(13,110,253,.22);
+  }
+  .row-menu button:focus-visible{
+    outline: 2px solid rgba(13,110,253,.45);
+    outline-offset: 2px;
+  }
+  .row-menu .muted{
+    font-size: 12px;
+    opacity: .7;
+    padding: 6px 10px 2px 10px;
+  }
+</style>
+
+<div class="container-fluid">
+
+  <div id="errBox" class="alert alert-danger d-none mb-3"></div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-body">
+      <div class="row g-2 align-items-end">
+
+        <div class="col-12 col-md-3">
+          <label class="form-label">Kezdő dátum</label>
+          <input id="startDate" type="date" class="form-control">
+        </div>
+
+        <div class="col-12 col-md-3">
+          <label class="form-label">Vég dátum</label>
+          <input id="endDate" type="date" class="form-control">
+        </div>
+
+        <div class="col-12 col-md-3">
+          <label class="form-label">Felhasználó</label>
+          <select id="userFilter" class="form-select">
+            <option value="">(összes)</option>
+          </select>
+        </div>
+
+        <div class="col-12 col-md-3">
+          <label class="form-label">Projekt</label>
+          <select id="projectFilter" class="form-select">
+            <option value="">(összes)</option>
+          </select>
+        </div>
+
+        <div class="col-12 col-md-4 mt-2">
+          <label class="form-label">Keresés</label>
+          <input id="searchBox" type="text" class="form-control" placeholder="pl. user / projekt / action...">
+        </div>
+
+        <div class="col-12 col-md-2 mt-2">
+          <label class="form-label">Min. konnektorok</label>
+          <input id="minConnFilter" type="number" class="form-control" placeholder="pl. 10" min="0">
+        </div>
+
+        <div class="col-12 col-md-6 mt-2 d-flex gap-2 justify-content-md-end">
+          <button id="btnToday" class="btn btn-outline-secondary">Ma</button>
+          <button id="btn7" class="btn btn-outline-secondary">Utolsó 7 nap</button>
+          <button id="btn30" class="btn btn-outline-secondary">Utolsó 30 nap</button>
+          <button id="btnReload" class="btn btn-primary">
+            <i class="fa-solid fa-arrows-rotate me-1"></i> Frissítés
+          </button>
+        </div>
+
+        <div class="col-12 mt-2">
+          <div class="text-muted small" id="rowInfo">—</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center">
+        <div class="fw-semibold">Ki min dolgozik (lock)</div>
+        <div class="text-muted small" id="locksInfo">—</div>
+      </div>
+
+      <div class="table-responsive mt-2" style="max-height: 220px; overflow:auto;">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Felhasználó</th>
+              <th>Projekt (PN | REV | ECN)</th>
+              <th class="text-nowrap">Heartbeat</th>
+            </tr>
+          </thead>
+          <tbody id="locksTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <div class="table-responsive activity-table-wrap">
+        <table id="activityTable" class="table table-sm table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th class="col-idx text-end">#</th>
+              <th data-key="username" class="sortable col-user">Felhasználó</th>
+              <th data-key="project_name" class="sortable col-project">Projekt</th>
+              <th data-key="first_seen" class="sortable col-first">Első aktivitás</th>
+              <th data-key="last_seen" class="sortable col-last">Utolsó aktivitás</th>
+              <th data-key="events_total" class="sortable text-end col-num">Esemény</th>
+              <th data-key="update_count" class="sortable text-end col-num">Update</th>
+              <th data-key="refresh_count" class="sortable text-end col-num">Refresh</th>
+              <th data-key="last_action" class="sortable col-action">Utolsó akció</th>
+              <th data-key="last_action_ts" class="sortable col-ts">Utolsó akció ideje</th>
+              <th data-key="connectors_count" class="sortable text-end col-size">
+                Méret <span class="text-white-50 fw-normal" style="font-size:10px;text-transform:none">old/káb/kon</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody id="activityTbody"></tbody>
+        </table>
+      </div>
+
+      <div class="d-flex justify-content-between mt-2">
+        <div class="text-muted small" id="rowInfo2">—</div>
+        <div class="text-muted small">Rendezés: oszlop fejléc katt</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- jobbklikk menü – aktivitás tábla -->
+<div id="rowMenu" class="row-menu">
+  <div class="muted" id="rowMenuTitle">—</div>
+  <button type="button" id="rowMenuOpen">
+    <i class="fa-solid fa-folder-open me-2"></i>
+    Projekt megnyitása (edit, új ablak)
+  </button>
+  <div style="height:1px;background:rgba(0,0,0,.08);margin:4px 6px;"></div>
+  <button type="button" id="rowMenuHistory">
+    <i class="fa-solid fa-clock-rotate-left me-2"></i>
+    Szerkesztési előzmények
+  </button>
+</div>
+
+<!-- History modal -->
+<div id="historyModal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.45);align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.28);width:min(720px,95vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:16px 20px 12px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:10px;">
+      <i class="fa-solid fa-clock-rotate-left" style="color:#6366f1;font-size:16px;"></i>
+      <span style="font-weight:700;font-size:15px;flex:1;" id="historyModalTitle">Szerkesztési előzmények</span>
+      <button id="historyModalClose" style="border:0;background:transparent;font-size:20px;color:#6b7280;cursor:pointer;line-height:1;padding:2px 6px;">&times;</button>
+    </div>
+    <div style="overflow:auto;flex:1;padding:12px 16px;">
+      <div id="historyModalBody" style="font-size:13px;">
+        <div class="text-muted text-center py-3">Betöltés...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- jobbklikk menü – locks tábla -->
+<div id="lockMenu" class="row-menu">
+  <div class="muted" id="lockMenuTitle">—</div>
+  <button type="button" id="lockMenuOpen">
+    <i class="fa-solid fa-folder-open me-2"></i>
+    Projekt megnyitása (edit, új ablak)
+  </button>
+  <div style="height:1px;background:rgba(0,0,0,.08);margin:4px 6px;"></div>
+  <button type="button" id="lockMenuDelete" style="color:#dc2626;">
+    <i class="fa-solid fa-lock-open me-2"></i>
+    Lock törlése (kényszerített)
+  </button>
+</div>
+
+<script>
+(() => {
+  const API_FILTERS  = "/{{ lang }}/bartender_project_report/api/filters";
+  const API_ACTIVITY = "/{{ lang }}/bartender_project_report/api/activity";
+  const API_LOCKS    = "/{{ lang }}/bartender_project_report/api/locks";
+  const API_SIZE     = "/{{ lang }}/bartender_project_report/api/project_size";
+  const API_HISTORY  = "/{{ lang }}/bartender_project_report/api/project_history";
+
+  const API_FORCE_UNLOCK = "/{{ lang }}/bartender_project_report/api/force_unlock";
+
+  const EDIT_URL    = "{{ url_for('bartender.edit_v1', lang=lang) }}";
+  const ARCHIVE_URL = "{{ url_for('bartender.archive_v1', lang=lang) }}";
+
+  const els = {
+    start:    document.getElementById("startDate"),
+    end:      document.getElementById("endDate"),
+    user:     document.getElementById("userFilter"),
+    project:  document.getElementById("projectFilter"),
+    search:   document.getElementById("searchBox"),
+    minConn:  document.getElementById("minConnFilter"),
+    reload:   document.getElementById("btnReload"),
+    btnToday: document.getElementById("btnToday"),
+    btn7:     document.getElementById("btn7"),
+    btn30:    document.getElementById("btn30"),
+    tbody:    document.getElementById("activityTbody"),
+    rowInfo:  document.getElementById("rowInfo"),
+    rowInfo2: document.getElementById("rowInfo2"),
+    table:    document.getElementById("activityTable"),
+    err:      document.getElementById("errBox"),
+
+    // jobbklikk menü
+    menu:      document.getElementById("rowMenu"),
+    menuTitle: document.getElementById("rowMenuTitle"),
+    menuOpen:  document.getElementById("rowMenuOpen"),
+    menuHistory: document.getElementById("rowMenuHistory"),
+
+    // history modal
+    historyModal:      document.getElementById("historyModal"),
+    historyModalTitle: document.getElementById("historyModalTitle"),
+    historyModalBody:  document.getElementById("historyModalBody"),
+    historyModalClose: document.getElementById("historyModalClose"),
+
+    // lock tábla
+    locksTbody: document.getElementById("locksTbody"),
+    locksInfo:  document.getElementById("locksInfo"),
+
+    // lock jobbklikk menü
+    lockMenu:       document.getElementById("lockMenu"),
+    lockMenuTitle:  document.getElementById("lockMenuTitle"),
+    lockMenuOpen:   document.getElementById("lockMenuOpen"),
+    lockMenuDelete: document.getElementById("lockMenuDelete"),
+  };
+
+  let rawRows = [];
+  let sortKey = "last_seen";
+  let sortDir = "desc";
+  let ctxRow  = null;
+  let ctxLockRow = null;
+
+  // méret cache: { 'PN | REV | ECN': { pages_count, cables_count, connectors_count } }
+  let sizeCache = {};
+  let sizeFetchPending = false;
+
+  /* ── helpers ── */
+
+  function showErr(msg){
+    if(!msg){
+      els.err.classList.add("d-none");
+      els.err.textContent = "";
+      return;
+    }
+    els.err.textContent = msg;
+    els.err.classList.remove("d-none");
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  async function fetchJson(url){
+    const res = await fetch(url, { credentials: "same-origin" });
+    let data = null;
+    try { data = await res.json(); } catch(_) {}
+    if(!res.ok){
+      const msg = (data && data.error) ? data.error : (res.status + " " + res.statusText);
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  function yyyy_mm_dd(d) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  }
+
+  function setRange(daysBack) {
+    const now = new Date();
+    const start = new Date(now);
+    start.setDate(now.getDate() - daysBack);
+    els.start.value = yyyy_mm_dd(start);
+    els.end.value = yyyy_mm_dd(now);
+  }
+
+  function getQuery() {
+    const params = new URLSearchParams();
+    if (els.start.value) params.set("start", els.start.value + " 00:00:00");
+    if (els.end.value) params.set("end", els.end.value + " 23:59:59");
+    if (els.user.value) params.set("username", els.user.value);
+    if (els.project.value) params.set("project", els.project.value);
+    params.set("limit", "5000");
+    return params.toString();
+  }
+
+  /* ── méret pill renderer ── */
+
+  function renderSizePill(r) {
+    const p = r.pages_count;
+    const c = r.cables_count;
+    const k = r.connectors_count;
+
+    // még nem töltöttük be
+    if (p == null && c == null && k == null) {
+      return '<span class="size-loading">...</span>';
+    }
+    return `<span class="size-pill">
+      <span class="sp">${p ?? '?'}</span><span class="sl">old</span>
+      <span class="sp">${c ?? '?'}</span><span class="sl">káb</span>
+      <span class="sp">${k ?? '?'}</span><span class="sl">kon</span>
+    </span>`;
+  }
+
+  /* ── filter + sort ── */
+
+  function filteredRows() {
+    const q = els.search.value.trim().toLowerCase();
+    const u = els.user.value;
+    const p = els.project.value;
+    const minC = parseInt(els.minConn.value, 10);
+
+    return rawRows.filter(r => {
+      if (u && r.username !== u) return false;
+      if (p && r.project_name !== p) return false;
+      if (!isNaN(minC) && minC > 0 && (r.connectors_count ?? 0) < minC) return false;
+
+      if (!q) return true;
+      const hay = [
+        r.username, r.project_name, r.first_seen, r.last_seen,
+        r.events_total, r.update_count, r.refresh_count,
+        r.last_action, r.last_action_ts, r.last_notes
+      ].join(" ").toLowerCase();
+      return hay.includes(q);
+    });
+  }
+
+  function sortRows(rows) {
+    const dir = (sortDir === "asc") ? 1 : -1;
+    return rows.sort((a, b) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+
+      if (typeof av === "number" || typeof bv === "number") {
+        return ((Number(av) || 0) - (Number(bv) || 0)) * dir;
+      }
+      const as = String(av ?? "");
+      const bs = String(bv ?? "");
+      if (as < bs) return -1 * dir;
+      if (as > bs) return 1 * dir;
+      return 0;
+    });
+  }
+
+  /* ── render ── */
+
+  function render() {
+    let rows = filteredRows();
+    rows = sortRows(rows);
+
+    els.tbody.innerHTML = rows.map((r, idx) => {
+      const k = r.connectors_count ?? 0;
+      const sizeClass = k >= 30 ? "size-xl" : k >= 15 ? "size-lg" : "";
+      return `
+        <tr data-idx="${idx}" class="${sizeClass}">
+          <td class="col-idx text-end text-muted">${idx + 1}</td>
+          <td class="col-user">${escapeHtml(r.username)}</td>
+          <td class="col-project">${escapeHtml(r.project_name)}</td>
+          <td class="col-first">${escapeHtml(r.first_seen || "")}</td>
+          <td class="col-last">${escapeHtml(r.last_seen || "")}</td>
+          <td class="text-end col-num">${escapeHtml(r.events_total)}</td>
+          <td class="text-end col-num">${escapeHtml(r.update_count)}</td>
+          <td class="text-end col-num">${escapeHtml(r.refresh_count)}</td>
+          <td class="col-action">${escapeHtml(r.last_action || "")}</td>
+          <td class="col-ts">${escapeHtml(r.last_action_ts || "")}</td>
+          <td class="text-end col-size">${renderSizePill(r)}</td>
+        </tr>`;
+    }).join("");
+
+    const info = `${rows.length} / ${rawRows.length} sor`;
+    els.rowInfo.textContent = info;
+    els.rowInfo2.textContent = info;
+  }
+
+  /* ── sorting ── */
+
+  function wireSorting() {
+    els.table.querySelectorAll("th.sortable").forEach(th => {
+      th.style.cursor = "pointer";
+      th.addEventListener("click", () => {
+        const key = th.getAttribute("data-key");
+        if (!key) return;
+        if (sortKey === key) sortDir = (sortDir === "asc") ? "desc" : "asc";
+        else { sortKey = key; sortDir = "desc"; }
+        render();
+      });
+    });
+  }
+
+  /* ── API calls ── */
+
+  async function loadFilters() {
+    const params = new URLSearchParams();
+    if (els.start.value) params.set("start", els.start.value + " 00:00:00");
+    if (els.end.value) params.set("end", els.end.value + " 23:59:59");
+
+    const data = await fetchJson(`${API_FILTERS}?${params.toString()}`);
+    if (!data.ok) throw new Error(data.error || "filters: unknown");
+
+    const keepUser = els.user.value;
+    const keepProject = els.project.value;
+
+    els.user.innerHTML =
+      `<option value="">(összes)</option>` +
+      (data.users || []).map(u => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join("");
+
+    els.project.innerHTML =
+      `<option value="">(összes)</option>` +
+      (data.projects || []).map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
+
+    if (keepUser) els.user.value = keepUser;
+    if (keepProject) els.project.value = keepProject;
+  }
+
+  async function loadData() {
+    const data = await fetchJson(`${API_ACTIVITY}?${getQuery()}`);
+    if (!data.ok) throw new Error(data.error || "activity: unknown");
+    rawRows = Array.isArray(data.rows) ? data.rows : [];
+    sizeCache = {};
+    sizeFetchPending = false;
+    render();
+    loadProjectSizes(); // aszinkron, nem blokkol
+  }
+
+  async function loadProjectSizes() {
+    if (sizeFetchPending) return;
+    sizeFetchPending = true;
+
+    // unique project_name-ek amikhez még nincs méret
+    const keys = [...new Set(
+      rawRows
+        .map(r => r.project_name)
+        .filter(k => k && sizeCache[k] === undefined)
+    )];
+
+    if (!keys.length) {
+      sizeFetchPending = false;
+      return;
+    }
+
+    // 50-es chunk-okban (URL hossz limit)
+    const CHUNK = 50;
+    for (let i = 0; i < keys.length; i += CHUNK) {
+      const chunk = keys.slice(i, i + CHUNK);
+      try {
+        const qs = chunk.map(k => encodeURIComponent(k)).join(",");
+        const data = await fetchJson(`${API_SIZE}?projects=${qs}`);
+        if (data.ok && data.sizes) {
+          Object.assign(sizeCache, data.sizes);
+        }
+      } catch(_) {}
+    }
+
+    // visszaírjuk rawRows-ba
+    rawRows.forEach(r => {
+      const s = sizeCache[r.project_name];
+      if (s) {
+        r.pages_count      = s.pages_count;
+        r.cables_count     = s.cables_count;
+        r.connectors_count = s.connectors_count;
+      }
+    });
+
+    sizeFetchPending = false;
+    render();
+  }
+
+  async function loadLocks(){
+    if(!els.locksTbody) return;
+    const data = await fetchJson(`${API_LOCKS}?max_age_sec=180`);
+    if (!data.ok) throw new Error(data.error || "locks: unknown");
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+
+    els.locksTbody.innerHTML = rows.map(r => `
+      <tr data-config-id="${escapeHtml(String(r.config_id ?? ''))}"
+          data-project="${escapeHtml(r.project_name || '')}"
+          data-user="${escapeHtml(r.locked_by || '')}"
+          style="cursor:context-menu;">
+        <td>${escapeHtml(r.locked_by || "")}</td>
+        <td>${escapeHtml(r.project_name || ("#"+(r.config_id ?? "")))}</td>
+        <td class="text-muted small">${escapeHtml(r.heartbeat_at || r.locked_at || "")}</td>
+      </tr>
+    `).join("");
+
+    els.locksInfo.textContent = `${rows.length} aktív`;
+  }
+
+  async function reloadAll(){
+    showErr(null);
+    try{
+      await loadFilters();
+      await loadData();
+      await loadLocks();
+    }catch(e){
+      showErr(e.message || "Ismeretlen hiba");
+      rawRows = [];
+      render();
+      if(els.locksTbody) els.locksTbody.innerHTML = "";
+      if(els.locksInfo) els.locksInfo.textContent = "—";
+    }
+  }
+
+  /* ── jobbklikk menü ── */
+
+  function hideMenu(){
+    els.menu.style.display = "none";
+    ctxRow = null;
+  }
+
+  function parseProjectKey(projectName){
+    const parts = String(projectName || "").split("|").map(s => s.trim());
+    return { pn: parts[0] || "", rev: parts[1] || "", ecn: parts[2] || "" };
+  }
+
+  els.tbody.addEventListener("contextmenu", (e) => {
+    const tr = e.target.closest("tr");
+    if(!tr) return;
+    e.preventDefault();
+
+    const rowsNow = sortRows(filteredRows());
+    const i = Number(tr.getAttribute("data-idx"));
+    const row = rowsNow[i];
+    if(!row) return;
+
+    ctxRow = row;
+
+    els.menuTitle.textContent = `${row.username} • ${row.project_name}`;
+    els.menu.style.left = `${Math.min(e.clientX, window.innerWidth - 270)}px`;
+    els.menu.style.top  = `${Math.min(e.clientY, window.innerHeight - 140)}px`;
+    els.menu.style.display = "block";
+  });
+
+  els.menuOpen.addEventListener("click", () => {
+    if(!ctxRow) return;
+
+    const { pn, rev, ecn } = parseProjectKey(ctxRow.project_name);
+    if(!pn || !rev || !ecn){
+      showErr(`Nem tudom kinyerni a PN|REV|ECN-t ebből: "${ctxRow.project_name}". (Várt: PN | REV | ECN)`);
+      hideMenu();
+      return;
+    }
+
+    const url = new URL(EDIT_URL, window.location.origin);
+    url.searchParams.set("autopen", "1");
+    url.searchParams.set("mode", "edit");
+    url.searchParams.set("pn", pn);
+    url.searchParams.set("rev", rev);
+    url.searchParams.set("ecn", ecn);
+    url.searchParams.set("from", "project_report");
+    url.searchParams.set("u", ctxRow.username || "");
+
+    window.open(url.toString(), "_blank", "noopener");
+    hideMenu();
+  });
+
+  /* ── history modal ── */
+
+  async function openHistoryModal(projectName) {
+    const { pn, rev, ecn } = parseProjectKey(projectName);
+    if(!pn){ showErr("Nem sikerült a projekt azonosítása."); return; }
+
+    els.historyModalTitle.textContent = `Szerkesztési előzmények – ${projectName}`;
+    els.historyModalBody.innerHTML = `<div class="text-muted text-center py-3"><i class="fa-solid fa-spinner fa-spin me-1"></i>Betöltés...</div>`;
+    els.historyModal.style.display = "flex";
+
+    try {
+      const url = new URL(API_HISTORY, window.location.origin);
+      url.searchParams.set("pn",  pn);
+      url.searchParams.set("rev", rev);
+      url.searchParams.set("ecn", ecn);
+      const resp = await fetch(url.toString(), { credentials: "same-origin" });
+      const data = await resp.json().catch(() => ({}));
+
+      if(!resp.ok || !data.ok){
+        throw new Error(data.error || `HTTP ${resp.status}`);
+      }
+
+      const rows = data.rows || [];
+      if(!rows.length){
+        els.historyModalBody.innerHTML = `<div class="text-muted text-center py-4"><i class="fa-solid fa-circle-info me-1"></i>Még nincs rögzített előzmény ehhez a projekthez.<br><small class="mt-1 d-block">Az előzmények a következő mentéstől kezdve kerülnek naplózásra.</small></div>`;
+        return;
+      }
+
+      // akció badge stílus
+      const actionBadge = (a) => {
+        const s = { add:  { bg:"#dcfce7", c:"#166534", label:"Létrehozás" },
+                    edit: { bg:"#dbeafe", c:"#1e40af", label:"Szerkesztés" },
+                    save: { bg:"#f3f4f6", c:"#374151", label:"Mentés" } };
+        const k = (a || "save").toLowerCase();
+        const v = s[k] || s.save;
+        return `<span style="background:${v.bg};color:${v.c};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">${v.label}</span>`;
+      };
+
+      let html = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#1f2a37;color:#fff;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">
+            <th style="padding:8px 12px;text-align:left;">#</th>
+            <th style="padding:8px 12px;text-align:left;">Akció</th>
+            <th style="padding:8px 12px;text-align:left;">Felhasználó</th>
+            <th style="padding:8px 12px;text-align:left;">Dátum / Idő</th>
+            <th style="padding:8px 12px;text-align:left;">Archív</th>
+          </tr>
+        </thead>
+        <tbody>`;
+
+      rows.forEach((r, i) => {
+        const bg = i % 2 === 0 ? "#fff" : "#f8fafc";
+        const hasArch = !!r.archive_id;
+        const archCell = hasArch
+          ? `<span style="background:#ede9fe;color:#5b21b6;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;white-space:nowrap;"><i class="fa-solid fa-box-archive me-1"></i>Megnyitás</span>`
+          : `<span style="color:#cbd5e1;font-size:11px;">—</span>`;
+
+        html += `<tr data-archive-id="${hasArch ? esc(String(r.archive_id)) : ""}"
+                     style="background:${bg};border-bottom:1px solid #e5e7eb;${hasArch ? "cursor:pointer;" : ""}"
+                     ${hasArch ? 'title="Kattints: archív mentés megnyitása új lapon (csak olvasható)"' : ""}>
+          <td style="padding:8px 12px;color:#94a3b8;font-size:11px;">${rows.length - i}</td>
+          <td style="padding:8px 12px;">${actionBadge(r.action)}</td>
+          <td style="padding:8px 12px;font-weight:600;">${esc(r.username)}</td>
+          <td style="padding:8px 12px;font-variant-numeric:tabular-nums;color:#374151;">${esc(r.saved_at || "—")}</td>
+          <td style="padding:8px 12px;">${archCell}</td>
+        </tr>`;
+      });
+
+      html += `</tbody></table>
+        <div style="margin-top:10px;color:#94a3b8;font-size:11px;text-align:right;">${rows.length} bejegyzés • az archívval rendelkező sorokra kattintva új lapon nyílik a mentett állapot</div>`;
+      els.historyModalBody.innerHTML = html;
+
+      // archív sor katt → archív nézet új lapon (csak olvasható)
+      els.historyModalBody.querySelectorAll("tr[data-archive-id]").forEach(tr => {
+        const aid = tr.getAttribute("data-archive-id");
+        if (!aid) return;
+        tr.addEventListener("click", () => {
+          const u = new URL(ARCHIVE_URL, window.location.origin);
+          u.searchParams.set("autopen", "1");
+          u.searchParams.set("mode", "edit");
+          u.searchParams.set("pn",  pn);
+          u.searchParams.set("rev", rev);
+          u.searchParams.set("ecn", ecn);
+          u.searchParams.set("archive_id", aid);
+          window.open(u.toString(), "_blank", "noopener");
+        });
+      });
+
+    } catch(err) {
+      els.historyModalBody.innerHTML = `<div class="text-danger text-center py-3">Hiba: ${esc(err.message || String(err))}</div>`;
+    }
+  }
+
+  function closeHistoryModal(){
+    els.historyModal.style.display = "none";
+  }
+
+  function esc(s){ const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+  els.menuHistory.addEventListener("click", () => {
+    if(!ctxRow) return;
+    const projectName = ctxRow.project_name;
+    hideMenu();
+    openHistoryModal(projectName);
+  });
+
+  els.historyModalClose.addEventListener("click", closeHistoryModal);
+
+  els.historyModal.addEventListener("click", (e) => {
+    if(e.target === els.historyModal) closeHistoryModal();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if(e.key === "Escape" && els.historyModal.style.display === "flex") closeHistoryModal();
+  });
+
+  document.addEventListener("click", (e) => {
+    if(els.menu.style.display === "block" && !els.menu.contains(e.target)) hideMenu();
+  }, true);
+
+  document.addEventListener("keydown", (e) => { if(e.key === "Escape") hideMenu(); });
+  window.addEventListener("scroll", hideMenu, true);
+  window.addEventListener("resize", hideMenu);
+
+  /* ── lock jobbklikk menü ── */
+
+  function hideLockMenu(){
+    els.lockMenu.style.display = "none";
+    ctxLockRow = null;
+  }
+
+  els.locksTbody.addEventListener("contextmenu", (e) => {
+    const tr = e.target.closest("tr");
+    if(!tr) return;
+    e.preventDefault();
+
+    const configId    = tr.getAttribute("data-config-id") || "";
+    const projectName = tr.getAttribute("data-project")   || "";
+    const lockedBy    = tr.getAttribute("data-user")      || "";
+
+    ctxLockRow = { config_id: configId, project_name: projectName, locked_by: lockedBy };
+
+    els.lockMenuTitle.textContent = `${lockedBy} • ${projectName}`;
+    els.lockMenu.style.left = `${Math.min(e.clientX, window.innerWidth  - 290)}px`;
+    els.lockMenu.style.top  = `${Math.min(e.clientY, window.innerHeight - 120)}px`;
+    els.lockMenu.style.display = "block";
+  });
+
+  els.lockMenuOpen.addEventListener("click", () => {
+    if(!ctxLockRow) return;
+    const { pn, rev, ecn } = parseProjectKey(ctxLockRow.project_name);
+    if(!pn || !rev || !ecn){
+      showErr(`Nem tudom kinyerni a PN|REV|ECN-t: "${ctxLockRow.project_name}"`);
+      hideLockMenu();
+      return;
+    }
+    const url = new URL(EDIT_URL, window.location.origin);
+    url.searchParams.set("autopen", "1");
+    url.searchParams.set("mode",    "edit");
+    url.searchParams.set("pn",  pn);
+    url.searchParams.set("rev", rev);
+    url.searchParams.set("ecn", ecn);
+    window.open(url.toString(), "_blank", "noopener");
+    hideLockMenu();
+  });
+
+  els.lockMenuDelete.addEventListener("click", async () => {
+    if(!ctxLockRow) return;
+
+    const { config_id, project_name, locked_by } = ctxLockRow;
+    if(!config_id){
+      showErr("Nincs config_id – nem lehet törölni a lockot.");
+      hideLockMenu();
+      return;
+    }
+
+    if(!confirm(`Biztosan törlöd a lockot?\n\n${locked_by} – ${project_name}\n\nA lock törlése után az érintett felhasználó elveszíti a szerkesztési jogot, ha épp dolgozik rajta.`)){
+      hideLockMenu();
+      return;
+    }
+
+    hideLockMenu();
+
+    try {
+      const resp = await fetch(API_FORCE_UNLOCK, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ config_id: Number(config_id) }),
+        credentials: "same-origin",
+      });
+      const data = await resp.json().catch(() => ({}));
+      if(!resp.ok || !data.ok){
+        throw new Error(data.error || `HTTP ${resp.status}`);
+      }
+      // Frissítjük a lock táblát
+      await loadLocks();
+    } catch(err) {
+      showErr("Lock törlés sikertelen: " + (err.message || err));
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if(els.lockMenu.style.display === "block" && !els.lockMenu.contains(e.target)) hideLockMenu();
+  }, true);
+
+  document.addEventListener("keydown", (e) => { if(e.key === "Escape") hideLockMenu(); });
+
+  /* ── events ── */
+
+  els.reload.addEventListener("click", reloadAll);
+  els.search.addEventListener("input", render);
+  els.user.addEventListener("change", render);
+  els.project.addEventListener("change", render);
+  els.minConn.addEventListener("input", render);
+
+  els.btnToday.addEventListener("click", async () => { setRange(0); await reloadAll(); });
+  els.btn7.addEventListener("click",    async () => { setRange(7); await reloadAll(); });
+  els.btn30.addEventListener("click",   async () => { setRange(30); await reloadAll(); });
+
+  // alapértelmezett: utolsó 7 nap
+  setRange(7);
+  wireSorting();
+  reloadAll();
+
+  // lock tábla auto-refresh
+  let locksBusy = false;
+  setInterval(async () => {
+    if (locksBusy) return;
+    locksBusy = true;
+    try { await loadLocks(); } catch(e) {}
+    finally { locksBusy = false; }
+  }, 5000);
+
+})();
+</script>
+
+{% endblock %}

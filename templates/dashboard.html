@@ -1,0 +1,152 @@
+{% extends lang ~ '/base.html' %}
+{% block title %}Domain Deploy – Áttekintés{% endblock %}
+{% block page_title %}Domain Deploy – Áttekintés{% endblock %}
+{% block page_header_right %}
+  <button id="btnSettings" class="btn btn-sm btn-outline-light"
+          data-bs-toggle="modal" data-bs-target="#ddSettingsModal">
+    <i class="fa-solid fa-power-off me-1"></i>Üzemmód
+  </button>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid my-3">
+
+  <!-- FŐ KAPCSOLÓ állapot-sáv -->
+  {% set mode = settings.mode %}
+  <div class="alert d-flex justify-content-between align-items-center
+       {{ 'alert-success' if mode=='live' else ('alert-warning' if mode=='test' else 'alert-secondary') }}">
+    <div>
+      <i class="fa-solid fa-power-off me-1"></i>
+      <strong>Üzemmód:</strong>
+      {% if mode=='live' %}ÉLES – minden gép a hozzárendelései szerint telepít.
+      {% elif mode=='test' %}TESZT – csak a teszt-gépek telepítenek{% if settings.test_hosts %}: <code>{{ settings.test_hosts|join(', ') }}</code>{% else %} (jelenleg egy gép sincs megadva → élesben semmi nem történik){% endif %}.
+      {% else %}KIKAPCSOLVA – egyetlen gépen sem telepít/töröl semmit.
+      {% endif %}
+    </div>
+    <button class="btn btn-sm btn-dark" data-bs-toggle="modal" data-bs-target="#ddSettingsModal">Módosítás</button>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-6 col-lg-2">
+      <div class="card text-center p-3"><div class="display-6">{{ stats.packages }}</div><div class="text-muted small">Csomagok</div></div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card text-center p-3"><div class="display-6">{{ stats.assignments }}</div><div class="text-muted small">Hozzárendelések</div></div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card text-center p-3"><div class="display-6">{{ stats.machines }}</div><div class="text-muted small">Gépek</div>
+        <div class="small text-success">{{ stats.machines_active_24h }} aktív/24ó</div></div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card text-center p-3"><div class="display-6 {{ 'text-warning' if stats.jobs_pending else '' }}">{{ stats.jobs_pending }}</div><div class="text-muted small">Függő feladatok</div></div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card text-center p-3"><div class="display-6">{{ stats.inventory_apps }}</div><div class="text-muted small">Programok (leltár)</div></div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card text-center p-3"><div class="display-6 {{ 'text-danger' if stats.errors else 'text-success' }}">{{ stats.errors }}</div><div class="text-muted small">Hibák (napló)</div></div>
+    </div>
+  </div>
+
+  {% if stats.status_breakdown %}
+  <div class="card mb-3"><div class="card-body">
+    <h6 class="mb-2">Akciók az elmúlt 7 napban</h6>
+    {% for st, c in stats.status_breakdown.items() %}
+      {% set cls = 'bg-success' if st in ['installed','removed','ok','skipped','success'] else ('bg-danger' if st in ['error','failed'] else 'bg-secondary') %}
+      <span class="badge {{ cls }} me-1 mb-1">{{ st }}: {{ c }}</span>
+    {% endfor %}
+  </div></div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>Legutóbb aktív gépek</span>
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('deploy.machines_page', lang=lang) }}">Összes</a>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-striped mb-0 align-middle">
+        <thead><tr><th>Gép</th><th>OU / csoportok</th><th>OS</th><th>IP</th><th>Legutóbb</th></tr></thead>
+        <tbody>
+          {% for m in machines %}
+          <tr>
+            <td><a href="{{ url_for('deploy.logs_page', lang=lang, host=m.hostname) }}">{{ m.hostname }}</a></td>
+            <td class="small text-muted">{{ m.ad_ou }}{% if m.ad_groups_list %} · {{ m.ad_groups_list|join(', ') }}{% endif %}</td>
+            <td class="small">{{ m.os_info }}</td>
+            <td class="small">{{ m.ip }}</td>
+            <td class="small text-muted">{{ m.last_seen }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-center text-muted py-3">Még egy gép sem jelentkezett be.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Üzemmód (fő kapcsoló) modal ===== -->
+<div class="modal fade" id="ddSettingsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa-solid fa-power-off me-2"></i>Domain Deploy üzemmód</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted">Ez a fő kapcsoló dönti el, hogy a gépek ténylegesen telepítsenek-e.
+           A gépek becsekkolása és a leltár ettől függetlenül mindig működik.</p>
+
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="radio" name="ddMode" id="modeOff" value="off">
+          <label class="form-check-label" for="modeOff">
+            <strong>Kikapcsolva</strong> – egyetlen gépen sem telepít/töröl semmit (teljes szünet).
+          </label>
+        </div>
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="radio" name="ddMode" id="modeTest" value="test">
+          <label class="form-check-label" for="modeTest">
+            <strong>Teszt</strong> – CSAK az alábbi gépek telepítenek, mindenki más „szünetel".
+          </label>
+        </div>
+        <div class="mb-3 ms-4">
+          <label class="form-label small">Teszt-gépek (vesszővel, maszk is megengedett: <code>PC-LAB-*</code>)</label>
+          <textarea id="ddTestHosts" class="form-control form-control-sm" rows="2" placeholder="pl. PC-TESZT-01, PC-LAB-*"></textarea>
+        </div>
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="radio" name="ddMode" id="modeLive" value="live">
+          <label class="form-check-label" for="modeLive">
+            <strong>Éles</strong> – minden gép a hozzárendelései szerint telepít (élesben megy).
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Mégse</button>
+        <button class="btn btn-primary btn-sm" id="ddSaveSettings"><i class="fa-solid fa-floppy-disk me-1"></i>Mentés</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const BASE="/{{ lang }}/deploy";
+  const settings = {{ settings|tojson }};
+  function jx(u,o){return fetch(u,Object.assign({credentials:"same-origin",headers:{"Content-Type":"application/json"}},o||{})).then(r=>r.json());}
+  function toast(m,t){const e=document.createElement("div");e.className="toast text-white bg-"+(t||"primary")+" border-0 show position-fixed top-0 end-0 m-3";e.style.zIndex=1400;e.innerHTML='<div class="d-flex"><div class="toast-body">'+m+'</div></div>';document.body.appendChild(e);setTimeout(()=>e.remove(),4000);}
+
+  // előtöltés a jelenlegi beállításból
+  document.getElementById("mode"+settings.mode.charAt(0).toUpperCase()+settings.mode.slice(1)).checked = true;
+  document.getElementById("ddTestHosts").value = (settings.test_hosts||[]).join(", ");
+
+  document.getElementById("ddSaveSettings").onclick=()=>{
+    const mode=(document.querySelector('input[name=ddMode]:checked')||{}).value||"test";
+    const body={mode:mode, test_hosts:document.getElementById("ddTestHosts").value};
+    jx(BASE+"/api/settings",{method:"POST",body:JSON.stringify(body)}).then(j=>{
+      if(!j.ok)throw new Error(j.error);
+      toast("Üzemmód mentve: "+j.settings.mode.toUpperCase(),"success");
+      setTimeout(()=>location.reload(),700);
+    }).catch(e=>toast(e.message,"danger"));
+  };
+})();
+</script>
+{% endblock %}

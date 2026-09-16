@@ -1,0 +1,139 @@
+{% extends lang ~ '/base.html' %}
+{% block title %}Domain Deploy – Csomagok{% endblock %}
+{% block page_title %}Domain Deploy – Szoftvercsomagok{% endblock %}
+{% block page_header_right %}
+  <button id="btnNewPkg" class="btn btn-success btn-sm"><i class="fa-solid fa-plus me-1"></i>Új csomag</button>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid my-3">
+  <div class="row g-3">
+    <div class="col-12 col-lg-4">
+      <div class="card">
+        <div class="card-header">Csomagok</div>
+        <div class="list-group list-group-flush" id="pkgList" style="max-height:72vh;overflow:auto;">
+          {% for p in packages %}
+          <button type="button" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+                  data-id="{{ p.id }}">
+            <span>
+              {% if not p.enabled %}<i class="fa-solid fa-ban text-muted me-1" title="kikapcsolva"></i>{% endif %}
+              {{ p.name }}
+            </span>
+            <span class="badge bg-secondary rounded-pill">{{ p.step_count }} lépés · {{ p.assign_count }} hozzár.</span>
+          </button>
+          {% else %}
+          <div class="text-muted p-3">Még nincs csomag.</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-8">
+      <div class="card h-100"><div class="card-body" id="pkgDetail">
+        <div class="text-center text-muted py-5">Válassz csomagot, vagy hozz létre újat.</div>
+      </div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const BASE = "/{{ lang }}/deploy";
+  const METHODS = {{ methods|tojson }};
+  const detail = document.getElementById("pkgDetail");
+
+  function esc(s){return String(s==null?"":s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");}
+  function toast(m,t){const e=document.createElement("div");e.className="toast text-white bg-"+(t||"primary")+" border-0 show position-fixed top-0 end-0 m-3";e.style.zIndex=1300;e.innerHTML='<div class="d-flex"><div class="toast-body">'+esc(m)+'</div><button class="btn-close btn-close-white me-2 m-auto" onclick="this.closest(\'.toast\').remove()"></button></div>';document.body.appendChild(e);setTimeout(()=>e.remove(),5000);}
+  function jx(url,opt){return fetch(url,Object.assign({credentials:"same-origin",headers:{"Content-Type":"application/json"}},opt||{})).then(r=>r.json());}
+
+  function methodOptions(sel){return METHODS.map(m=>'<option '+(m===sel?'selected':'')+'>'+m+'</option>').join("");}
+
+  function loadPkg(id){
+    detail.innerHTML='<div class="text-center text-muted py-5">Betöltés…</div>';
+    jx(BASE+"/api/package/"+id).then(j=>{
+      if(!j.ok){throw new Error(j.error);}
+      renderPkg(j.package);
+    }).catch(e=>detail.innerHTML='<div class="text-danger p-3">'+esc(e.message)+'</div>');
+  }
+
+  function renderPkg(p){
+    let steps = p.steps.map(s=>(
+      '<tr><td><span class="badge bg-info text-dark">'+esc(s.method)+'</span></td>'+
+      '<td><code>'+esc(s.identifier)+'</code>'+(s.args?'<div class="small text-muted">'+esc(s.args)+'</div>':'')+'</td>'+
+      '<td class="small text-muted">'+(s.uninstall_identifier?('<code>'+esc(s.uninstall_identifier)+'</code>'):'<span class="text-secondary">auto</span>')+
+         (s.uninstall_args?'<div>'+esc(s.uninstall_args)+'</div>':'')+'</td>'+
+      '<td class="small text-muted">'+esc(s.check_cmd||"")+'</td>'+
+      '<td><button class="btn btn-sm btn-outline-danger" data-delstep="'+s.id+'"><i class="fa-solid fa-trash"></i></button></td></tr>'
+    )).join("");
+    if(!p.steps.length) steps='<tr><td colspan="5" class="text-muted small">Még nincs lépés – add hozzá lent.</td></tr>';
+
+    detail.innerHTML=
+      '<div class="d-flex justify-content-between align-items-start mb-3">'+
+        '<div><h4 class="mb-0">'+esc(p.name)+'</h4><div class="text-muted small">'+esc(p.description||"")+'</div></div>'+
+        '<div class="d-flex gap-2">'+
+          '<button class="btn btn-sm btn-outline-primary" id="btnEditPkg"><i class="fa-solid fa-pen"></i></button>'+
+          '<button class="btn btn-sm btn-outline-danger" id="btnDelPkg"><i class="fa-solid fa-trash"></i></button>'+
+        '</div>'+
+      '</div>'+
+      '<div class="mb-2">'+(p.enabled?'<span class="badge bg-success">aktív</span>':'<span class="badge bg-secondary">kikapcsolva</span>')+'</div>'+
+      '<h6 class="mt-3">Telepítési lépések</h6>'+
+      '<div class="table-responsive"><table class="table table-sm align-middle">'+
+        '<thead><tr><th>Módszer</th><th>Telepítés (identifier)</th><th>Eltávolítás</th><th>Ellenőrzés (check)</th><th></th></tr></thead>'+
+        '<tbody>'+steps+'</tbody></table></div>'+
+      '<div class="card bg-body-tertiary p-2 mt-2"><div class="row g-2 align-items-end">'+
+        '<div class="col-6 col-md-2"><label class="form-label small mb-0">Módszer</label><select id="stMethod" class="form-select form-select-sm">'+methodOptions("choco")+'</select></div>'+
+        '<div class="col-6 col-md-3"><label class="form-label small mb-0">Azonosító*</label><input id="stId" class="form-control form-control-sm" placeholder="firefox / app.msi / https://…"></div>'+
+        '<div class="col-6 col-md-2"><label class="form-label small mb-0">Telep. argumentumok</label><input id="stArgs" class="form-control form-control-sm" placeholder="/qn, --silent…"></div>'+
+        '<div class="col-6 col-md-2"><label class="form-label small mb-0">Eltáv. azonosító</label><input id="stUnId" class="form-control form-control-sm" placeholder="MSI: {GUID}"></div>'+
+        '<div class="col-6 col-md-2"><label class="form-label small mb-0">Ellenőrzés (opc.)</label><input id="stCheck" class="form-control form-control-sm" placeholder="where firefox"></div>'+
+        '<div class="col-6 col-md-1"><button class="btn btn-primary btn-sm w-100" id="btnAddStep"><i class="fa-solid fa-plus"></i></button></div>'+
+      '</div><div class="form-text">choco/winget: csomag-ID (eltávolítás automatikus) · msi: azonosító=fájl/URL, eltáv.=ProductCode <code>{GUID}</code> · exe/cmd: eltáv.=parancs</div></div>';
+
+    document.getElementById("btnAddStep").onclick=()=>{
+      const body={method:document.getElementById("stMethod").value,identifier:document.getElementById("stId").value,
+        args:document.getElementById("stArgs").value,check_cmd:document.getElementById("stCheck").value,
+        uninstall_identifier:document.getElementById("stUnId").value};
+      if(!body.identifier){toast("Az azonosító kötelező.","danger");return;}
+      jx(BASE+"/api/package/"+p.id+"/step",{method:"POST",body:JSON.stringify(body)}).then(j=>{
+        if(!j.ok)throw new Error(j.error); loadPkg(p.id);
+      }).catch(e=>toast(e.message,"danger"));
+    };
+    detail.querySelectorAll("[data-delstep]").forEach(b=>b.onclick=()=>{
+      jx(BASE+"/api/step/"+b.dataset.delstep,{method:"DELETE"}).then(()=>loadPkg(p.id));
+    });
+    document.getElementById("btnDelPkg").onclick=()=>{
+      if(!confirm("Biztosan törlöd a(z) '"+p.name+"' csomagot?"))return;
+      jx(BASE+"/api/package/"+p.id,{method:"DELETE"}).then(()=>{toast("Törölve.","success");setTimeout(()=>location.reload(),500);});
+    };
+    document.getElementById("btnEditPkg").onclick=()=>openPkgForm(p);
+  }
+
+  function openPkgForm(p){
+    const isNew=!p;
+    const name=p?p.name:"", desc=p?(p.description||""):"", en=p?p.enabled:true;
+    detail.innerHTML=
+      '<h4>'+(isNew?"Új csomag":"Csomag szerkesztése")+'</h4>'+
+      '<div class="mb-2"><label class="form-label small">Név*</label><input id="pName" class="form-control" value="'+esc(name)+'"></div>'+
+      '<div class="mb-2"><label class="form-label small">Leírás</label><input id="pDesc" class="form-control" value="'+esc(desc)+'"></div>'+
+      '<div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="pEn" '+(en?"checked":"")+'><label class="form-check-label" for="pEn">Aktív</label></div>'+
+      '<button class="btn btn-primary" id="pSave">Mentés</button> '+
+      '<button class="btn btn-secondary" id="pCancel">Mégse</button>';
+    document.getElementById("pCancel").onclick=()=>{ p?loadPkg(p.id):(detail.innerHTML='<div class="text-center text-muted py-5">Válassz csomagot.</div>'); };
+    document.getElementById("pSave").onclick=()=>{
+      const body={name:document.getElementById("pName").value,description:document.getElementById("pDesc").value,enabled:document.getElementById("pEn").checked};
+      if(!body.name){toast("A név kötelező.","danger");return;}
+      const url=isNew?BASE+"/api/package":BASE+"/api/package/"+p.id;
+      jx(url,{method:"POST",body:JSON.stringify(body)}).then(j=>{
+        if(!j.ok)throw new Error(j.error);
+        toast("Mentve.","success"); setTimeout(()=>location.reload(),500);
+      }).catch(e=>toast(e.message,"danger"));
+    };
+  }
+
+  document.querySelectorAll("#pkgList [data-id]").forEach(b=>b.onclick=()=>{
+    document.querySelectorAll("#pkgList .list-group-item").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active"); loadPkg(b.dataset.id);
+  });
+  document.getElementById("btnNewPkg").onclick=()=>openPkgForm(null);
+})();
+</script>
+{% endblock %}

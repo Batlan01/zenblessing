@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}{% endblock %}</title>
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" crossorigin="anonymous"/>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}"/>
+
+  <!-- Bootstrap JS (bundle = +Popper) -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+
+  <!-- Socket.IO client -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+
+  {% block extra_head %}{% endblock %}
+
+<style>
+.sidebar .nav-link{
+  border-radius: .75rem;
+  padding: .6rem .75rem;
+  color: #e2e8f0;
+  transition: background-color .15s ease, color .15s ease;
+}
+.sidebar .nav-link:hover{
+  background: rgba(255,255,255,.06);
+  color: #fff;
+}
+.sidebar .nav-link.active{
+  background: rgba(var(--bs-primary-rgb), .22);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+}
+.sidebar .nav-link.active i{ color: #fff; }
+.sidebar .nav-link:active{
+  background: rgba(var(--bs-primary-rgb), .32);
+}
+.offcanvas-mobile .nav-link.active{
+  background: rgba(var(--bs-primary-rgb), .22);
+  color: #0f172a;
+}
+.sidebar{
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar > div:first-child{
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  min-height: 0;
+  padding-bottom: .5rem;
+}
+.sidebar .logout{
+  margin-top: auto;
+  padding: .5rem 0;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+.sidebar > div:first-child::-webkit-scrollbar{ width: 8px; }
+.sidebar > div:first-child::-webkit-scrollbar-thumb{
+  background: rgba(255,255,255,.2);
+  border-radius: 8px;
+}
+.sidebar > div:first-child:hover::-webkit-scrollbar-thumb{
+  background: rgba(255,255,255,.35);
+}
+.sidebar {
+  background: #0b1020;
+  color: #e2e8f0;
+}
+.sidebar .nav-link { color: #e2e8f0; }
+.sidebar .nav-link i { color: inherit; }
+.sidebar .logout{ border-top: 1px solid rgba(255,255,255,.08); }
+</style>
+</head>
+
+<body>
+
+  {% set current_lang = session.get('lang','en') %}
+  {% set user = user|default(None) %}
+
+  <!-- Mobile hamburger -->
+  <button id="sidebarToggle" class="btn btn-primary m-2 d-md-none" aria-label="Sidebar toggle">
+    <i class="fas fa-bars"></i>
+  </button>
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div>
+      <img src="{{ url_for('static', filename='images/logo-white.png') }}" alt="Logo" class="sidebar-logo"/>
+
+      {% if user %}
+      <div class="user-info mt-2 mb-3">
+        <div class="user-name">{{ user.display_name }}</div>
+        <div class="user-title dim">{{ user.job_title }}</div>
+        <hr class="sidebar-divider"/>
+      </div>
+      {% endif %}
+
+      <ul class="nav flex-column gap-1">
+
+        {% if user and can_view('database') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='dbv' %}active{% endif %}"
+            href="{{ url_for('db_viewer.page', lang=current_lang) }}">
+            <i class="fa-solid fa-database"></i><span>Database</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('notifications') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='notifications' else '' }}"
+            href="{{ url_for('notifications.notification_admin_page', lang=current_lang) }}">
+            <i class="fa-solid fa-bell"></i><span>Notifications</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('devices') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='devices' %}active{% endif %}" href="/{{ current_lang }}/">
+            <i class="fa-solid fa-microchip"></i><span>Devices</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('programs') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='programs' %}active{% endif %}"
+            href="{{ url_for('main.programs_page', lang=current_lang) }}">
+            Programs
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('errors') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='errors' %}active{% endif %}" href="/errors_controller">
+            <i class="fa-solid fa-triangle-exclamation"></i><span>Errors</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('pn_progress') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='pn_progress' %}active{% endif %}" href="/pn_progress">
+            <i class="fa-solid fa-hashtag"></i><span>Part Number progress</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('users_progress') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='users_progress' %}active{% endif %}" href="/{{ current_lang }}/users_progress">
+            <i class="fa-solid fa-user-clock"></i><span>User progress</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('teamleaders') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='teamleaders' %}active{% endif %}"
+            href="{{ url_for('teamleaders.teamleaders', lang=current_lang) }}">
+            <i class="fa-solid fa-user-gear"></i><span>TeamLeader page</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('wo_progress') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='wo_progress' %}active{% endif %}" href="/{{ current_lang }}/wo_progress">
+            <i class="fa-solid fa-diagram-project"></i><span>WO progress</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and (can_view('tables') or can_view('table_creator')) %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='tables' else '' }}"
+            href="{{ url_for('tables.tables_page', lang=current_lang) }}">
+            <i class="fa-solid fa-table"></i><span>Table Creator</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('hr') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='hr' else '' }}"
+            href="{{ url_for('human_resources.hr_home', lang=current_lang) }}">
+            <i class="fa-solid fa-users-gear"></i><span>HR</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('bartender_print') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='bartender_print' else '' }}"
+            href="{{ url_for('bartender.print_page', lang=current_lang) }}">
+            <i class="fa-solid fa-print"></i><span>BarTender print</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('bartender_edit') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='bartender_edit' else '' }}"
+            href="{{ url_for('bartender.edit_v1', lang=current_lang) }}">
+            <i class="fa-solid fa-pen-to-square"></i><span>BarTender editor</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('bartender_preview') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='bartender_preview' else '' }}"
+            href="{{ url_for('bartender.preview_page', lang=current_lang) }}">
+            <i class="fa-regular fa-image"></i><span>BarTender preview</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('bartender_reports') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='bartender_reports' else '' }}"
+            href="{{ url_for('bartender.reports_page', lang=current_lang) }}">
+            <i class="fa-solid fa-chart-column"></i><span>BarTender print reports</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('bartender_project_report') %}
+        <a class="nav-link {{ 'active' if active=='bartender_project_report' else '' }}"
+          href="{{ url_for('bartender_project_report.page', lang=current_lang) }}">
+          <i class="fa-solid fa-diagram-project"></i><span>BarTender project reports</span>
+        </a>
+        {% endif %}
+
+        {% if user and can_view('bartender_template_debug') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='bartender_template_debug' else '' }}"
+            href="{{ url_for('bartender.template_debug_page', lang=current_lang) }}">
+            <i class="fa-regular fa-floppy-disk"></i><span>BTW file tester</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('scan') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='scan' else '' }}"
+            href="{{ url_for('scan.scan_page', lang=current_lang) }}">
+            <i class="fa-solid fa-qrcode"></i><span>QR Scan</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('qr_logs') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='qr_logs' else '' }}"
+            href="{{ url_for('qr.qr_logs_page', lang=current_lang) }}">
+            <i class="fa-solid fa-clipboard-list"></i><span>QR print log</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('qr_injector') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='qr_injector' else '' }}"
+            href="{{ url_for('qr_injector.form', lang=current_lang) }}">
+            <i class="fa-solid fa-qrcode"></i><span>QR Injector</span>
+          </a>
+        </li>
+        {% endif %}
+
+      </ul>
+
+    </div>
+
+    <div class="logout">
+      {% if user %}
+        <a class="nav-link text-danger" href="/auth/logout"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
+      {% else %}
+        <div class="nav-link dim small">Public view</div>
+      {% endif %}
+    </div>
+  </aside>
+
+  <!-- Content -->
+  <main class="content">
+    <div class="page-header d-flex align-items-center justify-content-between mb-3">
+      <h1 class="h5 mb-0">{% block page_title %}{% endblock %}</h1>
+      <div class="d-flex align-items-center gap-2">
+        {% block page_header_right %}{% endblock %}
+      </div>
+    </div>
+
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const toggleButton = document.getElementById("sidebarToggle");
+      const sidebar = document.getElementById("sidebar");
+      toggleButton?.addEventListener("click", () => sidebar.classList.toggle("d-none"));
+    });
+  </script>
+
+  {% block extra_scripts %}{% endblock %}
+
+  <!-- ===== Admin/System notice UI hosts ===== -->
+  <div id="adminNoticeBannerHost" class="position-sticky top-0" style="z-index: 1200;"></div>
+  <div id="adminNoticeToastHost" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1200;"></div>
+
+  <div class="modal fade" id="adminNoticeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">System notification</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div id="adminNoticeModalText" class="mb-2"></div>
+          <div id="adminNoticeModalEta" class="text-muted" style="display:none;"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="adminNoticeAckBtn" type="button" class="btn btn-primary">Got it</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container (flash messages) -->
+  <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index:1100">
+    {% with messages = get_flashed_messages(with_categories=True) %}
+      {% for category, message in messages %}
+        <div class="toast align-items-center text-white
+                    {% if category in ['danger','error'] %}bg-danger{% elif category=='warning' %}bg-warning{% else %}bg-primary{% endif %}
+                    border-0 shadow"
+             role="alert" aria-live="assertive" aria-atomic="true"
+             data-bs-autohide="true" data-bs-delay="3500">
+          <div class="d-flex">
+            <div class="toast-body">{{ message }}</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+          </div>
+        </div>
+      {% endfor %}
+    {% endwith %}
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      document.querySelectorAll('.toast').forEach(function (el) {
+        new bootstrap.Toast(el).show();
+      });
+    });
+  </script>
+
+  <!-- ===== Socket listener (admin_notice) + presence/page_view on every page ===== -->
+  <script>
+  (function () {
+    const JINJA_PAGE = "{{ active|default('') }}";
+
+    function pageFromPath() {
+      const parts = (window.location.pathname || "").split("/").filter(Boolean);
+      const p0 = (parts[0] || "").toLowerCase();
+      const rest = (p0 === "hu" || p0 === "sk" || p0 === "en") ? parts.slice(1) : parts;
+
+      const last = rest[rest.length - 1] || "home";
+      const prev = rest[rest.length - 2] || "";
+
+      return (prev ? (prev + "_" + last) : last).replaceAll("-", "_");
+    }
+
+    const CURRENT_PAGE = (JINJA_PAGE && String(JINJA_PAGE).trim())
+      ? String(JINJA_PAGE).trim()
+      : pageFromPath();
+
+    if (typeof io === "undefined") return;
+
+    const socket = io({
+      transports: ["websocket", "polling"],
+      withCredentials: true
+    });
+
+    let CURRENT_MODAL_NOTICE_ID = null;
+
+    const HEARTBEAT_MS = 10000;
+    let heartbeatTimer = null;
+
+    function sendPresence(reason = "hb") {
+      const visible = (document.visibilityState === "visible");
+      socket.emit("presence", {
+        page: CURRENT_PAGE,
+        visible,
+        reason,
+        ts: Date.now()
+      });
+    }
+
+    function startHeartbeat() {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      heartbeatTimer = setInterval(() => {
+        if (socket.connected) sendPresence("hb");
+      }, HEARTBEAT_MS);
+    }
+
+    function stopHeartbeat() {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+
+    function safeDisconnect() {
+      try { sendPresence("leave"); } catch(e) {}
+      try { socket.disconnect(); } catch(e) {}
+    }
+
+    socket.on("connect", () => {
+      socket.emit("page_view", { page: CURRENT_PAGE });
+      sendPresence("connect");
+      startHeartbeat();
+    });
+
+    socket.on("disconnect", () => {
+      stopHeartbeat();
+    });
+
+    window.addEventListener("pagehide", safeDisconnect);
+    window.addEventListener("beforeunload", safeDisconnect);
+
+    window.addEventListener("pageshow", (e) => {
+      if (e.persisted) {
+        try { if (!socket.connected) socket.connect(); } catch(_) {}
+        try { socket.emit("page_view", { page: CURRENT_PAGE }); } catch(_) {}
+        try { sendPresence("pageshow"); } catch(_) {}
+      }
+    });
+
+    document.addEventListener("visibilitychange", () => socket.connected && sendPresence("vis"));
+    window.addEventListener("focus", () => socket.connected && sendPresence("focus"));
+    window.addEventListener("blur",  () => socket.connected && sendPresence("blur"));
+
+    function levelToBg(level) {
+      level = String(level || "warning").toLowerCase();
+      if (level === "danger" || level === "error") return "bg-danger text-white";
+      if (level === "warning") return "bg-warning";
+      if (level === "success") return "bg-success text-white";
+      return "bg-primary text-white";
+    }
+
+    function emitAck(noticeId) {
+      if (!noticeId) return;
+      socket.emit("notice_ack", { notice_id: noticeId });
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+    }
+
+    function showBanner(data) {
+      const host = document.getElementById("adminNoticeBannerHost");
+      if (!host) return;
+
+      host.dataset.noticeId = data.notice_id || "";
+
+      const bg = levelToBg(data.level);
+      const etaHtml = data.eta_minutes
+        ? ('<span class="ms-2 opacity-75">(approx. ' + Number(data.eta_minutes) + ' min)</span>')
+        : "";
+
+      host.innerHTML =
+        '<div class="alert ' + bg + ' mb-0 rounded-0 d-flex align-items-center justify-content-between">' +
+          '<div>' +
+            '<strong>Notice:</strong> <span>' + escapeHtml(data.message || "") + '</span>' +
+            etaHtml +
+          '</div>' +
+          '<div class="d-flex gap-2">' +
+            '<button class="btn btn-sm btn-light" id="adminBannerAck">Got it</button>' +
+            '<button class="btn btn-sm btn-outline-light" id="adminBannerClose">Close</button>' +
+          '</div>' +
+        '</div>';
+
+      document.getElementById("adminBannerAck")?.addEventListener("click", () => {
+        emitAck(data.notice_id);
+        host.innerHTML = "";
+        host.dataset.noticeId = "";
+      });
+      document.getElementById("adminBannerClose")?.addEventListener("click", () => {
+        host.innerHTML = "";
+        host.dataset.noticeId = "";
+      });
+    }
+
+    function showModal(data) {
+      const modalEl = document.getElementById("adminNoticeModal");
+      const textEl  = document.getElementById("adminNoticeModalText");
+      const etaEl   = document.getElementById("adminNoticeModalEta");
+      const ackBtn  = document.getElementById("adminNoticeAckBtn");
+      if (!modalEl || !textEl || !etaEl || !ackBtn) return;
+
+      CURRENT_MODAL_NOTICE_ID = data.notice_id || null;
+
+      textEl.textContent = data.message || "";
+
+      if (data.eta_minutes) {
+        etaEl.style.display = "";
+        etaEl.textContent = "Expected downtime: approx. " + Number(data.eta_minutes) + " minutes.";
+      } else {
+        etaEl.style.display = "none";
+      }
+
+      modalEl.addEventListener("hidden.bs.modal", function onHidden() {
+        modalEl.removeEventListener("hidden.bs.modal", onHidden);
+        CURRENT_MODAL_NOTICE_ID = null;
+        if (data && data.sticky) showToast(data);
+      });
+
+      ackBtn.onclick = () => {
+        emitAck(data.notice_id);
+        bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+      };
+
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+
+    function showToast(data) {
+      const host = document.getElementById("adminNoticeToastHost");
+      if (!host) return;
+
+      const bg = levelToBg(data.level);
+      const sticky = !!data.sticky;
+
+      const etaHtml = data.eta_minutes
+        ? ('<div class="opacity-75 mt-1">Expected downtime: approx. ' + Number(data.eta_minutes) + ' min</div>')
+        : "";
+
+      const toastEl = document.createElement("div");
+      toastEl.className = "toast align-items-center " + bg + " border-0 shadow mb-2";
+      toastEl.setAttribute("role","alert");
+      toastEl.setAttribute("aria-live","assertive");
+      toastEl.setAttribute("aria-atomic","true");
+
+      toastEl.dataset.noticeId = data.notice_id || "";
+
+      toastEl.innerHTML =
+      '<div class="d-flex">' +
+        '<div class="toast-body">' +
+          '<div class="fw-semibold">System notification</div>' +
+          '<div>' + escapeHtml(data.message || "") + '</div>' +
+          etaHtml +
+        '</div>' +
+      '</div>';
+
+      host.appendChild(toastEl);
+
+      const t = bootstrap.Toast.getOrCreateInstance(toastEl, {
+        autohide: !sticky,
+        delay: 6000
+      });
+      t.show();
+
+      toastEl.addEventListener("hidden.bs.toast", () => toastEl.remove());
+    }
+
+    socket.on("admin_notice", (data) => {
+      const ui = String(data?.ui || "toast").toLowerCase();
+      if (ui === "banner") return showBanner(data);
+      if (ui === "modal") return showModal(data);
+      return showToast(data);
+    });
+
+    socket.on("admin_notice_stop", (payload) => {
+      const id = String(payload?.notice_id || "").trim();
+      if (!id) return;
+
+      const bannerHost = document.getElementById("adminNoticeBannerHost");
+      if (bannerHost && bannerHost.dataset.noticeId === id) {
+        bannerHost.innerHTML = "";
+        bannerHost.dataset.noticeId = "";
+      }
+
+      document.querySelectorAll('#adminNoticeToastHost .toast[data-notice-id="'+id+'"]').forEach((el) => {
+        try { bootstrap.Toast.getOrCreateInstance(el).hide(); } catch(e) {}
+        el.remove();
+      });
+
+      if (CURRENT_MODAL_NOTICE_ID === id) {
+        const modalEl = document.getElementById("adminNoticeModal");
+        if (modalEl) {
+          try { bootstrap.Modal.getOrCreateInstance(modalEl).hide(); } catch(e) {}
+        }
+        CURRENT_MODAL_NOTICE_ID = null;
+      }
+    });
+
+  })();
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,57 @@
+{% extends lang ~ '/base.html' %}
+{% block title %}Domain Deploy – Agent / GPO{% endblock %}
+{% block page_title %}Domain Deploy – Agent telepítése (GPO){% endblock %}
+
+{% block content %}
+<div class="container my-3" style="max-width:900px;">
+
+  <div class="alert alert-info">
+    A gépeken egy kis PowerShell <strong>agent</strong> fut, ami lekéri a neki szóló
+    csomagokat és telepíti őket. Két módon indul: <strong>GPO startup script</strong>
+    (első bekötéskor / induláskor) és <strong>ütemezett feladat</strong> (rendszeres
+    polling a későbbi változásokhoz). A bootstrap mindkettőt beállítja.
+  </div>
+
+  <div class="card mb-3"><div class="card-body">
+    <h6>Szerver elérhetőség</h6>
+    <div class="mb-1">Alap-URL: <code>{{ base_url }}</code></div>
+    <div class="mb-1">API kulcs (X-Deploy-Key):
+      {% if api_key %}<code>{{ api_key }}</code>{% else %}<span class="text-warning">nincs beállítva (zárt hálózat)</span>{% endif %}
+    </div>
+    <div class="small text-muted">A kulcsot a <code>DD_AGENT_API_KEY</code>, az URL-t a <code>DD_PUBLIC_BASE_URL</code> env változó állítja.</div>
+  </div></div>
+
+  <div class="card mb-3"><div class="card-body">
+    <h6>Letöltések</h6>
+    <a class="btn btn-outline-primary btn-sm" href="{{ base_url }}/deploy/agent/bootstrap.ps1" target="_blank">
+      <i class="fa-solid fa-download me-1"></i>bootstrap.ps1 (GPO startup)
+    </a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ base_url }}/deploy/agent/agent.ps1" target="_blank">
+      <i class="fa-solid fa-download me-1"></i>agent.ps1
+    </a>
+    <div class="small text-muted mt-2">Az agentet nem kell kézzel szétküldeni — a bootstrap mindig a szerverről tölti a friss verziót.</div>
+  </div></div>
+
+  <div class="card mb-3"><div class="card-body">
+    <h6>GPO beállítás (egyszer)</h6>
+    <ol class="small mb-0">
+      <li>Másold a <code>bootstrap.ps1</code>-et egy elérhető helyre (pl. SYSVOL netlogon megosztás), vagy hagyd a szerveren.</li>
+      <li><strong>Group Policy Management</strong> → új GPO a cél OU-ra (ahova a gépek kerülnek).</li>
+      <li><em>Computer Configuration → Policies → Windows Settings → Scripts → Startup</em> →
+          <em>PowerShell Scripts</em> fülön add hozzá a <code>bootstrap.ps1</code>-et.</li>
+      <li>A startup script SYSTEM-ként fut (rendszergazda jog a telepítéshez megvan).</li>
+      <li>A bootstrap létrehoz egy <code>DomainDeployAgent</code> ütemezett feladatot is
+          (induláskor + óránként), így a későbbi új csomagok is települnek.</li>
+    </ol>
+  </div></div>
+
+  <div class="card"><div class="card-body">
+    <h6>MSI/EXE telepítők</h6>
+    <p class="small mb-1">A saját telepítőket tedd a szerver
+      <code>static/installers/</code> mappájába; a lépésnél az <em>identifier</em> mezőbe a fájlnév kerül
+      (pl. <code>MyApp.msi</code>), vagy közvetlen URL.</p>
+    <p class="small mb-0 text-muted">choco/winget esetén csak a csomag-ID kell (pl. <code>googlechrome</code>, <code>Mozilla.Firefox</code>).</p>
+  </div></div>
+
+</div>
+{% endblock %}

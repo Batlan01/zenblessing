@@ -1,0 +1,293 @@
+{% extends 'base.html' %}
+
+{% block title %}Panel vedúceho tímu{% endblock %}
+{% block page_title %}Panel vedúceho tímu{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <!-- Dinamické tabuľky z JSON -->
+  <div id="dynamic-tables"></div>
+
+  <!-- 2. tabuľka: Prekročenia času -->
+  <div class="table-container">
+    <h3 style="color:#007bff; margin-bottom:1rem;">Prekročenia času</h3>
+    <div id="overtime-loader" style="display:none; text-align:center;">Načítava sa…</div>
+
+    <table id="overtime-table">
+      <thead>
+        <tr>
+          <th>Používateľ</th>
+          <th>WO</th>
+          <th>PN</th>
+          <th>QTY</th>
+          <th>Začiatok</th>
+          <th>Výrobný čas/ks</th>
+          <th>Ubehnutý / Očakávaný / Rozdiel</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div class="pagination">
+      <button class="page-btn" id="overtime-prev-btn" onclick="changeOvertimePage(-1)">← Predchádzajúca</button>
+      <span class="current-page" id="overtime-page-number">1</span>
+      <button class="page-btn" id="overtime-next-btn" onclick="changeOvertimePage(1)">Ďalej →</button>
+    </div>
+  </div>
+
+  <!-- 3. tabuľka: Stavy montáže -->
+  <div class="table-container">
+    <h3>Stavy montáže</h3>
+    <div id="assembly-loader" style="display:none; text-align:center;">Načítava sa…</div>
+
+    <table id="assembly-table">
+      <thead>
+        <tr>
+          <th>Používateľ</th>
+          <th>WO</th>
+          <th>PN</th>
+          <th>Začiatok</th>
+          <th>Koniec</th>
+          <th>Stav</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    {% if user.job_title == "IT" %}
+    <!-- Voľba Process ID a aktualizácia -->
+    <div class="process-update-box">
+      <label for="process-selector"><strong>Nové Process ID:</strong></label>
+      <select id="process-selector">
+        <option value="ASSEMBLY">ASSEMBLY</option>
+        <option value="TEST">TEST</option>
+        <option value="CRIMP">CRIMP</option>
+        <option value="QC">QC</option>
+      </select>
+      <button class="update-btn" onclick="updateProcess()">Aktualizovať</button>
+    </div>
+    {% endif %}
+
+    <div class="pagination">
+      <button class="page-btn" id="prev-btn" onclick="changeAssemblyPage(-1)">← Predchádzajúca</button>
+      <span class="current-page" id="page-number">1</span>
+      <button class="page-btn" id="next-btn" onclick="changeAssemblyPage(1)">Ďalej →</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ===== Dinamické tabuľky z JSON (podľa role v hlavičke) =====
+  async function loadJSONData() {
+    try {
+      const response = await fetch('/static/extracted_data.json');
+      const data = await response.json();
+      const container = document.getElementById('dynamic-tables');
+
+      // Vyčítame job title z layoutu
+      const userRole = (document.querySelector('.user-title')?.textContent || '')
+                        .trim().toUpperCase();
+
+      let groupsToShow = [];
+      if (userRole.includes('EMI')) {
+        groupsToShow = ['EMI'];
+      } else if (userRole.includes('MTE')) {
+        groupsToShow = ['MTE'];
+      } else {
+        groupsToShow = Object.keys(data); // ak nie je EMI/MTE, ukáž všetko
+      }
+
+      groupsToShow.forEach(group => {
+        if (!data[group]) return;
+
+        const tableContainer = document.createElement('div');
+        tableContainer.classList.add('table-container');
+
+        // Nadpis tabuľky s červeným výkričníkom
+        const title = document.createElement('h3');
+        title.classList.add('table-title');
+        title.innerHTML = `<span style="color:red;">!</span> Skupina: ${group}`;
+        tableContainer.appendChild(title);
+
+        // Tabuľka
+        const table = document.createElement('table');
+        const thead = document.createElement('thead');
+        const tbody = document.createElement('tbody');
+
+        // Hlavičky z prvého riadku
+        const headers = data[group][0];
+        const headerRow = document.createElement('tr');
+        headers.forEach(h => {
+          const th = document.createElement('th');
+          th.textContent = h;
+          headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+
+        // Riadky (svetločervené pozadie)
+        data[group].slice(1).forEach(row => {
+          const tr = document.createElement('tr');
+          tr.style.backgroundColor = '#ffebeb';
+          row.forEach(cell => {
+            const td = document.createElement('td');
+            td.textContent = cell;
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        tableContainer.appendChild(table);
+        container.appendChild(tableContainer);
+      });
+
+    } catch (err) {
+      console.error('Chyba pri načítaní JSON:', err);
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', loadJSONData);
+
+  // ===== Prekročenia času (paginácia + načítanie) =====
+  let overtimePage = 1;
+
+  function loadOvertimeTable() {
+    document.getElementById('overtime-loader').style.display = 'block';
+
+    fetch(`/api/overtime_events?page=${overtimePage}`)
+      .then(r => r.json())
+      .then(data => {
+        const tbody = document.querySelector('#overtime-table tbody');
+        tbody.innerHTML = '';
+
+        data.data.forEach(item => {
+          const qty = parseFloat(item.QTY) || 0;
+          const prodPerUnit = parseFloat(item.PROD_time) || 0;
+          const elapsedH = parseFloat(item.elapsed_time) || 0;
+
+          const expected = (qty > 0 && prodPerUnit > 0) ? (qty * prodPerUnit).toFixed(2) : 'N/A';
+          const diff = (expected !== 'N/A') ? (expected - elapsedH).toFixed(2) : 'N/A';
+
+          if (diff !== 'N/A' && diff < 0) {
+            tbody.innerHTML += `
+              <tr>
+                <td>${item.felhasznalo}</td>
+                <td>${item.WO}</td>
+                <td>${item.PN}</td>
+                <td>${qty}</td>
+                <td>${item.start_time}</td>
+                <td>${prodPerUnit.toFixed(2)}</td>
+                <td>${elapsedH} / ${expected} / ${diff}</td>
+              </tr>`;
+          }
+        });
+
+        document.getElementById('overtime-page-number').textContent = overtimePage;
+        document.getElementById('overtime-loader').style.display = 'none';
+      })
+      .catch(err => {
+        console.error('Chyba:', err);
+        document.getElementById('overtime-loader').style.display = 'none';
+      });
+  }
+
+  function changeOvertimePage(delta) {
+    overtimePage += delta;
+    if (overtimePage < 1) overtimePage = 1;
+    loadOvertimeTable();
+  }
+
+  // ===== Stavy montáže (paginácia + načítanie) =====
+  let assemblyPage = 1;
+
+  function loadAssemblyTable() {
+    document.getElementById('assembly-loader').style.display = 'block';
+
+    fetch(`/api/assembly_data?page=${assemblyPage}`)
+      .then(r => r.json())
+      .then(data => {
+        const tbody = document.querySelector('#assembly-table tbody');
+        tbody.innerHTML = '';
+
+        data.forEach(item => {
+          const iconColor = item.status_icon === 'fa-check-circle' ? '#28a745' : '#ffc107';
+          tbody.innerHTML += `
+            <tr class="${item.status_class}">
+              <td>${item.felhasznalo}</td>
+              <td>${item.WO}</td>
+              <td>${item.PN}</td>
+              <td>${item.start_time}</td>
+              <td>${item.end_time}</td>
+              <td><i class="fas ${item.status_icon}" style="color:${iconColor};"></i> ${item.status}</td>
+            </tr>`;
+        });
+
+        document.getElementById('page-number').textContent = assemblyPage;
+        document.getElementById('assembly-loader').style.display = 'none';
+      });
+  }
+
+  function changeAssemblyPage(delta) {
+    assemblyPage += delta;
+    if (assemblyPage < 1) assemblyPage = 1;
+    loadAssemblyTable();
+  }
+
+  // Auto-refresh každú minútu
+  setInterval(() => {
+    loadOvertimeTable();
+    loadAssemblyTable();
+  }, 60000);
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadOvertimeTable();
+    loadAssemblyTable();
+  });
+
+  // ===== Aktualizácia Process ID (len IT) =====
+  function updateProcess() {
+    const selectedProcessId = document.getElementById('process-selector').value;
+
+    fetch('/api/update_process_and_refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_process_id: selectedProcessId })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        console.error('Chyba pri aktualizácii:', data.error);
+        alert('Chyba: ' + data.error);
+      } else {
+        alert(data.message);
+        reloadTableWithNewData(data.data);
+      }
+    })
+    .catch(err => {
+      console.error('Fetch error:', err);
+      alert('Chyba pripojenia: ' + err);
+    });
+  }
+
+  function reloadTableWithNewData(newData) {
+    const tbody = document.querySelector('#assembly-table tbody');
+    tbody.innerHTML = '';
+
+    newData.forEach(item => {
+      const iconColor = item.status_icon === 'fa-check-circle' ? '#28a745' : '#ffc107';
+      tbody.innerHTML += `
+        <tr class="${item.status_class}">
+          <td>${item.felhasznalo}</td>
+          <td>${item.WO}</td>
+          <td>${item.PN}</td>
+          <td>${item.start_time}</td>
+          <td>${item.end_time}</td>
+          <td><i class="fas ${item.status_icon}" style="color:${iconColor};"></i> ${item.status}</td>
+        </tr>`;
+    });
+  }
+</script>
+{% endblock %}

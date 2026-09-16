@@ -1,0 +1,311 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<!DOCTYPE html>
+
+<html lang="hu">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet"/>
+<title>TeamLeader Dashboard</title>
+
+
+<link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet"/></head>
+<body>
+<header class="header">
+<div class="logo">
+<h2 style="color: #007bff;">TeamLeader Dashboard</h2>
+</div>
+<div class="user-info">
+<div class="user-name">{{ user.display_name }}</div>
+<div class="user-title">{{ user.job_title }}</div>
+</div>
+<div class="logout-wrapper">
+<a class="logout-btn" href="{{ url_for('logout') }}">Kijelentkezes</a>
+</div>
+</header>
+<div class="container">
+<!-- JSON Data will be injected here -->
+<div id="dynamic-tables"></div>
+<!-- Masodik táblázat -->
+<div class="table-container">
+<h3 style="color: #007bff; margin-bottom: 1rem;">Ido tullepesek</h3>
+<div id="overtime-loader" style="display: none; text-align: center;">Betöltés...</div>
+<table id="overtime-table">
+<thead>
+<tr>
+<th>Felhasználó</th>
+<th>WO</th>
+<th>PN</th>
+<th>QTY</th>
+<th>Start Time</th>
+<th>PROD Time/darab</th>
+<th>Eltelt idő / Elvart ido / Kulonbseg</th>
+</tr>
+</thead>
+<tbody>
+</tbody>
+</table>
+<div class="pagination">
+<button class="page-btn" id="overtime-prev-btn" onclick="changeOvertimePage(-1)">← Előző</button>
+<span class="current-page" id="overtime-page-number">1</span>
+<button class="page-btn" id="overtime-next-btn" onclick="changeOvertimePage(1)">Következő →</button>
+</div>
+</div>
+<!-- Harmadik táblázat -->
+<div class="table-container">
+<h3>Összeszerelési állapotok</h3>
+<div id="assembly-loader" style="display: none; text-align: center;">Betöltés...</div>
+<table id="assembly-table">
+<thead>
+<tr>
+<th>Felhasználó</th>
+<th>WO</th>
+<th>PN</th>
+<th>Start Time</th>
+<th>End Time</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+<div class="pagination">
+<button class="page-btn" id="prev-btn" onclick="changeAssemblyPage(-1)">← Előző</button>
+<span class="current-page" id="page-number">1</span>
+<button class="page-btn" id="next-btn" onclick="changeAssemblyPage(1)">Következő →</button>
+</div>
+</div>
+</div>
+<script>
+		
+    async function loadJSONData() {
+        try {
+            const response = await fetch('/static/extracted_data.json'); // Load JSON file
+            const data = await response.json();
+            const container = document.getElementById('dynamic-tables');
+
+            // Retrieve the user's job title directly from the page
+            const userRole = document.querySelector('.user-title').textContent.trim().toUpperCase();
+
+            let groupsToShow = [];
+
+            if (userRole.includes("EMI")) {
+                groupsToShow = ["EMI"];
+            } else if (userRole.includes("MTE")) {
+                groupsToShow = ["MTE"];
+            } else {
+                groupsToShow = Object.keys(data); // Show all groups if not EMI or MTE
+            }
+
+            groupsToShow.forEach(group => {
+                if (data[group]) {
+                    const tableContainer = document.createElement('div');
+                    tableContainer.classList.add('table-container');
+
+                    // Create table title with red exclamation mark
+                    const title = document.createElement('h3');
+                    title.classList.add('table-title');
+                    title.innerHTML = `<span style="color: red;">!</span> Group: ${group}`;
+                    tableContainer.appendChild(title);
+
+                    // Create table
+                    const table = document.createElement('table');
+                    const thead = document.createElement('thead');
+                    const tbody = document.createElement('tbody');
+
+                    // Extract headers from first row
+                    const headers = data[group][0];
+                    const headerRow = document.createElement('tr');
+                    headers.forEach(headerText => {
+                        const th = document.createElement('th');
+                        th.textContent = headerText;
+                        headerRow.appendChild(th);
+                    });
+                    thead.appendChild(headerRow);
+
+                    // Populate rows with data (light red background)
+                    data[group].slice(1).forEach(row => {
+                        const tr = document.createElement('tr');
+                        tr.style.backgroundColor = '#ffebeb'; // Light red background
+                        row.forEach(cell => {
+                            const td = document.createElement('td');
+                            td.textContent = cell;
+                            tr.appendChild(td);
+                        });
+                        tbody.appendChild(tr);
+                    });
+
+                    table.appendChild(thead);
+                    table.appendChild(tbody);
+                    tableContainer.appendChild(table);
+                    container.appendChild(tableContainer);
+                }
+            });
+
+        } catch (error) {
+            console.error("Error loading JSON data:", error);
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", loadJSONData);
+    </script>
+<script>
+async function loadTable(apiUrl, tableId, loaderId) {
+    const loader = document.getElementById(loaderId);
+    const tableBody = document.querySelector(`#${tableId} tbody`);
+
+    if (!loader || !tableBody) {
+        console.error(`Nem tallhat az ID: ${tableId} vagy ${loaderId}`);
+        return;
+    }
+
+    loader.style.display = "block";
+
+    try {
+        const response = await fetch(apiUrl);
+        const data = await response.json();
+
+        tableBody.innerHTML = ""; // ld az elozo sorokat
+
+        if (data.data.length === 0) {
+            tableBody.innerHTML = `<tr><td colspan="7" style="text-align:center;">Nincs adat</td></tr>`;
+        }
+
+        data.data.forEach(item => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+                <td>${item.felhasznalo}</td>
+                <td>${item.WO}</td>
+                <td>${item.PN}</td>
+                <td>${item.QTY || "N/A"}</td>
+                <td>${item.start_time || "N/A"}</td>
+                <td>${item.PROD_time || "N/A"}</td>
+                <td>${item.elapsed_time || "N/A"}</td>
+            `;
+            tableBody.appendChild(tr);
+        });
+
+    } catch (error) {
+        console.error(`Hiba trtnt az adatok beltsekor: ${apiUrl}`, error);
+    }
+
+    loader.style.display = "none";
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    loadTable("/api/overtime_events", "overtime-table", "overtime-loader");
+    loadTable("/api/assembly_data", "assembly-table", "assembly-loader");
+
+    setInterval(() => {
+        loadTable("/api/overtime_events", "overtime-table", "overtime-loader");
+        loadTable("/api/assembly_data", "assembly-table", "assembly-loader");
+    }, 60000);
+});
+
+		
+		
+		
+        let overtimePage = 1;
+        let assemblyPage = 1;
+
+        function loadOvertimeTable() {
+			document.getElementById("overtime-loader").style.display = "block";
+			fetch(`/api/overtime_events?page=${overtimePage}`)
+				.then(response => response.json())
+				.then(data => {
+					const tableBody = document.querySelector("#overtime-table tbody");
+					tableBody.innerHTML = "";
+
+					data.data.forEach(item => {
+						let qty = parseFloat(item.QTY) || 0; // Mennyiség
+						let prodTimePerUnit = parseFloat(item.PROD_time) || 0; // Gyártási idő egy db-ra
+						let elapsedTimeHours = parseFloat(item.elapsed_time) || 0; // Eltelt idő órában (NEM OSZTJUK ÚJRA)
+
+						// **🔹 Elvárt idő = QTY * PROD_time/db**
+						let expectedTime = (qty > 0 && prodTimePerUnit > 0) ? (qty * prodTimePerUnit).toFixed(2) : "N/A";
+
+						// **🔹 Különbség = Elvárt idő - Eltelt idő**
+						let timeDifference = (expectedTime !== "N/A") ? (expectedTime - elapsedTimeHours).toFixed(2) : "N/A";
+
+						// **🔹 Táblázat feltöltése**
+						if (timeDifference !== "N/A" && timeDifference < 0) {
+							tableBody.innerHTML += `
+								<tr>
+									<td>${item.felhasznalo}</td>
+									<td>${item.WO}</td>
+									<td>${item.PN}</td>
+									<td>${qty}</td>
+									<td>${item.start_time}</td>
+									<td>${prodTimePerUnit.toFixed(2)}</td>
+									<td>${elapsedTimeHours} / ${expectedTime} / ${timeDifference}</td>
+								</tr>`;
+						}
+					});
+
+					document.getElementById("overtime-page-number").textContent = overtimePage;
+					document.getElementById("overtime-loader").style.display = "none";
+				})
+				.catch(error => {
+					console.error("Hiba történt:", error);
+					document.getElementById("overtime-loader").style.display = "none";
+				});
+		}
+
+
+        function loadAssemblyTable() {
+            document.getElementById("assembly-loader").style.display = "block";
+            fetch(`/api/assembly_data?page=${assemblyPage}`)
+                .then(response => response.json())
+                .then(data => {
+                    const tableBody = document.querySelector("#assembly-table tbody");
+                    tableBody.innerHTML = "";
+                    data.forEach(item => {
+                        let rowClass = item.status_class;
+                        let iconColor = item.status_icon === "fa-check-circle" ? "#28a745" : "#ffc107";
+                        tableBody.innerHTML += `<tr class="${rowClass}">
+                            <td>${item.felhasznalo}</td>
+                            <td>${item.WO}</td>
+                            <td>${item.PN}</td>
+                            <td>${item.start_time}</td>
+                            <td>${item.end_time}</td>
+                            <td><i class="fas ${item.status_icon}" style="color: ${iconColor};"></i> ${item.status}</td>
+                        </tr>`;
+                    });
+                    document.getElementById("page-number").textContent = assemblyPage;
+                    document.getElementById("assembly-loader").style.display = "none";
+                });
+        }
+
+        document.addEventListener("DOMContentLoaded", function () {
+    // Get the user's job title from the page
+    const userRoleElement = document.querySelector('.user-title');
+    const userNameElement = document.querySelector('.user-name');
+    const userRole = userRoleElement.textContent.trim().toUpperCase();
+
+    // Define roles that should see the navbar
+    const allowedRoles = ["IT", "MANAGER", "SHIFT SUPERVISOR"];
+
+    // If the user's role matches, insert the navbar
+    if (allowedRoles.includes(userRole)) {
+        const header = document.querySelector(".header");
+
+        const nav = document.createElement("nav");
+        nav.innerHTML = `
+            <ul>
+                <li><a href="/teamleaders">TeamLeader Dashboard</a></li>
+                <li><a href="/users_progress">Users Progress</a></li>
+            </ul>
+        `;
+        header.insertBefore(nav, header.firstChild); // Insert at the top of the header
+
+        // Hide the username and job title
+        userRoleElement.style.display = "none";
+        userNameElement.style.display = "none";
+    }
+});
+
+    </script>
+</body>
+</html>
+{% endblock %}

@@ -1,0 +1,57 @@
+# ============================================================
+#  Domain Deploy – Bootstrap (GPO Startup Script)
+#  - letolti es lefuttatja az agentet (elso telepites)
+#  - letrehoz egy utemezett feladatot (indulaskor + orankent)
+#  SYSTEM jogon fut a GPO startupbol.
+# ============================================================
+$ErrorActionPreference = 'Stop'
+$Server = "{{ base_url }}"
+$ApiKey = "{{ api_key }}"
+
+$StateDir = Join-Path $env:ProgramData "DomainDeploy"
+if (-not (Test-Path $StateDir)) { New-Item -ItemType Directory -Path $StateDir -Force | Out-Null }
+
+# Helyi inditó script, ami mindig a friss agentet tolti le es futtatja (pull)
+$Launcher = Join-Path $StateDir "run-agent.ps1"
+$launcherBody = @'
+$ErrorActionPreference = "Stop"
+$Server = "__SERVER__"
+$ApiKey = "__APIKEY__"
+$Headers = @{}
+if ($ApiKey -ne "") { $Headers["X-Deploy-Key"] = $ApiKey }
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+$agentPath = Join-Path $env:TEMP "domain_deploy_agent.ps1"
+Invoke-WebRequest -Uri ("{0}/deploy/agent/agent.ps1" -f $Server) -Headers $Headers -OutFile $agentPath -UseBasicParsing -TimeoutSec 60
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $agentPath
+'@
+$launcherBody = $launcherBody.Replace("__SERVER__", $Server).Replace("__APIKEY__", $ApiKey)
+Set-Content -Path $Launcher -Value $launcherBody -Encoding UTF8
+
+# 1) Azonnali futtatas (elso bekoteskor telepit)
+try {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Launcher
+} catch {
+    Write-Output ("Agent elso futtatas hiba: {0}" -f $_.Exception.Message)
+}
+
+# 2) Utemezett feladat: induláskor + orankent, SYSTEM-kent
+$taskName = "DomainDeployAgent"
+try {
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" `
+        -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f $Launcher)
+
+    $trgStartup = New-ScheduledTaskTrigger -AtStartup
+    $trgHourly  = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+        -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration ([TimeSpan]::MaxValue)
+
+    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+    $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
+        -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+
+    Register-ScheduledTask -TaskName $taskName -Action $action `
+        -Trigger @($trgStartup, $trgHourly) -Principal $principal -Settings $settings -Force | Out-Null
+
+    Write-Output "Utemezett feladat letrehozva: $taskName"
+} catch {
+    Write-Output ("Utemezett feladat hiba: {0}" -f $_.Exception.Message)
+}

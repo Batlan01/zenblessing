@@ -1,0 +1,1187 @@
+{% set active = 'tables' %}
+{% extends lang ~ '/base.html' %}
+
+{% block title %}Asztalok létrehozása{% endblock %}
+{% block page_title %}Asztalok létrehozása{% endblock %}
+{% block page_title_mobile %}Asztalok{% endblock %}
+
+{% block extra_head %}
+<style>
+  .soft-card{
+    background: rgba(255,255,255,.02);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 1rem;
+  }
+  .hint{ color: rgba(226,232,240,.7); font-size:.9rem; }
+  .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  .pill{
+    display:inline-block;background:#0b1830;border:1px solid rgba(255,255,255,.1);
+    padding:.35rem .6rem;border-radius:999px;margin-right:.4rem;font-size:.85rem;color:#cbd5e1
+  }
+
+  /* --- Kártyák: sötét, olvasható felület --- */
+  .soft-card{
+    background: rgba(15, 23, 42, .88);          /* slate-900 jelleg */
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 1rem;
+    color: #e2e8f0;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  /* Címek/alcímek */
+  .soft-card .h6,
+  .soft-card h6,
+  .soft-card h5,
+  .soft-card .fw-semibold{
+    color: #f1f5f9;
+  }
+
+  /* Hint szövegek – legyen látható */
+  .hint{
+    color: rgba(226,232,240,.88);
+    font-size: .9rem;
+  }
+
+  .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+  .pill{
+    display:inline-block;
+    background: rgba(2,6,23,.55);
+    border:1px solid rgba(255,255,255,.14);
+    padding:.35rem .6rem;
+    border-radius:999px;
+    margin-right:.4rem;
+    font-size:.85rem;
+    color:#e2e8f0;
+  }
+
+  /* Inputok/Selectek sötét kártyán */
+  .soft-card .form-control,
+  .soft-card .form-select,
+  .soft-card textarea{
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.18);
+    color: #e2e8f0;
+  }
+  .soft-card .form-control::placeholder,
+  .soft-card textarea::placeholder{
+    color: rgba(226,232,240,.55);
+  }
+  .soft-card .form-control:focus,
+  .soft-card .form-select:focus,
+  .soft-card textarea:focus{
+    border-color: rgba(59,130,246,.65);
+    box-shadow: 0 0 0 .2rem rgba(59,130,246,.18);
+  }
+
+  /* Label szöveg kontraszt */
+  .soft-card .form-label,
+  .soft-card label{
+    color: rgba(226,232,240,.92);
+  }
+
+  /* Táblák a kártyákban: maradjon sötét és olvasható */
+  .soft-card .table{
+    margin-bottom: 0;
+  }
+  .soft-card .table thead th{
+    color: rgba(226,232,240,.92);
+  }
+  .soft-card .table td{
+    color: rgba(226,232,240,.90);
+  }
+
+  /* A "border-top" részek színe */
+  .soft-card .border-top{
+    border-color: rgba(255,255,255,.10) !important;
+  }
+
+  /* ====== GRID RAJZOLÁS ====== */
+  .grid-toolbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:.75rem;
+    flex-wrap:wrap;
+  }
+  .grid-wrap{
+    display:grid;
+    gap: 8px;
+    user-select:none;
+    -webkit-user-select:none;
+    padding: 10px;
+    border-radius: 14px;
+    background: rgba(2,6,23,.35);
+    border: 1px solid rgba(255,255,255,.10);
+  }
+  .grid-cell{
+    height: 34px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.14);
+    background: rgba(255,255,255,.06);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size: 12px;
+    color: rgba(226,232,240,.85);
+    cursor: crosshair;
+  }
+  .grid-cell.sel{
+    background: rgba(59,130,246,.28);
+    border-color: rgba(59,130,246,.55);
+    color: #fff;
+  }
+  .grid-cell.start{
+    box-shadow: 0 0 0 2px rgba(59,130,246,.35) inset;
+  }
+
+  /* ====== MOBIL RESZPONZÍV ====== */
+  @media (max-width: 767.98px) {
+
+    /* Container padding */
+    .container { padding-left: .75rem; padding-right: .75rem; }
+
+    /* Select-ek ne lógjanak ki */
+    .soft-card select.form-select,
+    .soft-card .raspiSel {
+      min-width: 0 !important;
+      width: 100% !important;
+    }
+
+    /* Fejlécek gombjainak sora: stack vertikálisan */
+    .table-header-actions {
+      flex-direction: column !important;
+      align-items: stretch !important;
+      width: 100%;
+    }
+    .table-header-actions select,
+    .table-header-actions button {
+      width: 100%;
+    }
+
+    /* Asztalok listájának sorai mobilon */
+    #tablesBody tr {
+      display: block;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      padding: .5rem 0;
+    }
+    #tablesBody td {
+      display: block;
+      border: none !important;
+      padding: .2rem .75rem;
+    }
+    #tablesBody td:first-child {
+      padding-bottom: 0;
+    }
+
+    /* Tábla fejléc mobilon – elrejtjük, a td-k önmagukban érthetők */
+    #tablesBody + thead,
+    .table.table-sm thead {
+      display: none;
+    }
+
+    /* Akció gombok egész szélességben */
+    #tablesBody .d-flex.gap-2 {
+      justify-content: flex-start !important;
+    }
+    #tablesBody .btnAssign,
+    #tablesBody .btnDelete {
+      flex: 1;
+    }
+
+    /* Grid toolbar: stack */
+    .grid-toolbar {
+      flex-direction: column !important;
+      align-items: stretch !important;
+    }
+    .grid-toolbar > div:last-child {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .4rem;
+    }
+    .grid-toolbar input[type=number] {
+      width: 70px !important;
+    }
+
+    /* Grid cellák mobilon kisebbek */
+    .grid-cell {
+      height: 26px;
+      font-size: 9px;
+      border-radius: 6px;
+    }
+
+    /* Bulk create header */
+    .soft-card .d-flex.align-items-center.justify-content-between.flex-wrap {
+      flex-direction: column;
+      align-items: stretch !important;
+    }
+    .soft-card .d-flex.align-items-center.gap-2 select,
+    .soft-card .d-flex.align-items-center.gap-2 button {
+      width: 100%;
+    }
+
+    /* Csoportok táblázat fejléc szöveg truncate */
+    #groupsBody td { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  }
+</style>
+
+
+{% endblock %}
+
+{% block page_header_right %}
+  <a href="{{ url_for('tables.tables_page', lang='hu') }}" title="Magyar">
+    <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar" width="32" height="20">
+  </a>
+  <a class="ms-2" href="{{ url_for('tables.tables_page', lang='sk') }}" title="Slovenský">
+    <img src="{{ url_for('static', filename='flags/sk.png') }}" alt="Slovenský" width="32" height="20">
+  </a>
+{% endblock %}
+
+{% block content %}
+
+<div class="container my-4">
+
+  {# ===== Alerts ===== #}
+  <div id="alertHost"></div>
+
+  <div class="row g-3">
+
+    {# ===================== BAL: Csoportok + Jogosultságok ===================== #}
+    <div class="col-12 col-xl-5">
+      <div class="soft-card p-3 mb-3">
+        <div class="d-flex align-items-center justify-content-between">
+          <div>
+            <div class="h6 mb-1">Csoportok</div>
+            <div class="hint">Csoport létrehozás / szerkesztés + jogosultság tokenek (pl. <span class="mono">EMI</span>, <span class="mono">MDI</span>, <span class="mono">IT</span>).</div>
+          </div>
+          <button id="btnRefreshAll" class="btn btn-sm btn-outline-secondary">
+            <i class="fa-solid fa-rotate"></i> Frissítés
+          </button>
+        </div>
+
+        <hr class="my-3" style="border-color:rgba(255,255,255,.08)">
+
+        <div class="row g-2">
+          <div class="col-4">
+            <label class="form-label small mb-1">Code</label>
+            <input id="gCode" class="form-control form-control-sm mono" placeholder="EMI">
+          </div>
+          <div class="col-5">
+            <label class="form-label small mb-1">Név</label>
+            <input id="gName" class="form-control form-control-sm" placeholder="EMI group">
+          </div>
+          <div class="col-3">
+            <label class="form-label small mb-1">Sorrend</label>
+            <input id="gSort" type="number" class="form-control form-control-sm" value="0">
+          </div>
+          <div class="col-12 d-flex align-items-center justify-content-between">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch" id="gActive" checked>
+              <label class="form-check-label small" for="gActive">Aktív</label>
+            </div>
+            <button id="btnCreateGroup" class="btn btn-sm btn-primary">
+              <i class="fa-solid fa-plus"></i> Csoport létrehozása
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="soft-card p-0">
+        <div class="p-3 d-flex align-items-center justify-content-between">
+          <div>
+            <div class="h6 mb-0">Meglévő csoportok</div>
+            <div class="hint">Kattints egy sorra jogosultság beállításhoz.</div>
+          </div>
+          <span id="groupsCount" class="badge text-bg-secondary">0</span>
+        </div>
+        <div class="table-responsive" style="max-height:52vh;">
+          <table class="table table-sm table-dark table-striped align-middle mb-0">
+            <thead>
+              <tr>
+                <th style="width:90px;">Code</th>
+                <th>Név</th>
+                <th style="width:90px;">Sorrend</th>
+                <th style="width:80px;">Aktív</th>
+              </tr>
+            </thead>
+            <tbody id="groupsBody">
+              <tr><td colspan="4" class="text-center text-secondary py-4">Betöltés…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="p-3 border-top" style="border-color:rgba(255,255,255,.08)">
+          <div class="d-flex align-items-start justify-content-between gap-3">
+            <div style="min-width:260px;">
+              <div class="small text-secondary mb-1">Kiválasztott csoport</div>
+              <div id="selGroupLabel" class="fw-semibold">—</div>
+              <div class="hint">Jogosultság tokenek (vesszővel): pl. <span class="mono">EMI, IT, MANAGER</span></div>
+            </div>
+            <div class="flex-grow-1">
+              <textarea id="permTokens" class="form-control form-control-sm mono" rows="3" placeholder="EMI, IT"></textarea>
+              <div class="d-flex justify-content-end mt-2">
+                <button id="btnSavePerms" class="btn btn-sm btn-outline-primary" disabled>
+                  <i class="fa-solid fa-floppy-disk"></i> Jogosultság mentése
+                </button>
+              </div>
+            </div>
+          </div>
+          <div id="permPills" class="mt-2"></div>
+        </div>
+      </div>
+    </div>
+
+    {# ===================== JOBB: Asztalok (bulk create + lista + device) ===================== #}
+    <div class="col-12 col-xl-7">
+
+      <div class="soft-card p-3 mb-3">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+          <div>
+            <div class="h6 mb-1">Asztalok létrehozása</div>
+            <div class="hint">Első körben bulk create (később jön a drag & drop rács).</div>
+          </div>
+          <div class="d-flex align-items-center flex-wrap gap-2 table-header-actions">
+            <select id="bulkGroup" class="form-select form-select-sm" style="min-width:200px;">
+              <option value="">— csoport kiválasztása —</option>
+            </select>
+            <button id="btnBulkCreate" class="btn btn-sm btn-primary" disabled>
+              <i class="fa-solid fa-wand-magic-sparkles"></i> Generálás
+            </button>
+          </div>
+        </div>
+
+        <div class="row g-2 mt-2">
+          <div class="col-12 col-md-4">
+            <label class="form-label small mb-1">Prefix</label>
+            <input id="bulkPrefix" class="form-control form-control-sm mono" placeholder="EMI" value="">
+          </div>
+          <div class="col-6 col-md-4">
+            <label class="form-label small mb-1">Start</label>
+            <input id="bulkStart" type="number" class="form-control form-control-sm" value="1" min="1">
+          </div>
+          <div class="col-6 col-md-4">
+            <label class="form-label small mb-1">Darab</label>
+            <input id="bulkCount" type="number" class="form-control form-control-sm" value="4" min="1">
+          </div>
+        </div>
+      </div>
+
+      <div class="soft-card p-0">
+        <div class="p-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
+          <div>
+            <div class="h6 mb-0">Asztalok listája</div>
+            <div class="hint">Raspberry hozzárendelés: dropdown → Mentés.</div>
+          </div>
+          <div class="d-flex align-items-center flex-wrap gap-2 table-header-actions">
+            <select id="filterGroup" class="form-select form-select-sm" style="min-width:200px;">
+              <option value="">— minden csoport —</option>
+            </select>
+            <button id="btnReloadTables" class="btn btn-sm btn-outline-secondary">
+              <i class="fa-solid fa-rotate"></i> Lista frissítése
+            </button>
+            <button id="btnBulkDelete" class="btn btn-sm btn-outline-danger" disabled>
+                <i class="fa-solid fa-trash"></i>
+                Tömeges törlés (<span id="bulkSelCount">0</span>)
+            </button>
+          </div>
+        </div>
+
+        <div class="table-responsive" style="max-height:62vh;">
+          <table class="table table-sm table-dark table-striped align-middle mb-0">
+            <thead>
+                <tr>
+                    <th style="width:44px;">
+                    <input id="chkAllRows" class="form-check-input" type="checkbox" title="Összes kijelölése">
+                    </th>
+                    <th style="width:80px;">ID</th>
+                    <th>Asztal</th>
+                    <th style="width:120px;">Csoport</th>
+                    <th style="width:120px;">Sorszám</th>
+                 
+                </tr>
+            </thead>
+
+            <tbody id="tablesBody">
+                <tr><td colspan="7" class="text-center text-secondary py-4">Válassz csoportot vagy frissítsd a listát.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="p-2 small text-secondary" id="tablesCount"></div>
+      </div>
+
+      <div class="soft-card p-3 mb-3">
+  <div class="grid-toolbar">
+    <div>
+      <div class="h6 mb-1">Terület megrajzolása (drag)</div>
+      <div class="hint">Húzd az egeret a rácson → kijelölés → mentés. (A kijelölés mérete adja a rows×cols-t.)</div>
+    </div>
+
+    <div class="d-flex align-items-center gap-2">
+        <span class="pill mono" id="selSizePill">Kijelölés: –</span>
+
+        <label class="small dim mb-0 ms-2">Rács:</label>
+        <input id="gridColsInp" type="number" class="form-control form-control-sm"
+                value="12" min="1" max="50" style="width:78px" title="Szélesség (oszlop)">
+        <input id="gridRowsInp" type="number" class="form-control form-control-sm"
+                value="12" min="1" max="50" style="width:78px" title="Magasság (sor)">
+        <button id="btnGridApply" class="btn btn-sm btn-outline-secondary" type="button">
+            OK
+        </button>
+
+        <button id="btnClearSel" class="btn btn-sm btn-outline-secondary" type="button">
+            Törlés
+        </button>
+    </div>
+
+  </div>
+
+  <div class="row g-2 mt-2 align-items-end">
+    <div class="col-12 col-md-5">
+      <label class="form-label small mb-1">Csoport</label>
+      <select id="drawGroup" class="form-select form-select-sm">
+        <option value="">— csoport kiválasztása —</option>
+      </select>
+    </div>
+
+    <div class="col-6 col-md-3">
+      <label class="form-label small mb-1">Prefix</label>
+      <input id="drawPrefix" class="form-control form-control-sm mono" placeholder="EMI">
+    </div>
+
+    <div class="col-6 col-md-2">
+      <label class="form-label small mb-1">Start</label>
+      <input id="drawStart" type="number" class="form-control form-control-sm" value="1" min="1">
+    </div>
+
+    <div class="col-12 col-md-2">
+      <button id="btnApplyDraw" class="btn btn-sm btn-primary w-100" disabled type="button">
+        Mentés
+      </button>
+    </div>
+  </div>
+
+  <div class="mt-3">
+    <div class="grid-wrap" id="gridWrap"></div>
+    <div class="hint mt-2">Tipp: ha 2×2 kell, jelölj ki 4 cellát téglalapban.</div>
+  </div>
+</div>
+
+
+    </div>
+  </div>
+</div>
+
+<script>
+  const LANG = "{{ lang }}";
+  const API = {
+    groups: `/${LANG}/tables/api/groups`,
+    createGroup: `/${LANG}/tables/api/groups`,
+    perms: (gid) => `/${LANG}/tables/api/groups/${gid}/permissions`,
+    tables: `/${LANG}/tables/api/tables`,
+    bulkCreate: `/${LANG}/tables/api/tables/bulk_create`,
+    devices: `/${LANG}/tables/api/raspberrydevices`,
+    assignDevice: (tid) => `/${LANG}/tables/api/tables/${tid}/assign_device`,
+    applyLayout: `/${LANG}/tables/api/layout/apply`,
+    updateTable: (tid) => `/${LANG}/tables/api/tables/${tid}/update`,
+    deleteTable: (tid) => `/${LANG}/tables/api/tables/${tid}`,
+
+
+
+  };
+
+  let state = {
+    groups: [],
+    devices: [],
+    selectedGroupId: null,
+  };
+
+    // ===================== GRID RAJZOLÁS (drag select) =====================
+  let gridCols = 12;
+    let gridRows = 12;
+
+    const selectedTableIds = new Set();
+
+function updateBulkUI(){
+  const cnt = selectedTableIds.size;
+
+  const span = document.getElementById("bulkSelCount");
+  const btn  = document.getElementById("btnBulkDelete");
+  if(span) span.textContent = cnt;
+  if(btn) btn.disabled = cnt === 0;
+
+  const all = document.getElementById("chkAllRows");
+  if(all){
+    const boxes = [...document.querySelectorAll("#tablesBody .rowChk")];
+    all.checked = boxes.length > 0 && boxes.every(b => b.checked);
+    all.indeterminate = boxes.some(b => b.checked) && !all.checked;
+  }
+}
+
+async function bulkDeleteSelected(){
+  const ids = [...selectedTableIds];
+  if(!ids.length) return;
+
+  if(!confirm(`Biztos törlöd a kijelölt asztalokat? (${ids.length} db)`)) return;
+
+  const btn = document.getElementById("btnBulkDelete");
+  const old = btn?.innerHTML;
+  if(btn){ btn.disabled = true; btn.innerHTML = `<i class="fa-solid fa-trash"></i> Törlés…`; }
+
+  let okCount = 0;
+  const errors = [];
+
+  for(const tid of ids){
+    try{
+      await fetchJSON(API.deleteTable(tid), { method: "DELETE" });
+      okCount++;
+    }catch(e){
+      errors.push(`ID ${tid}: ${e.message || "hiba"}`);
+    }
+  }
+
+  selectedTableIds.clear();
+  updateBulkUI();
+  await loadTables();
+
+  if(errors.length){
+    showAlert(`Törölve: ${okCount} db. Hibák: ${errors.length} db (konzol).`, "warning");
+    console.warn("Bulk delete hibák:", errors);
+  }else{
+    showAlert(`Törölve: ${okCount} db.`, "success");
+  }
+
+  if(btn && old) btn.innerHTML = old;
+}
+
+
+    function clamp(n, a, b){ n = parseInt(n||0,10); return Math.max(a, Math.min(b, n)); }
+
+  let dragOn = false;
+  let startCell = null;   // {x,y}
+  let rect = null;        // {x1,y1,x2,y2}
+
+  function normRect(r){
+    if(!r) return null;
+    const x1 = Math.min(r.x1, r.x2), x2 = Math.max(r.x1, r.x2);
+    const y1 = Math.min(r.y1, r.y2), y2 = Math.max(r.y1, r.y2);
+    return {x1,y1,x2,y2};
+  }
+
+  function clearSelection(){
+    rect = null;
+    startCell = null;
+    document.getElementById("selSizePill").textContent = "Kijelölés: –";
+    document.querySelectorAll(".grid-cell").forEach(el => el.classList.remove("sel","start"));
+    updateDrawButton();
+  }
+
+  function updateDrawButton(){
+    const gid = document.getElementById("drawGroup")?.value;
+    const prefix = document.getElementById("drawPrefix")?.value?.trim();
+    const r = normRect(rect);
+    document.getElementById("btnApplyDraw").disabled = !(gid && prefix && r);
+  }
+
+  function paintSelection(){
+    const r = normRect(rect);
+    document.querySelectorAll(".grid-cell").forEach(el=>{
+      const x = +el.dataset.x, y = +el.dataset.y;
+      el.classList.remove("sel","start");
+      if(r && x>=r.x1 && x<=r.x2 && y>=r.y1 && y<=r.y2) el.classList.add("sel");
+      if(r && x===r.x1 && y===r.y1) el.classList.add("start");
+    });
+
+    if(r){
+      const rows = (r.y2 - r.y1) + 1;
+      const cols = (r.x2 - r.x1) + 1;
+      document.getElementById("selSizePill").textContent = `Kijelölés: ${cols}×${rows}`;
+    }else{
+      document.getElementById("selSizePill").textContent = "Kijelölés: –";
+    }
+    updateDrawButton();
+  }
+
+  function buildGrid(){
+  const wrap = document.getElementById("gridWrap");
+  if(!wrap) return;
+
+  wrap.style.gridTemplateColumns = `repeat(${gridCols}, 1fr)`;
+  wrap.innerHTML = "";
+
+  for(let y=1; y<=gridRows; y++){
+    for(let x=1; x<=gridCols; x++){
+      const c = document.createElement("div");
+      c.className = "grid-cell";
+      c.dataset.x = x;
+      c.dataset.y = y;
+      c.textContent = `${x},${y}`;
+
+      c.addEventListener("mousedown", (e)=>{
+        dragOn = true;
+        startCell = {x,y};
+        rect = {x1:x, y1:y, x2:x, y2:y};
+        paintSelection();
+        e.preventDefault();
+      });
+
+      c.addEventListener("mouseenter", ()=>{
+        if(!dragOn || !startCell) return;
+        rect = {x1:startCell.x, y1:startCell.y, x2:x, y2:y};
+        paintSelection();
+      });
+
+      // Touch support
+      c.addEventListener("touchstart", (e)=>{
+        dragOn = true;
+        startCell = {x,y};
+        rect = {x1:x, y1:y, x2:x, y2:y};
+        paintSelection();
+        e.preventDefault();
+      }, {passive:false});
+
+      c.addEventListener("touchmove", (e)=>{
+        if(!dragOn) return;
+        e.preventDefault();
+        const t = e.touches[0];
+        const el = document.elementFromPoint(t.clientX, t.clientY);
+        if(el && el.classList.contains("grid-cell")){
+          const cx = +el.dataset.x, cy = +el.dataset.y;
+          rect = {x1:startCell.x, y1:startCell.y, x2:cx, y2:cy};
+          paintSelection();
+        }
+      }, {passive:false});
+
+      c.addEventListener("touchend", ()=>{
+        dragOn = false;
+        paintSelection();
+      });
+
+      wrap.appendChild(c);
+    }
+  }
+
+  paintSelection(); // ha volt kijelölés, újrarajzolás után frissít
+}
+
+
+  async function applyDrawLayout(){
+    const gid = parseInt(document.getElementById("drawGroup").value || "0", 10);
+    const prefix = (document.getElementById("drawPrefix").value || "").trim().toUpperCase();
+    const start_no = parseInt(document.getElementById("drawStart").value || "1", 10);
+    const r = normRect(rect);
+
+    if(!gid || !prefix || !r) return;
+
+    const rows = (r.y2 - r.y1) + 1;
+    const cols = (r.x2 - r.x1) + 1;
+
+    const btn = document.getElementById("btnApplyDraw");
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = "Mentés…";
+
+    try{
+      const res = await fetchJSON(API.applyLayout, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({
+            group_id: gid,
+            prefix,
+            start_no,
+            rows,
+            cols,
+            x1: r.x1,
+            y1: r.y1
+            })
+
+      });
+      showAlert(`Mentve. Létrehozva: ${res.result.created}, frissítve: ${res.result.updated}`, "success");
+      await loadTables();
+    }catch(e){
+      showAlert(e.message || "Mentési hiba.");
+    }finally{
+      btn.textContent = old;
+      updateDrawButton();
+    }
+  }
+
+
+  function escapeHtml(s){
+    return (s ?? "").toString()
+      .replaceAll("&","&amp;").replaceAll("<","&lt;")
+      .replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
+  }
+
+  function showAlert(msg, type="danger"){
+    const host = document.getElementById("alertHost");
+    const el = document.createElement("div");
+    el.className = `alert alert-${type} py-2 mb-2`;
+    el.innerHTML = `<div class="d-flex align-items-center justify-content-between gap-2">
+      <div>${escapeHtml(msg)}</div>
+      <button class="btn btn-sm btn-outline-light">OK</button>
+    </div>`;
+    el.querySelector("button").addEventListener("click", ()=> el.remove());
+    host.prepend(el);
+    setTimeout(()=>{ try{ el.remove(); }catch(e){} }, 6000);
+  }
+
+  async function fetchJSON(url, opts){
+    const r = await fetch(url, opts);
+    let j = null;
+    try { j = await r.json(); } catch(e) {}
+    if(!r.ok || !j || j.ok === false){
+      const err = (j && j.error) ? j.error : `HTTP ${r.status}`;
+      throw new Error(err);
+    }
+    return j;
+  }
+
+  function renderPermPills(tokens){
+    const box = document.getElementById("permPills");
+    box.innerHTML = "";
+    (tokens || []).forEach(t => {
+      const s = document.createElement("span");
+      s.className = "pill mono";
+      s.textContent = t;
+      box.appendChild(s);
+    });
+  }
+
+  function tokensFromTextarea(){
+    const raw = (document.getElementById("permTokens").value || "");
+    return raw.split(",")
+      .map(x => (x||"").trim().toUpperCase())
+      .filter(Boolean)
+      .filter((v,i,a)=>a.indexOf(v)===i);
+  }
+
+  function fillGroupSelects(){
+  const drawSel = document.getElementById("drawGroup");
+  const bulkSel = document.getElementById("bulkGroup");
+  const filtSel = document.getElementById("filterGroup");
+
+  const prevDraw = drawSel ? drawSel.value : "";
+  const prevBulk = bulkSel.value;
+  const prevFilt = filtSel.value;
+
+  // clear
+  if(drawSel) drawSel.innerHTML = `<option value="">— csoport kiválasztása —</option>`;
+  bulkSel.innerHTML = `<option value="">— csoport kiválasztása —</option>`;
+  filtSel.innerHTML = `<option value="">— minden csoport —</option>`;
+
+  state.groups.forEach(g => {
+    const label = `${g.code} — ${g.display_name}`;
+
+    // bulk
+    const opt1 = document.createElement("option");
+    opt1.value = g.id;
+    opt1.textContent = label;
+    bulkSel.appendChild(opt1);
+
+    // filter
+    const opt2 = document.createElement("option");
+    opt2.value = g.id;
+    opt2.textContent = label;
+    filtSel.appendChild(opt2);
+
+    // draw
+    if(drawSel){
+      const opt3 = document.createElement("option");
+      opt3.value = g.id;
+      opt3.textContent = label;
+      drawSel.appendChild(opt3);
+    }
+  });
+
+  // restore previous selection if possible
+  if(drawSel && [...drawSel.options].some(o=>o.value===prevDraw)) drawSel.value = prevDraw;
+  if([...bulkSel.options].some(o=>o.value===prevBulk)) bulkSel.value = prevBulk;
+  if([...filtSel.options].some(o=>o.value===prevFilt)) filtSel.value = prevFilt;
+
+  document.getElementById("btnBulkCreate").disabled = !bulkSel.value;
+  updateDrawButton();
+}
+
+
+  function renderGroups(){
+    const body = document.getElementById("groupsBody");
+    const cnt = document.getElementById("groupsCount");
+    cnt.textContent = state.groups.length;
+
+    if(!state.groups.length){
+      body.innerHTML = `<tr><td colspan="4" class="text-center text-secondary py-4">Nincs csoport.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = state.groups.map(g => {
+      const activeBadge = g.is_active ? `<span class="badge text-bg-success">Igen</span>` : `<span class="badge text-bg-secondary">Nem</span>`;
+      const isSel = (state.selectedGroupId === g.id);
+      return `
+        <tr data-gid="${g.id}" style="cursor:pointer" class="${isSel ? 'table-primary' : ''}">
+          <td class="mono">${escapeHtml(g.code)}</td>
+          <td>${escapeHtml(g.display_name)}</td>
+          <td class="mono">${escapeHtml(g.sort_order)}</td>
+          <td>${activeBadge}</td>
+        </tr>
+      `;
+    }).join("");
+
+    body.querySelectorAll("tr[data-gid]").forEach(tr => {
+      tr.addEventListener("click", async () => {
+        const gid = parseInt(tr.getAttribute("data-gid"), 10);
+        state.selectedGroupId = gid;
+        renderGroups();
+
+        const g = state.groups.find(x => x.id === gid);
+        document.getElementById("selGroupLabel").textContent = g ? `${g.code} — ${g.display_name}` : "—";
+        document.getElementById("btnSavePerms").disabled = false;
+
+        try{
+          const res = await fetchJSON(API.perms(gid));
+          const tokens = res.permissions || [];
+          document.getElementById("permTokens").value = tokens.join(", ");
+          renderPermPills(tokens);
+        }catch(e){
+          showAlert(e.message || "Jogosultság betöltési hiba.");
+        }
+      });
+    });
+  }
+
+  function renderDevicesOptions(selectedId){
+    const opts = [`<option value="0">— nincs hozzárendelve —</option>`];
+    state.devices.forEach(d => {
+      const label = `${d.device_name} (${d.device_id})`;
+      const sel = (parseInt(selectedId||0,10) === parseInt(d.id,10)) ? "selected" : "";
+      opts.push(`<option value="${d.id}" ${sel}>${escapeHtml(label)}</option>`);
+    });
+    return opts.join("");
+  }
+
+  async function loadGroups(){
+    const res = await fetchJSON(API.groups);
+    state.groups = (res.groups || []).map(g => ({
+      ...g,
+      id: parseInt(g.id, 10),
+      sort_order: parseInt(g.sort_order ?? 0, 10),
+      is_active: !!g.is_active,
+      role_tokens: g.role_tokens || []
+    }));
+    fillGroupSelects();
+    renderGroups();
+  }
+
+  async function loadDevices(){
+    const res = await fetchJSON(API.devices);
+    state.devices = (res.devices || []).map(d => ({
+      id: parseInt(d.id,10),
+      device_id: d.device_id,
+      device_name: d.device_name
+    }));
+  }
+
+  async function loadTables(){
+    const gid = document.getElementById("filterGroup").value;
+    const url = gid ? `${API.tables}?group_id=${encodeURIComponent(gid)}` : API.tables;
+
+    const res = await fetchJSON(url);
+    const rows = res.tables || [];
+    const body = document.getElementById("tablesBody");
+    const cnt = document.getElementById("tablesCount");
+
+    if(!rows.length){
+      body.innerHTML = `<tr><td colspan="7" class="text-center text-secondary py-4">Nincs asztal.</td></tr>`;
+      cnt.textContent = "";
+      return;
+    }
+
+    body.innerHTML = rows.map(t => {
+      const gid = t.group_id ? parseInt(t.group_id,10) : "";
+      const gcode = t.group_code || "";
+      const raspiId = t.raspberry_id ? parseInt(t.raspberry_id,10) : 0;
+
+      return `
+    <tr data-tid="${t.id}">
+        <td style="width:44px;">
+            <input class="form-check-input rowChk" type="checkbox" data-tid="${t.id}">
+        </td>
+
+    <td class="mono">${escapeHtml(t.id)}</td>
+
+
+    <td>
+      <input class="form-control form-control-sm tableNoInp mono"
+             value="${escapeHtml(t.table_no ?? '')}"
+             style="max-width:110px;">
+    </td>
+
+    <td>
+      <select class="form-select form-select-sm raspiSel" style="min-width:240px;">
+        ${renderDevicesOptions(raspiId)}
+      </select>
+      <div class="hint">Jelenlegi: <span class="mono">${escapeHtml(t.device_name || "—")}</span></div>
+    </td>
+
+    <td>
+        <div class="d-flex gap-2 justify-content-end">
+            <button class="btn btn-sm btn-outline-primary btnAssign">Mentés</button>
+            <button class="btn btn-sm btn-outline-danger btnDelete" title="Törlés">
+            <i class="fa-solid fa-trash"></i>
+            </button>
+        </div>
+    </td>
+
+  </tr>
+`;
+
+    }).join("");
+
+    cnt.textContent = `Összesen: ${rows.length} asztal`;
+
+    body.querySelectorAll("tr[data-tid]").forEach(tr => {
+        const tid = parseInt(tr.getAttribute("data-tid"), 10);
+
+// sor checkbox
+const chk = tr.querySelector(".rowChk");
+if(chk){
+  chk.checked = selectedTableIds.has(tid);
+  chk.addEventListener("change", () => {
+    if(chk.checked) selectedTableIds.add(tid);
+    else selectedTableIds.delete(tid);
+    updateBulkUI();
+  });
+}
+
+        const btnDel = tr.querySelector(".btnDelete");
+
+        btnDel.addEventListener("click", async () => {
+  if(!confirm(`Biztos törlöd ezt az asztalt? (ID: ${tid})`)) return;
+
+  btnDel.disabled = true;
+  try{
+    await fetchJSON(API.deleteTable(tid), { method: "DELETE" });
+    showAlert("Asztal törölve.", "success");
+    await loadTables();
+  }catch(e){
+    showAlert(e.message || "Törlési hiba.");
+  }finally{
+    btnDel.disabled = false;
+  }
+});
+
+
+      const sel = tr.querySelector(".raspiSel");
+      const btn = tr.querySelector(".btnAssign");
+
+      btn.addEventListener("click", async () => {
+        const raspberry_id = parseInt(sel.value || "0", 10);
+
+        const noInp = tr.querySelector(".tableNoInp");
+        const rawNo = (noInp?.value || "").trim();
+        const table_no = rawNo ? parseInt(rawNo, 10) : null;
+
+        btn.disabled = true;
+        btn.textContent = "Mentés…";
+
+        try{
+            // 1) sorszám mentés (ha üres: null)
+            await fetchJSON(API.updateTable(tid), {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ table_no })
+            });
+
+            // 2) raspberry mentés
+            await fetchJSON(API.assignDevice(tid), {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ raspberry_id })
+            });
+
+            showAlert("Mentve.", "success");
+            await loadTables();
+        }catch(e){
+            showAlert(e.message || "Mentési hiba.");
+        }finally{
+            btn.disabled = false;
+            btn.textContent = "Mentés";
+        }
+        });
+
+    });
+    updateBulkUI();
+
+  }
+
+  // ---- actions ----
+  document.getElementById("btnRefreshAll").addEventListener("click", async ()=>{
+    try{
+      await loadGroups();
+      await loadDevices();
+      await loadTables();
+      showAlert("Frissítve.", "success");
+    }catch(e){
+      showAlert(e.message || "Frissítési hiba.");
+    }
+  });
+
+  document.getElementById("btnCreateGroup").addEventListener("click", async ()=>{
+    const code = (document.getElementById("gCode").value || "").trim().toUpperCase();
+    const display_name = (document.getElementById("gName").value || "").trim();
+    const sort_order = parseInt(document.getElementById("gSort").value || "0", 10);
+    const is_active = !!document.getElementById("gActive").checked;
+
+    if(!code || !display_name){
+      return showAlert("Hiányzó csoport kód vagy név.", "warning");
+    }
+
+    try{
+      await fetchJSON(API.createGroup, {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ code, display_name, sort_order, is_active })
+      });
+      document.getElementById("gCode").value = "";
+      document.getElementById("gName").value = "";
+      document.getElementById("gSort").value = "0";
+      document.getElementById("gActive").checked = true;
+      await loadGroups();
+      showAlert("Csoport létrehozva.", "success");
+    }catch(e){
+      showAlert(e.message || "Csoport létrehozási hiba.");
+    }
+  });
+
+  document.getElementById("btnSavePerms").addEventListener("click", async ()=>{
+    if(!state.selectedGroupId){
+      return showAlert("Nincs kiválasztott csoport.", "warning");
+    }
+    const role_tokens = tokensFromTextarea();
+    try{
+      await fetchJSON(API.perms(state.selectedGroupId), {
+        method:"PUT",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ role_tokens })
+      });
+      renderPermPills(role_tokens);
+      await loadGroups();
+      showAlert("Jogosultság mentve.", "success");
+    }catch(e){
+      showAlert(e.message || "Jogosultság mentési hiba.");
+    }
+  });
+
+  document.getElementById("bulkGroup").addEventListener("change", function(){
+    document.getElementById("btnBulkCreate").disabled = !this.value;
+    const g = state.groups.find(x => x.id === parseInt(this.value||"0",10));
+    if(g && !document.getElementById("bulkPrefix").value.trim()){
+      document.getElementById("bulkPrefix").value = (g.code || "").toUpperCase();
+    }
+  });
+
+  document.getElementById("btnBulkCreate").addEventListener("click", async ()=>{
+    const group_id = parseInt(document.getElementById("bulkGroup").value || "0", 10);
+    const prefix = (document.getElementById("bulkPrefix").value || "").trim().toUpperCase();
+    const start_no = parseInt(document.getElementById("bulkStart").value || "1", 10);
+    const count = parseInt(document.getElementById("bulkCount").value || "0", 10);
+
+    if(!group_id || !prefix || count <= 0){
+      return showAlert("Hiányzó csoport/prefix vagy rossz darabszám.", "warning");
+    }
+
+    const btn = document.getElementById("btnBulkCreate");
+    btn.disabled = true;
+    btn.textContent = "Generálás…";
+
+    try{
+      const res = await fetchJSON(API.bulkCreate, {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ group_id, prefix, start_no, count })
+      });
+      showAlert(`Kész. Beszúrt asztalok: ${res.inserted}`, "success");
+      await loadTables();
+    }catch(e){
+      showAlert(e.message || "Generálási hiba.");
+    }finally{
+      btn.disabled = false;
+      btn.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> Generálás`;
+    }
+  });
+
+  document.getElementById("btnReloadTables").addEventListener("click", loadTables);
+  document.getElementById("filterGroup").addEventListener("change", loadTables);
+
+  // ---- init ----
+  document.addEventListener("DOMContentLoaded", async ()=>{
+    try{
+      await loadDevices();
+      await loadGroups();
+      await loadTables();
+          buildGrid();
+
+    document.getElementById("btnClearSel")?.addEventListener("click", clearSelection);
+    document.getElementById("btnApplyDraw")?.addEventListener("click", applyDrawLayout);
+    document.getElementById("btnBulkDelete")?.addEventListener("click", bulkDeleteSelected);
+
+document.getElementById("chkAllRows")?.addEventListener("change", (e) => {
+  const on = !!e.target.checked;
+  document.querySelectorAll("#tablesBody .rowChk").forEach(chk => {
+    chk.checked = on;
+    const tid = parseInt(chk.dataset.tid || "0", 10);
+    if(tid){
+      if(on) selectedTableIds.add(tid);
+      else selectedTableIds.delete(tid);
+    }
+  });
+  updateBulkUI();
+});
+
+
+    // rács méret OK
+    document.getElementById("btnGridApply")?.addEventListener("click", applyGridSize);
+
+    // Enterre is működjön
+    document.getElementById("gridColsInp")?.addEventListener("keydown", (e)=>{ if(e.key==="Enter") applyGridSize(); });
+    document.getElementById("gridRowsInp")?.addEventListener("keydown", (e)=>{ if(e.key==="Enter") applyGridSize(); });
+
+
+    document.getElementById("drawGroup")?.addEventListener("change", function(){
+      const g = state.groups.find(x => x.id === parseInt(this.value||"0",10));
+      if(g && !document.getElementById("drawPrefix").value.trim()){
+        document.getElementById("drawPrefix").value = (g.code || "").toUpperCase();
+      }
+      updateDrawButton();
+    });
+
+    document.getElementById("drawPrefix")?.addEventListener("input", updateDrawButton);
+
+    }catch(e){
+      showAlert(e.message || "Inicializálási hiba.");
+    }
+  });
+
+  document.addEventListener("mouseup", ()=>{
+  if(!dragOn) return;
+  dragOn = false;
+  paintSelection();
+});
+function applyGridSize(){
+  const cInp = document.getElementById("gridColsInp");
+  const rInp = document.getElementById("gridRowsInp");
+
+  gridCols = clamp(cInp?.value, 1, 50);
+  gridRows = clamp(rInp?.value, 1, 50);
+
+  if (cInp) cInp.value = gridCols;
+  if (rInp) rInp.value = gridRows;
+
+  clearSelection();
+  buildGrid();
+}
+
+</script>
+
+
+{% endblock %}

@@ -1,0 +1,40 @@
+{% extends lang ~ '/base.html' %}
+{% block title %}Domain Deploy – Napló{% endblock %}
+{% block page_title %}Domain Deploy – Telepítési napló{% if host %} · {{ host }}{% endif %}{% endblock %}
+{% block page_header_right %}
+  {% if host %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('deploy.logs_page', lang=lang) }}">Összes</a>{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid my-3">
+  <div class="card"><div class="table-responsive">
+    <table class="table table-sm table-striped align-middle mb-0">
+      <thead><tr><th>Idő</th><th>Gép</th><th>Csomag</th><th>Művelet</th><th>Módszer</th><th>Azonosító</th><th>Állapot</th><th>Üzenet</th></tr></thead>
+      <tbody>
+        {% for l in logs %}
+        <tr>
+          <td class="small text-muted text-nowrap">{{ l.created_at }}</td>
+          <td class="small"><a href="{{ url_for('deploy.logs_page', lang=lang, host=l.hostname) }}">{{ l.hostname }}</a></td>
+          <td class="small">{{ l.package_name }}</td>
+          <td class="small">{{ l.action }}</td>
+          <td class="small">{{ l.method }}</td>
+          <td class="small"><code>{{ l.identifier }}</code></td>
+          <td>
+            {% if l.status in ['ok','installed','removed','success','skipped'] %}
+              <span class="badge bg-success">{{ l.status }}</span>
+            {% elif l.status in ['error','failed'] %}
+              <span class="badge bg-danger">{{ l.status }}</span>
+            {% else %}
+              <span class="badge bg-secondary">{{ l.status }}</span>
+            {% endif %}
+          </td>
+          <td class="small text-muted" style="max-width:340px;white-space:pre-wrap;">{{ l.message }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-3">Nincs naplóbejegyzés.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+</div>
+{% endblock %}

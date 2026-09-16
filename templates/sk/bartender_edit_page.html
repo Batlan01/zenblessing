@@ -1,0 +1,218 @@
+{% extends 'sk/base.html' %}
+
+{% block content %}
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Stránka tlače BarTender</title>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+<link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet"/>
+</head>
+<style>
+    .bartender-buttons {
+      margin-top: 30px;
+      text-align: center;
+    }
+    
+    .bartender-buttons .btn {
+      margin: 10px;
+      padding: 12px 24px;
+      font-size: 18px;
+      font-weight: 500;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      transition: all 0.3s ease-in-out;
+    }
+    
+    .bartender-buttons .btn:hover {
+      transform: translateY(-2px);
+      opacity: 0.9;
+    }
+    
+    
+    </style>
+<body>
+    <body>
+        <div style="text-align: right; margin-top: 10px;">
+            <a href="{{ url_for('bartender_edit_page', lang='hu') }}">
+                <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar" style="width: 32px; height: 20px; margin-right: 10px;">
+            </a>
+            <a href="{{ url_for('bartender_edit_page', lang='sk') }}">
+                <img src="{{ url_for('static', filename='flags/sk.png') }}" alt="Slovenský" style="width: 32px; height: 20px;">
+            </a>
+        </div>
+        <h1>BarTender Edit Stranka</h1>
+<!-- Tlačidlá -->
+<div class="bartender-buttons">
+    <button class="btn btn-success" id="addButton">➕ Pridat nové PN k súboru etikety</button>
+    <button class="btn btn-primary" id="editButton">✏️ Szerkesztés</button>
+  </div>
+
+<!-- Pridanie nového záznamu -->
+<div class="modal" id="modal">
+<span class="close" id="closeModal">×</span>
+<h2>Nový záznam</h2>
+<table>
+<thead>
+<tr>
+<th>PN</th>
+<th>ETIKETA</th>
+<th>KONTROLA</th>
+<th>POTVRDIŤ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><input id="pnInput" type="text"/></td>
+<td>
+<select id="etiketSelect">
+<option value="">Načítavam súbory...</option>
+</select>
+</td>
+<td>
+<button class="btn checkNewBtn">KONTROLA</button>
+<span class="status-icon"></span>
+</td>
+<td>
+<button class="btn confirmBtn" disabled="">POTVRDIŤ</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<!-- Úprava údajov -->
+<div class="modal" id="editModal">
+<span class="close" id="closeEditModal">×</span>
+<h2>Úprava údajov</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>PN</th>
+<th>ETIKETA</th>
+<th>KONTROLA</th>
+<th>AKTUALIZOVAŤ</th>
+</tr>
+</thead>
+<tbody id="editTableBody"></tbody>
+</table>
+</div>
+
+<!-- Potvrdzovacie okno -->
+<div id="confirmDialog">
+<p>Ste si istý, že chcete uložiť zmeny?</p>
+<button class="btn" id="confirmYes">Áno</button>
+<button class="btn" id="confirmNo">Nie</button>
+</div>
+
+<script>
+    $(document).ready(function() {
+        let pendingUpdates = [];
+
+        $("#addButton").click(function() {
+            $("#modal").show();
+            loadEtiketFiles();
+        });
+
+        $("#closeModal").click(function() {
+            $("#modal").hide();
+        });
+
+        $("#editButton").click(function() {
+            $("#editModal").show();
+            loadEditData();
+        });
+
+        $("#closeEditModal").click(function() {
+            $("#editModal").hide();
+        });
+
+        function loadEtiketFiles() {
+            $.get("/get_btw_files", function(data) {
+                let select = $("#etiketSelect");
+                select.empty();
+                data.files.forEach(file => {
+                    select.append(`<option value="${file}">${file}</option>`);
+                });
+            });
+        }
+
+        function loadEditData() {
+            $.get("/get_edit_data", function(data) {
+                let tbody = $("#editTableBody");
+                tbody.empty();
+
+                data.records.forEach(record => {
+                    let row = `
+                        <tr data-id="${record.ID}">
+                            <td>${record.ID}</td>
+                            <td><input type="text" class="pnInput" value="${record.PN}"></td>
+                            <td>
+                                <select class="etiketSelect">
+                                    ${data.files.map(file => `<option value="${file}" ${file === record.etiket ? 'selected' : ''}>${file}</option>`).join('')}
+                                </select>
+                            </td>
+                            <td>
+                                <button class="btn checkBtn">KONTROLA</button>
+                                <span class="status-icon"></span>
+                            </td>
+                            <td>
+                                <button class="btn updateBtn" disabled>AKTUALIZOVAŤ</button>
+                            </td>
+                        </tr>
+                    `;
+                    tbody.append(row);
+                });
+            });
+        }
+
+        $(document).on("click", ".checkBtn", function() {
+            let row = $(this).closest("tr");
+            let pnValue = row.find(".pnInput").val().trim().toLowerCase();
+            let statusIcon = row.find(".status-icon");
+            let updateBtn = row.find(".updateBtn");
+
+            $.post("/check_pn", { pn: pnValue }, function(data) {
+                if (data.found) {
+                    statusIcon.html("✔").addClass("green-check").removeClass("red-cross");
+                    updateBtn.prop("disabled", false);
+                } else {
+                    statusIcon.html("✖").addClass("red-cross").removeClass("green-check");
+                    updateBtn.prop("disabled", true);
+                }
+            });
+        });
+
+        $(document).on("click", ".updateBtn", function() {
+            let row = $(this).closest("tr");
+            let id = row.data("id");
+            let pn = row.find(".pnInput").val();
+            let etikett = row.find(".etiketSelect").val();
+
+            pendingUpdates = [{ id, pn, etikett }];
+
+            $("#confirmDialog").show();
+        });
+
+        $("#confirmYes").click(function() {
+            $.post("/bartender_update_data", { updates: JSON.stringify(pendingUpdates) }, function(response) {
+                alert(response.message);
+                $("#confirmDialog").hide();
+                $("#editModal").hide();
+            });
+        });
+
+        $("#confirmNo").click(function() {
+            pendingUpdates = [];
+            $("#confirmDialog").hide();
+        });
+
+    });
+</script>
+</body>
+</html>
+{% endblock %}

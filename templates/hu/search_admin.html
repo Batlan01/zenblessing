@@ -1,0 +1,649 @@
+{% extends lang ~ '/base.html' %}
+{% set active = 'search' %}
+{% block title %}Kereső – Beállítások{% endblock %}
+{% block page_title %}Kereső beállítások{% endblock %}
+{% block page_header_right %}
+  <a href="/{{ lang }}/search/" class="btn btn-sm btn-outline-secondary">
+    <i class="fa-solid fa-magnifying-glass me-1"></i>Keresőhöz
+  </a>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+.sa-card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:22px 24px;margin-bottom:18px;box-shadow:0 1px 6px rgba(0,0,0,.04)}
+.sa-card-title{font-weight:700;font-size:1rem;margin-bottom:16px;display:flex;align-items:center;gap:10px}
+.sa-card-title i{color:#6b7280;font-size:.95rem}
+.sa-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:16px}
+.sa-stat{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px}
+.sa-stat-val{font-size:1.3rem;font-weight:700;color:#111827;line-height:1.2;font-variant-numeric:tabular-nums}
+.sa-stat-lbl{font-size:.72rem;color:#6b7280;margin-top:3px;text-transform:uppercase;letter-spacing:.05em}
+.sa-stat.ok .sa-stat-val{color:#16a34a}
+
+/* watcher badge */
+.sa-watcher-row{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:14px}
+.sa-watcher-dot{width:9px;height:9px;border-radius:50%;background:#9ca3af;flex-shrink:0;transition:background .3s}
+.sa-watcher-dot.on{background:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.15)}
+.sa-watcher-dot.off{background:#ef4444}
+.sa-watcher-txt{font-size:.85rem;color:#374151;flex:1}
+.sa-watcher-sub{font-size:.75rem;color:#6b7280}
+
+/* live panel */
+.sa-live{background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:16px 18px;margin:12px 0 0;display:none}
+.sa-live.on{display:block}
+.sa-live-hd{font-size:.78rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#1d4ed8;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.sa-live-label{font-size:.8rem;color:#3b82f6;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sa-counters{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.sa-cnt{text-align:center;background:#fff;border-radius:8px;padding:8px 4px;border:1px solid #dbeafe}
+.sa-cnt-val{font-size:1.1rem;font-weight:700;font-variant-numeric:tabular-nums}
+.sa-cnt-lbl{font-size:.68rem;color:#6b7280;text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+.c-blue{color:#2563eb}.c-gray{color:#6b7280}.c-red{color:#dc2626}.c-green{color:#16a34a}
+
+.sa-bar-outer{height:8px;background:#bfdbfe;border-radius:4px;overflow:hidden;margin-bottom:8px}
+.sa-bar-inner{height:100%;border-radius:4px;background:linear-gradient(90deg,#2563eb,#38bdf8);width:30%;animation:sa-move 1.8s ease-in-out infinite}
+@keyframes sa-move{0%,100%{opacity:1}50%{opacity:.65}}
+.sa-cur-dir{font-size:.78rem;color:#1d4ed8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.sa-err{display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:12px 16px;margin-top:10px;gap:10px;align-items:flex-start}
+.sa-err.on{display:flex}
+.sa-err-msg{font-size:.88rem;color:#991b1b;word-break:break-word}
+
+.sa-sm-prog{margin-top:10px}
+.sa-sm-bar-outer{height:4px;background:#e5e7eb;border-radius:2px;overflow:hidden;margin-bottom:4px}
+.sa-sm-bar-inner{height:100%;border-radius:2px;background:linear-gradient(90deg,#2563eb,#60a5fa);width:0%;transition:width .4s}
+.sa-sm-msg{font-size:.82rem;color:#6b7280;min-height:18px}
+
+.sa-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px}
+.sa-roots-table{width:100%;border-collapse:collapse}
+.sa-roots-table th{font-size:.74rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af;padding:8px 12px;border-bottom:1.5px solid #e5e7eb}
+.sa-roots-table td{padding:10px 12px;border-bottom:1px solid #f3f4f6;vertical-align:middle}
+.sa-roots-table tr:last-child td{border-bottom:none}
+.sa-roots-table tr:hover td{background:#f9fafb}
+.sa-root-path{font-family:var(--bs-font-monospace,monospace);font-size:.88rem;color:#1f2937;word-break:break-all}
+.sa-prio-badge{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:20px;white-space:nowrap}
+.sa-prio-10{background:#fef9c3;color:#854d0e}.sa-prio-5{background:#e0f2fe;color:#0369a1}.sa-prio-1{background:#f3f4f6;color:#6b7280}
+.sa-spin{animation:sa-spin-anim .7s linear infinite}
+@keyframes sa-spin-anim{to{transform:rotate(360deg)}}
+.sa-add-form{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:18px 20px}
+.sa-add-form label{font-size:.82rem;font-weight:600;color:#4b5563;margin-bottom:4px}
+.sa-empty{text-align:center;padding:32px;color:#9ca3af;font-size:.9rem}
+.sa-clear-confirm{display:none;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px 16px;margin-top:8px;gap:12px;align-items:center}
+.sa-clear-confirm.on{display:flex}
+
+/* folder browser */
+.fb-bc{font-size:.82rem;color:#6b7280;display:flex;align-items:center;flex-wrap:wrap;gap:2px;min-height:24px;margin-bottom:8px}
+.fb-crumb{cursor:pointer;color:#2563eb;padding:1px 4px;border-radius:4px}.fb-crumb:hover{background:#eff6ff}
+.fb-sep{color:#d1d5db}
+.fb-list{border:1px solid #e5e7eb;border-radius:10px;overflow-y:auto;max-height:320px;background:#fafafa}
+.fb-item{display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;border-bottom:1px solid #f3f4f6;transition:background .08s;font-size:.92rem;color:#1f2937}
+.fb-item:last-child{border-bottom:none}
+.fb-item:hover{background:#eff6ff;color:#1d4ed8}
+.fb-item i{font-size:.95rem;color:#6b7280;min-width:18px}.fb-item:hover i{color:#2563eb}
+.fb-item-drive{font-weight:600}
+.fb-sel-path{background:#f9fafb;border:1.5px solid #2563eb;border-radius:8px;padding:10px 14px;font-family:var(--bs-font-monospace,monospace);font-size:.88rem;color:#1f2937;word-break:break-all;min-height:40px}
+.fb-spin{text-align:center;padding:28px;color:#9ca3af}
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="max-width:940px">
+
+<!-- ── Státusz ── -->
+<div class="sa-card">
+  <div class="sa-card-title"><i class="fa-solid fa-chart-simple"></i>Index állapot</div>
+
+  <!-- Watcher státusz sor -->
+  <div class="sa-watcher-row">
+    <div class="sa-watcher-dot" id="watcherDot"></div>
+    <div>
+      <div class="sa-watcher-txt" id="watcherTxt">Figyelő betöltés…</div>
+      <div class="sa-watcher-sub" id="watcherSub"></div>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="restartWatcher()" title="Figyelő újraindítása">
+      <i class="fa-solid fa-rotate me-1"></i>Újraindít
+    </button>
+  </div>
+
+  <div class="sa-stats">
+    <div class="sa-stat {% if stats.total %}ok{% endif %}">
+      <div class="sa-stat-val" id="stTotal">{{ stats.total|default(0)|int }}</div>
+      <div class="sa-stat-lbl">Összes bejegyzés</div>
+    </div>
+    <div class="sa-stat">
+      <div class="sa-stat-val c-blue" id="stFiles">{{ stats.files|default(0)|int }}</div>
+      <div class="sa-stat-lbl">Fájl</div>
+    </div>
+    <div class="sa-stat">
+      <div class="sa-stat-val c-green" id="stDirs">{{ stats.dirs|default(0)|int }}</div>
+      <div class="sa-stat-lbl">Mappa</div>
+    </div>
+    <div class="sa-stat">
+      <div class="sa-stat-val" id="stStatus" style="font-size:.95rem">{{ stats.status|default('idle') }}</div>
+      <div class="sa-stat-lbl">Állapot</div>
+    </div>
+    <div class="sa-stat">
+      <div class="sa-stat-val" id="stLast" style="font-size:.78rem;line-height:1.4">{{ stats.last_index|default('—') }}</div>
+      <div class="sa-stat-lbl">Utolsó indexelés</div>
+    </div>
+  </div>
+
+  <!-- LIVE PANEL -->
+  <div class="sa-live" id="saLive">
+    <div class="sa-live-hd"><i class="fa-solid fa-circle-notch fa-spin"></i>Indexelés folyamatban</div>
+    <div class="sa-live-label" id="saLiveLabel"></div>
+    <div class="sa-counters">
+      <div class="sa-cnt"><div class="sa-cnt-val c-blue"  id="lcFiles">0</div><div class="sa-cnt-lbl">Fájl</div></div>
+      <div class="sa-cnt"><div class="sa-cnt-val c-green" id="lcDirs">0</div><div class="sa-cnt-lbl">Mappa</div></div>
+      <div class="sa-cnt"><div class="sa-cnt-val c-gray"  id="lcSkip">0</div><div class="sa-cnt-lbl">Kihagyva</div></div>
+      <div class="sa-cnt"><div class="sa-cnt-val c-red"   id="lcErr">0</div><div class="sa-cnt-lbl">Hiba</div></div>
+    </div>
+    <div class="sa-bar-outer"><div class="sa-bar-inner"></div></div>
+    <div class="sa-cur-dir" id="saDir"></div>
+  </div>
+
+  <!-- HIBA -->
+  <div class="sa-err" id="saErr">
+    <i class="fa-solid fa-triangle-exclamation text-danger mt-1 flex-shrink-0"></i>
+    <div class="sa-err-msg" id="saErrMsg"></div>
+  </div>
+
+  <!-- IDLE kis progress -->
+  <div class="sa-sm-prog" id="saSmProg">
+    <div class="sa-sm-bar-outer"><div class="sa-sm-bar-inner"></div></div>
+    <div class="sa-sm-msg" id="saSmMsg">{{ stats.progress|default('') }}</div>
+  </div>
+
+  <!-- TÖRLÉS megerősítő -->
+  <div class="sa-clear-confirm" id="saClearConfirm">
+    <i class="fa-solid fa-triangle-exclamation text-warning flex-shrink-0"></i>
+    <div class="flex-grow-1 small">
+      <strong>Biztosan törlöd az összes indexelt bejegyzést?</strong>
+      Az indexelési előzmények nullázódnak.
+    </div>
+    <button class="btn btn-danger btn-sm" onclick="doDeleteIndex()">
+      <i class="fa-solid fa-trash me-1"></i>Törlés
+    </button>
+    <button class="btn btn-outline-secondary btn-sm"
+            onclick="document.getElementById('saClearConfirm').classList.remove('on')">Mégse</button>
+  </div>
+
+  <div class="sa-actions">
+    <button class="btn btn-primary" onclick="triggerIdx(false)">
+      <i class="fa-solid fa-rotate me-2"></i>Teljes újraindexelés
+    </button>
+    <button class="btn btn-outline-secondary" onclick="triggerIdx(true)">
+      <i class="fa-solid fa-bolt me-2"></i>Gyors frissítés
+      <span class="badge bg-secondary ms-1 fw-normal">15 perc</span>
+    </button>
+    <button class="btn btn-outline-danger ms-auto"
+            onclick="document.getElementById('saClearConfirm').classList.add('on')">
+      <i class="fa-solid fa-trash me-1"></i>Index törlése
+    </button>
+  </div>
+</div>
+
+<!-- ── Mappák ── -->
+<div class="sa-card">
+  <div class="sa-card-title"><i class="fa-solid fa-folder-tree"></i>Indexelt mappák</div>
+
+  <table class="sa-roots-table mb-3" id="rootsTable" {% if not roots %}style="display:none"{% endif %}>
+    <thead><tr>
+      <th>Útvonal</th>
+      <th style="width:80px">Prioritás</th>
+      <th style="width:90px">Rekurzív</th>
+      <th style="width:80px">Aktív</th>
+      <th style="width:36px" title="Csak ezt indexeli">Index</th>
+      <th style="width:36px">Töröl</th>
+    </tr></thead>
+    <tbody id="rootsTbody">
+      {% for r in roots %}
+      <tr id="root-{{ r.id }}">
+        <td>
+          <div class="sa-root-path">{{ r.path }}</div>
+          {% if r.label %}<div class="text-muted small mt-1">{{ r.label }}</div>{% endif %}
+        </td>
+        <td><span class="sa-prio-badge sa-prio-{{ r.priority }}">{{ r.priority }}</span></td>
+        <td>
+          {% if r.recursive %}
+            <span class="badge bg-success-subtle text-success fw-normal">Igen</span>
+          {% else %}
+            <span class="badge bg-secondary-subtle text-secondary fw-normal">Nem</span>
+          {% endif %}
+        </td>
+        <td>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch" style="cursor:pointer"
+                   {{ 'checked' if r.active else '' }}
+                   onchange="toggleRoot({{ r.id }}, this.checked)">
+          </div>
+        </td>
+        <td>
+          <button class="btn btn-sm btn-link text-primary p-0"
+                  title="Csak ezt a mappát indexeli újra"
+                  onclick="reindexRoot({{ r.id }}, this)">
+            <i class="fa-solid fa-rotate" id="idx-icon-{{ r.id }}"></i>
+          </button>
+        </td>
+        <td>
+          <button class="btn btn-sm btn-link text-danger p-0"
+                  title="Mappa törlése az indexből"
+                  onclick="deleteRoot({{ r.id }})">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="sa-empty" id="rootsEmpty" {% if roots %}style="display:none"{% endif %}>
+    <i class="fa-solid fa-folder-plus fa-2x mb-3 d-block opacity-30"></i>Még nincs indexelt mappa.
+  </div>
+
+  <div class="sa-add-form">
+    <div class="fw-semibold mb-3" style="font-size:.9rem">
+      <i class="fa-solid fa-plus me-1 text-primary"></i>Mappa hozzáadása
+    </div>
+    <div class="row g-3">
+      <div class="col-12">
+        <label>Útvonal</label>
+        <div class="input-group">
+          <input id="newPath" class="form-control form-control-sm font-monospace"
+                 placeholder='pl. C:\Projektumok  vagy  \\szerver\megosztás'
+                 style="font-size:.88rem">
+          <button class="btn btn-outline-secondary btn-sm" onclick="openBrowser()">
+            <i class="fa-solid fa-folder-open me-1"></i>Tallózás
+          </button>
+        </div>
+      </div>
+      <div class="col-sm-4">
+        <label>Prioritás</label>
+        <select id="newPrio" class="form-select form-select-sm">
+          <option value="10">10 – magas</option>
+          <option value="5" selected>5 – közepes</option>
+          <option value="1">1 – alacsony</option>
+        </select>
+      </div>
+      <div class="col-sm-4">
+        <label>Almappák</label>
+        <select id="newRec" class="form-select form-select-sm">
+          <option value="1">Igen (rekurzív)</option>
+          <option value="0">Nem</option>
+        </select>
+      </div>
+      <div class="col-sm-4 d-flex align-items-end">
+        <button class="btn btn-primary btn-sm w-100" onclick="addRoot()">
+          <i class="fa-solid fa-plus me-1"></i>Hozzáadás
+        </button>
+      </div>
+    </div>
+    <div id="addMsg" class="mt-2 small" style="min-height:18px"></div>
+  </div>
+</div>
+
+<div class="alert alert-light border d-flex gap-3 align-items-start" style="border-radius:12px">
+  <i class="fa-solid fa-lightbulb text-warning mt-1"></i>
+  <div class="small">
+    <strong>UNC:</strong> <code>\\\\szerver\\megosztás</code> &nbsp;·&nbsp;
+    <strong>Meghajtó:</strong> <code>C:\\</code> &nbsp;·&nbsp;
+    <strong>Almappa:</strong> <code>D:\\Projektumok\\2024</code><br>
+    A figyelő (<i class="fa-solid fa-eye text-success"></i>) automatikusan frissíti az indexet fájlváltozáskor.
+    Hálózati mappáknál a manuális indexelés is ajánlott.
+  </div>
+</div>
+</div>
+
+<!-- FOLDER BROWSER MODAL -->
+<div class="modal fade" id="fbModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:560px">
+    <div class="modal-content" style="border-radius:16px;border:none;box-shadow:0 20px 60px rgba(0,0,0,.15)">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold">
+          <i class="fa-solid fa-folder-tree me-2 text-primary"></i>Mappa kiválasztása
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pt-2">
+        <div class="mb-3 p-3" style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px">
+          <div class="small fw-semibold text-muted mb-1">
+            <i class="fa-solid fa-network-wired me-1"></i>Hálózati mappa vagy közvetlen útvonal
+          </div>
+          <div class="input-group input-group-sm">
+            <span class="input-group-text" style="font-size:.8rem;color:#6b7280">\\</span>
+            <input id="fbUncInput" class="form-control font-monospace"
+                   placeholder='szerver\megosztás  vagy  C:\Projektumok'
+                   style="font-size:.85rem"
+                   autocomplete="off" spellcheck="false">
+            <button class="btn btn-outline-primary" onclick="fbGoUnc()" style="font-size:.82rem">
+              <i class="fa-solid fa-arrow-right me-1"></i>Megnyit
+            </button>
+          </div>
+          <div class="mt-1 small text-muted" style="font-size:.75rem">
+            Pl: <code>\\szerver\megosztás</code> &nbsp;·&nbsp; <code>\\10.10.2.15\adatok</code> &nbsp;·&nbsp; <code>D:\Projektumok</code>
+          </div>
+          <div id="fbUncErr" class="mt-1 small text-danger" style="min-height:16px;white-space:pre-line"></div>
+        </div>
+
+        <div class="fb-bc" id="fbBc"></div>
+        <div class="fb-list" id="fbList">
+          <div class="fb-spin"><i class="fa-solid fa-spinner fa-spin me-2"></i>Betöltés…</div>
+        </div>
+        <div class="mt-3">
+          <div class="small fw-semibold text-muted mb-1">Kiválasztott mappa:</div>
+          <div class="fb-sel-path" id="fbSel">—</div>
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Mégse</button>
+        <button class="btn btn-primary" onclick="confirmBrowser()">
+          <i class="fa-solid fa-check me-1"></i>Kiválaszt
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const URL_STATUS          = '/{{ lang }}/search/status';
+const URL_BROWSE          = '/{{ lang }}/search/admin/browse';
+const URL_ADD             = '/{{ lang }}/search/admin/root/add';
+const URL_TOGGLE          = '/{{ lang }}/search/admin/root/toggle';
+const URL_DEL             = '/{{ lang }}/search/admin/root/delete';
+const URL_RIDX            = '/{{ lang }}/search/admin/reindex';
+const URL_RIDX_ROOT       = '/{{ lang }}/search/admin/reindex/root';
+const URL_IIDX            = '/{{ lang }}/search/admin/reindex/incremental';
+const URL_CLEAR           = '/{{ lang }}/search/admin/clear';
+const URL_WATCHER_RESTART = '/{{ lang }}/search/admin/watcher/restart';
+
+async function post(url, data){
+  try{
+    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    return await r.json();
+  }catch(e){ return {ok:false,msg:String(e)}; }
+}
+
+/* ── Progress parser ── */
+function parseProg(s){
+  const n=(s||'').replace(/[,\.]/g,'');
+  const fi=n.match(/(\d+)\s*fájl/), di=n.match(/(\d+)\s*mappa/),
+        ki=n.match(/(\d+)\s*kihagyva/), hi=n.match(/(\d+)\s*hiba/);
+  return {
+    files:   fi?parseInt(fi[1]):null, dirs:    di?parseInt(di[1]):null,
+    skipped: ki?parseInt(ki[1]):null, errors:  hi?parseInt(hi[1]):null,
+  };
+}
+
+function setText(id,v){ const e=document.getElementById(id); if(e&&v!=null) e.textContent=v; }
+function fmt(n){ return n==null?'—':Number(n).toLocaleString('hu'); }
+
+function applyWatcher(running){
+  const dot=document.getElementById('watcherDot');
+  const txt=document.getElementById('watcherTxt');
+  const sub=document.getElementById('watcherSub');
+  if(running===undefined || running===null) return;
+  dot.className='sa-watcher-dot '+(running?'on':'off');
+  txt.textContent = running ? 'Figyelő aktív — változások automatikusan frissülnek' : 'Figyelő leállva — csak manuális indexelés';
+  sub.textContent = running ? 'Helyi mappák: valós idejű  ·  Hálózati mappák: újraindítás ajánlott' : 'Kattints az Újraindít gombra, vagy adj hozzá új mappát.';
+}
+
+function applyStatus(d){
+  setText('stStatus', d.status||'idle');
+  if(d.total!=null)    setText('stTotal', fmt(d.total));
+  if(d.files!=null)    setText('stFiles', fmt(d.files));
+  if(d.dirs!=null)     setText('stDirs',  fmt(d.dirs));
+  if(d.last_index && d.last_index!=='-') setText('stLast', d.last_index);
+  applyWatcher(d.watcher_running);
+
+  const live  =document.getElementById('saLive');
+  const err   =document.getElementById('saErr');
+  const smProg=document.getElementById('saSmProg');
+
+  if(d.is_running){
+    live.classList.add('on');
+    smProg.style.display='none';
+    err.classList.remove('on');
+    const p=parseProg(d.progress);
+    if(p.files!=null)   setText('lcFiles', fmt(p.files));
+    if(p.dirs!=null)    setText('lcDirs',  fmt(p.dirs));
+    if(p.skipped!=null) setText('lcSkip',  fmt(p.skipped));
+    if(p.errors!=null)  setText('lcErr',   fmt(p.errors));
+    setText('saDir', d.current_dir ? '📁 '+d.current_dir : '');
+  }else{
+    live.classList.remove('on');
+    smProg.style.display='';
+    document.querySelectorAll('.sa-spin').forEach(i=>i.classList.remove('sa-spin'));
+    if(d.status==='error' && d.last_error){
+      err.classList.add('on');
+      setText('saErrMsg', d.last_error);
+    }else{
+      err.classList.remove('on');
+    }
+    setText('saSmMsg', d.progress||'');
+  }
+}
+
+/* ── Poll ── */
+let _polling=false, _pollErr=0;
+
+function poll(){
+  if(_polling) return;
+  _polling=true; _pollErr=0;
+  (async function loop(){
+    try{
+      const r=await fetch(URL_STATUS);
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d=await r.json();
+      _pollErr=0;
+      applyStatus(d);
+      if(d.is_running) setTimeout(loop, 1200);
+      else _polling=false;
+    }catch(e){
+      _pollErr++;
+      if(_pollErr < 10) setTimeout(loop, Math.min(2000*_pollErr, 8000));
+      else{
+        _polling=false;
+        document.getElementById('saErr').classList.add('on');
+        setText('saErrMsg','Kapcsolat megszakadt. Ellenőrizd a MySQL szervert.');
+      }
+    }
+  })();
+}
+
+// Időközönként frissíti a watcher státuszt (ha nem fut épp indexelés)
+setInterval(async ()=>{
+  if(_polling) return;
+  try{
+    const d=await(await fetch(URL_STATUS)).json();
+    applyWatcher(d.watcher_running);
+    if(d.total!=null) setText('stTotal', fmt(d.total));
+    if(d.files!=null) setText('stFiles', fmt(d.files));
+    if(d.dirs!=null)  setText('stDirs',  fmt(d.dirs));
+  }catch(e){}
+}, 30000);  // 30 mp
+
+function startLiveUI(labelText){
+  document.getElementById('saErr').classList.remove('on');
+  document.getElementById('saClearConfirm').classList.remove('on');
+  document.getElementById('saLive').classList.add('on');
+  document.getElementById('saSmProg').style.display='none';
+  setText('saLiveLabel', labelText || '');
+  setText('saDir', 'Indítás…');
+  poll();
+}
+
+async function triggerIdx(incr){
+  const d=await post(incr ? URL_IIDX : URL_RIDX, {});
+  if(d.ok) startLiveUI(incr ? 'Gyors frissítés (15 perc)' : 'Teljes újraindexelés — minden mappa');
+  else{ document.getElementById('saErr').classList.add('on'); setText('saErrMsg', d.msg||'Hiba'); }
+}
+
+async function reindexRoot(id, btn){
+  if(_polling){ alert('Indexelés már folyamatban.'); return; }
+  const icon=document.getElementById('idx-icon-'+id);
+  if(icon) icon.classList.add('sa-spin');
+  const pathEl=document.querySelector('#root-'+id+' .sa-root-path');
+  const path=pathEl ? pathEl.textContent.trim() : 'ismeretlen';
+  const d=await post(URL_RIDX_ROOT, {id});
+  if(d.ok) startLiveUI('Indexelés: '+path);
+  else{
+    if(icon) icon.classList.remove('sa-spin');
+    document.getElementById('saErr').classList.add('on');
+    setText('saErrMsg', d.msg||'Hiba');
+  }
+}
+
+async function restartWatcher(){
+  const dot=document.getElementById('watcherDot');
+  dot.className='sa-watcher-dot';
+  setText('watcherTxt','Figyelő újraindítás…');
+  const d=await post(URL_WATCHER_RESTART, {});
+  if(d.ok) applyWatcher(d.running);
+  else{ setText('watcherTxt','Újraindítás sikertelen: '+(d.msg||'hiba')); dot.className='sa-watcher-dot off'; }
+}
+
+async function doDeleteIndex(){
+  document.getElementById('saClearConfirm').classList.remove('on');
+  const d=await post(URL_CLEAR, {});
+  if(d.ok){
+    ['stTotal','stFiles','stDirs','lcFiles','lcDirs','lcSkip','lcErr'].forEach(id=>setText(id,'0'));
+    document.getElementById('saErr').classList.remove('on');
+    document.getElementById('saLive').classList.remove('on');
+    document.getElementById('saSmProg').style.display='';
+    setText('saSmMsg', d.msg||'Index törölve.');
+  }else{
+    document.getElementById('saErr').classList.add('on');
+    setText('saErrMsg', d.msg||'Törlési hiba');
+  }
+}
+
+/* ── Roots CRUD ── */
+function setMsg(msg,t='success'){const e=document.getElementById('addMsg');e.className='mt-2 small text-'+t;e.textContent=msg;}
+
+async function addRoot(){
+  const path=(document.getElementById('newPath').value||'').trim();
+  if(!path){setMsg('Adj meg útvonalat!','danger');return;}
+  const d=await post(URL_ADD,{path,priority:+document.getElementById('newPrio').value,recursive:document.getElementById('newRec').value==='1'});
+  if(d.ok){setMsg('Hozzáadva! Figyelő újraindítva.','success');setTimeout(()=>location.reload(),1400);}
+  else setMsg(d.msg||'Hiba','danger');
+}
+
+async function toggleRoot(id,active){
+  const d=await post(URL_TOGGLE,{id,active});
+  if(!d.ok) alert(d.msg||'Hiba');
+}
+
+async function deleteRoot(id){
+  if(!confirm('Töröljük ezt a mappát?')) return;
+  const d=await post(URL_DEL,{id});
+  if(d.ok) document.getElementById('root-'+id)?.remove();
+  else alert(d.msg||'Hiba');
+}
+
+/* ── Folder browser ── */
+let _fbSel='';
+
+function openBrowser(){
+  _fbSel='';
+  document.getElementById('fbSel').textContent='—';
+  document.getElementById('fbUncInput').value='';
+  document.getElementById('fbUncErr').textContent='';
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('fbModal')).show();
+  fbGo('');
+}
+
+async function fbGoUnc(){
+  let raw=document.getElementById('fbUncInput').value.trim();
+  document.getElementById('fbUncErr').textContent='';
+  if(!raw){document.getElementById('fbUncErr').textContent='Adj meg egy útvonalat.';return;}
+  if(!raw.startsWith('\\\\') && !raw.match(/^[A-Za-z]:\\/)) raw='\\\\'+raw;
+  const list=document.getElementById('fbList');
+  list.innerHTML='<div class="fb-spin"><i class="fa-solid fa-spinner fa-spin me-2"></i>Elérés…</div>';
+  document.getElementById('fbBc').innerHTML='';
+  try{
+    const d=await(await fetch(URL_BROWSE+'?path='+encodeURIComponent(raw))).json();
+    if(!d.ok){
+      document.getElementById('fbUncErr').textContent=d.msg||'Nem sikerült megnyitni.';
+      list.innerHTML=`<div class="fb-spin text-danger"><i class="fa-solid fa-triangle-exclamation me-2"></i>${esc(d.msg||'Hiba')}</div>`;
+      return;
+    }
+    _fbSel=raw; document.getElementById('fbSel').textContent=raw;
+    fbBc(d.current,d.parent); list.innerHTML='';
+    if(d.parent!==null&&d.parent!==undefined)
+      list.appendChild(fbItem('<i class="fa-solid fa-arrow-left"></i><span>Vissza</span>',()=>fbGo(d.parent),'text-muted'));
+    if(d.current){
+      const s=fbItem('<i class="fa-solid fa-check text-success"></i><span class="fw-semibold">Ezt a mappát választom</span>',()=>{_fbSel=d.current;document.getElementById('fbSel').textContent=d.current;});
+      s.style.borderBottom='1.5px solid #e5e7eb'; list.appendChild(s);
+    }
+    if(!d.items.length){const e=document.createElement('div');e.className='fb-spin text-muted';e.textContent='Üres mappa';list.appendChild(e);}
+    else d.items.forEach(item=>list.appendChild(fbItem(
+      `<i class="fa-solid ${item.type==='drive'?'fa-hard-drive':'fa-folder'}"></i><span>${esc(item.name)}</span><i class="fa-solid fa-chevron-right ms-auto opacity-30" style="font-size:.7rem"></i>`,
+      ()=>fbGo(item.path), item.type==='drive'?'fb-item-drive':''
+    )));
+  }catch(e){ document.getElementById('fbUncErr').textContent='Hálózati hiba: '+e.message; list.innerHTML='<div class="fb-spin text-danger">Hálózati hiba</div>'; }
+}
+
+function fbItem(html,onClick,cls=''){const el=document.createElement('div');el.className='fb-item'+(cls?' '+cls:'');el.innerHTML=html;el.addEventListener('click',onClick);return el;}
+
+async function fbGo(path){
+  const list=document.getElementById('fbList');
+  list.innerHTML='<div class="fb-spin"><i class="fa-solid fa-spinner fa-spin me-2"></i>Betöltés…</div>';
+  try{
+    const d=await(await fetch(URL_BROWSE+(path?'?path='+encodeURIComponent(path):''))).json();
+    if(!d.ok){list.innerHTML=`<div class="fb-spin text-danger">${esc(d.msg||'Hiba')}</div>`;return;}
+    fbBc(d.current,d.parent); list.innerHTML='';
+    if(d.parent!==null&&d.parent!==undefined)
+      list.appendChild(fbItem('<i class="fa-solid fa-arrow-left"></i><span>Vissza</span>',()=>fbGo(d.parent),'text-muted'));
+    if(d.current){
+      const s=fbItem('<i class="fa-solid fa-check text-success"></i><span class="fw-semibold">Ezt a mappát választom</span>',()=>{_fbSel=d.current;document.getElementById('fbSel').textContent=d.current;});
+      s.style.borderBottom='1.5px solid #e5e7eb'; list.appendChild(s);
+    }
+    if(!d.items.length){const e=document.createElement('div');e.className='fb-spin text-muted';e.textContent='Üres mappa';list.appendChild(e);}
+    else d.items.forEach(item=>list.appendChild(fbItem(
+      `<i class="fa-solid ${item.type==='drive'?'fa-hard-drive':'fa-folder'}"></i><span>${esc(item.name)}</span><i class="fa-solid fa-chevron-right ms-auto opacity-30" style="font-size:.7rem"></i>`,
+      ()=>fbGo(item.path), item.type==='drive'?'fb-item-drive':''
+    )));
+  }catch{list.innerHTML='<div class="fb-spin text-danger">Hálózati hiba</div>';}
+}
+
+function fbBc(cur,par){
+  const bc=document.getElementById('fbBc');
+  if(!cur){bc.innerHTML='<span class="fb-crumb" onclick="fbGo(\'\')">Meghajtók</span>';return;}
+  const sep=cur.includes('\\')?'\\':'/';
+  const parts=[]; let p=cur;
+  for(let i=0;i<6;i++){
+    parts.unshift({l:p.split(sep).filter(Boolean).pop()||p,p});
+    const p2=p.replace(/[\\/]+$/,'').split(sep).slice(0,-1).join(sep)+sep;
+    if(!p2||p2===p) break; p=p2;
+  }
+  bc.innerHTML='<span class="fb-crumb" onclick="fbGo(\'\')">Meghajtók</span>'
+    +parts.map(pt=>`<span class="fb-sep">/</span><span class="fb-crumb" onclick="fbGo(${JSON.stringify(pt.p)})">${esc(pt.l)}</span>`).join('');
+}
+
+function confirmBrowser(){
+  const c=_fbSel;
+  if(!c){alert('Válassz mappát!');return;}
+  document.getElementById('newPath').value=c;
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('fbModal')).hide();
+}
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+window.addEventListener('load',()=>{
+  document.getElementById('fbUncInput')?.addEventListener('keydown',e=>{if(e.key==='Enter')fbGoUnc();});
+  applyStatus({
+    is_running:      {{ 'true' if stats.status == 'running' else 'false' }},
+    watcher_running: null,
+    status:          {{ stats.status|default('idle')|tojson }},
+    total:           {{ stats.total|default(0)|int }},
+    files:           {{ stats.files|default(0)|int }},
+    dirs:            {{ stats.dirs|default(0)|int }},
+    progress:        {{ stats.progress|default('')|tojson }},
+    last_error:      {{ stats.last_error|default('')|tojson }},
+    last_index:      {{ stats.last_index|default('-')|tojson }},
+    current_dir:     ''
+  });
+  // Watcher állapot lekérés induláskor
+  fetch(URL_STATUS).then(r=>r.json()).then(d=>applyWatcher(d.watcher_running)).catch(()=>{});
+  if({{ 'true' if stats.status == 'running' else 'false' }}) poll();
+});
+</script>
+{% endblock %}

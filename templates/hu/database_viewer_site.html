@@ -1,0 +1,514 @@
+{% extends "hu/base.html" %}
+{% block title %}Adatbázis kezelő (Viewer/Injector){% endblock %}
+{% set active = 'dbv' %}
+{% block page_title %}Adatbázis kezelő (Viewer/Injector){% endblock %}
+{% block page_header_right %}
+  <a href="{{ url_for('db_viewer.page', lang='hu') }}"><img src="{{ url_for('static', filename='flags/hu.png') }}" width="32" height="20"></a>
+  <a class="ms-2" href="{{ url_for('db_viewer.page', lang='sk') }}"><img src="{{ url_for('static', filename='flags/sk.png') }}" width="32" height="20"></a>
+  <a class="ms-2" href="{{ url_for('db_viewer.page', lang='en') }}"><img src="{{ url_for('static', filename='flags/gb.png') }}" width="32" height="20"></a>
+{% endblock %}
+
+{% block content %}
+<style>
+  .dbv-card.surface-dark{background:#0f1a2b;border:1px solid rgba(255,255,255,.06);box-shadow:0 8px 28px rgba(0,0,0,.35);border-radius:14px}
+  .dbv-label{color:#a9b7c6;font-size:.85rem}
+  .dbv-hint{color:#8fa2c3;font-size:.8rem}
+  .pill{display:inline-flex;gap:.35rem;align-items:center;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:9999px;padding:.2rem .5rem}
+  .pill .x{cursor:pointer;opacity:.8}
+  .grid-wrap{overflow:auto}
+  pre.codebox{background:#0b1422;border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px;white-space:pre-wrap}
+  .nav-pills .nav-link{border-radius:10px}
+  /* inline szerk */
+  td.editable{cursor:text}
+  td.editing{outline:2px solid #3b82f6; background:rgba(59,130,246,.08)}
+  /* oszlop-szélesség */
+  th{position:relative}
+  .col-resizer{position:absolute;right:0;top:0;height:100%;width:6px;cursor:col-resize;user-select:none}
+  /* kijelölés */
+  .row-select{width:18px}
+</style>
+
+<!-- LOGIN -->
+<div class="group-block surface-dark dbv-card mb-3">
+  <div class="toolbar-pad d-flex align-items-center justify-content-between">
+    <h5 class="mb-0">Kapcsolódás az adatbázishoz</h5>
+    <span class="dbv-hint">Oldal újratöltés nélkül</span>
+  </div>
+  <div class="soft-sep"></div>
+  <div class="px-3 pb-3">
+    <div class="row g-2">
+      <div class="col-12 col-md-6">
+        <label class="dbv-label mb-1">Admin user</label>
+        <input id="user" class="form-control form-control-sm">
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="dbv-label mb-1">Jelszó</label>
+        <input id="password" type="password" class="form-control form-control-sm">
+      </div>
+    </div>
+    <div class="d-flex align-items-center gap-2 mt-3">
+      <button id="btnLogin" class="btn btn-sm btn-primary">Bejelentkezés</button>
+      <button id="btnLogout" class="btn btn-sm btn-outline-secondary">Kijelentkezés</button>
+      <span id="loginStatus" class="ms-2 small dbv-hint"></span>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN TABS (rejtve loginig) -->
+<div id="tabsCard" class="group-block surface-dark dbv-card" style="display:none">
+  <div class="toolbar-pad d-flex align-items-center justify-content-between">
+    <ul class="nav nav-pills gap-2" id="dbvTabs" role="tablist">
+      <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tab-general" type="button">Általános</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-filter" type="button">Táblaszűrés</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-meta" type="button">DB meta</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tab-sql" type="button">SQL futtató</button></li>
+    </ul>
+    <div class="d-flex align-items-center gap-3">
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="editSwitch">
+        <label class="form-check-label dbv-label" for="editSwitch">Szerkesztés mód (csak IT)</label>
+      </div>
+      <div class="dbv-hint"><span id="rowInfo"></span></div>
+    </div>
+  </div>
+  <div class="soft-sep"></div>
+
+  <div class="tab-content px-3 pb-3">
+    <!-- ÁLTALÁNOS -->
+    <div class="tab-pane fade show active" id="tab-general">
+      <div class="row g-3 align-items-end">
+        <div class="col-12 col-md-4">
+          <label class="dbv-label mb-1">Adatbázis</label>
+          <select id="dbSelect" class="form-select form-select-sm"><option value="">-- válassz --</option></select>
+        </div>
+        <div class="col-12 col-md-4">
+          <label class="dbv-label mb-1">Tábla</label>
+          <select id="tableSelect" class="form-select form-select-sm" disabled><option value="">-- előbb adatbázis --</option></select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="dbv-label mb-1">Limit</label>
+          <input id="limit" type="number" class="form-control form-control-sm" value="50" min="1" max="1000">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="dbv-label mb-1">Offset</label>
+          <input id="offset" type="number" class="form-control form-control-sm" value="0" min="0">
+        </div>
+      </div>
+
+      <div class="row g-3 align-items-end mt-2">
+        <div class="col-12 col-lg-8">
+          <label class="dbv-label mb-1 d-block">Rendezés (több oszlop)</label>
+          <div class="d-flex gap-2">
+            <select id="orderCol" class="form-select form-select-sm" style="min-width:160px"><option value="">(oszlop)</option></select>
+            <select id="orderDir" class="form-select form-select-sm" style="min-width:100px"><option value="ASC">ASC</option><option value="DESC">DESC</option></select>
+            <button id="btnAddOrder" class="btn btn-sm btn-outline-primary">Hozzáad</button>
+            <button id="btnClearOrder" class="btn btn-sm btn-outline-secondary">Töröl</button>
+          </div>
+          <div id="orderPills" class="mt-2 d-flex flex-wrap gap-2"></div>
+        </div>
+
+        <div class="col-12 col-lg-4 text-lg-end">
+          <div class="d-flex flex-wrap gap-2">
+            <button id="btnLoad" class="btn btn-sm btn-primary">Betöltés</button>
+            <button id="btnPrev" class="btn btn-sm btn-outline-secondary">← Előző</button>
+            <button id="btnNext" class="btn btn-sm btn-outline-secondary">Következő →</button>
+            <button id="btnExportCSV"  class="btn btn-sm btn-success">Export CSV</button>
+            <button id="btnExportJSON" class="btn btn-sm btn-success">Export JSON</button>
+            <button id="btnNewRow" class="btn btn-sm btn-warning">Új sor</button>
+            <button id="btnDupRow" class="btn btn-sm btn-warning">Duplikálás</button>
+            <button id="btnDelRows" class="btn btn-sm btn-danger">Kijelölt törlése</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-wrap mt-3">
+        <table id="grid" class="table table-sm table-striped align-middle mb-0">
+          <thead id="gridHead"></thead>
+          <tbody id="gridBody"></tbody>
+        </table>
+      </div>
+      <div class="dbv-hint mt-2">Tipp: duplakatt a cellán szerkesztéshez • Enter/Blur ment • Esc megszakít • Oszlopszélesség: fejléccsík húzása • Beállítások mentése: helyi tár.</div>
+    </div>
+
+    <!-- SZŰRÉS -->
+    <div class="tab-pane fade" id="tab-filter">
+      <div class="row g-3 align-items-end">
+        <div class="col-12 col-md-3">
+          <label class="dbv-label mb-1">Logika</label>
+          <select id="logic" class="form-select form-select-sm">
+            <option value="AND">AND (minden feltétel)</option>
+            <option value="OR">OR  (bármely feltétel)</option>
+          </select>
+        </div>
+        <div class="col-12 col-md-9">
+          <label class="dbv-label mb-1 d-block">Szűrés (több feltétel)</label>
+          <div class="d-flex gap-2">
+            <select id="whereCol" class="form-select form-select-sm" style="min-width:140px"><option value="">(oszlop)</option></select>
+            <select id="whereOp" class="form-select form-select-sm" style="min-width:120px">
+              <option value="=">=</option><option value="!=">!=</option><option value="<"><</option><option value="<="><=</option>
+              <option value=">">></option><option value=">=">>=</option><option value="LIKE">LIKE</option>
+              <option value="IN">IN</option><option value="BETWEEN">BETWEEN</option>
+              <option value="IS NULL">IS NULL</option><option value="IS NOT NULL">IS NOT NULL</option>
+            </select>
+            <input id="whereVal" class="form-control form-control-sm" placeholder="érték / IN: a,b / BETWEEN: A..B">
+            <button id="btnAddWhere" class="btn btn-sm btn-outline-primary">Hozzáad</button>
+            <button id="btnClearWhere" class="btn btn-sm btn-outline-secondary">Töröl</button>
+            <button id="btnApplyFilter" class="btn btn-sm btn-primary">Alkalmaz</button>
+          </div>
+          <div id="wherePills" class="mt-2 d-flex flex-wrap gap-2"></div>
+        </div>
+      </div>
+
+      <div class="d-flex flex-wrap gap-2 mt-3">
+        <button id="btnDistinct" class="btn btn-sm btn-outline-success">DISTINCT (kijelölt oszlop)</button>
+        <select id="aggFunc" class="form-select form-select-sm">
+          <option value="">Aggregáció…</option>
+          <option value="COUNT">COUNT(*)</option><option value="MIN">MIN(col)</option>
+          <option value="MAX">MAX(col)</option><option value="AVG">AVG(col)</option><option value="SUM">SUM(col)</option>
+        </select>
+        <select id="aggCol" class="form-select form-select-sm"><option value="">(oszlop vagy üres)</option></select>
+        <button id="btnAggRun" class="btn btn-sm btn-outline-success">Futtat</button>
+      </div>
+      <div class="mt-3" id="metaPanel" style="display:none"><div id="metaOut"></div></div>
+    </div>
+
+    <!-- META -->
+    <div class="tab-pane fade" id="tab-meta">
+      <div class="d-flex flex-wrap gap-2">
+        <button id="btnCols" class="btn btn-sm btn-outline-info">Oszlopok / típusok</button>
+        <button id="btnDescribe" class="btn btn-sm btn-outline-info">DESCRIBE / Indexek / CREATE</button>
+      </div>
+      <div class="mt-3" id="metaPanel2" style="display:none"><div id="metaOut2"></div></div>
+    </div>
+
+    <!-- SQL FUTTATÓ -->
+    <div class="tab-pane fade" id="tab-sql">
+      <div class="row g-2">
+        <div class="col-12">
+          <label class="dbv-label mb-1">SQL (alapból csak olvasás engedélyezett)</label>
+          <textarea id="sqlText" class="form-control" rows="6" placeholder="SELECT * FROM table LIMIT 10"></textarea>
+        </div>
+        <div class="col-12 d-flex align-items-center gap-2">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="sqlWriteSwitch">
+            <label class="form-check-label dbv-label" for="sqlWriteSwitch">Írás engedélyezése (INSERT/UPDATE/DELETE) – csak IT</label>
+          </div>
+          <button id="btnRunSQL" class="btn btn-sm btn-danger ms-auto">SQL futtatása</button>
+        </div>
+      </div>
+
+      <div class="grid-wrap mt-3">
+        <table id="sqlGrid" class="table table-sm table-striped align-middle mb-0">
+          <thead id="sqlHead"></thead>
+          <tbody id="sqlBody"></tbody>
+        </table>
+      </div>
+      <div class="mt-2 dbv-hint" id="sqlMsg"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const BASE = "{{ base_url }}";    // /hu/dbv/
+  const CSRF = "{{ csrf_token | e }}";
+
+  const el = id => document.getElementById(id);
+  const loginStatus = el('loginStatus');
+  const tabsCard    = el('tabsCard');
+  const rowInfo     = el('rowInfo');
+
+  let lastRows=[], lastCols=[], orders=[], wheres=[], currentColumns=[], pkCols=[], describeMeta=[];
+  let editMode=false, colWidths={}, lastSelectedRow=null;
+
+  function keyLS(){ return `${el('dbSelect').value}.${el('tableSelect').value}.colwidths`; }
+
+  async function api(path, opts={}) {
+    const res  = await fetch(BASE + path.replace(/^\//,''), {
+      method: opts.method || 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      body: opts.body ? JSON.stringify(opts.body) : null
+    });
+    const data = await res.json().catch(()=>({ok:false,error:'JSON hiba'}));
+    if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP '+res.status));
+    return data;
+  }
+
+  function pill(text, onX){ const d=document.createElement('span'); d.className='pill';
+    const s=document.createElement('span'); s.textContent=text; const x=document.createElement('span'); x.className='x'; x.textContent='✕';
+    x.onclick = onX; d.appendChild(s); d.appendChild(x); return d; }
+
+  // ---------- LOGIN ----------
+  async function doLogin(){
+    loginStatus.textContent="Kapcsolódás…";
+    try{ await api('api/login',{method:'POST',body:{csrf:CSRF,user:el('user').value,password:el('password').value}});
+      loginStatus.innerHTML='<span class="text-success">Sikeres kapcsolat.</span>'; tabsCard.style.display='';
+      await loadDatabases();
+    }catch(e){ loginStatus.innerHTML='<span class="text-danger">Hiba: '+e.message+'</span>'; tabsCard.style.display='none';}
+  }
+  async function doLogout(){
+    try{ await api('api/logout',{method:'POST',body:{csrf:CSRF}}); tabsCard.style.display='none';
+      el('dbSelect').innerHTML='<option value="">-- válassz --</option>';
+      el('tableSelect').innerHTML='<option>-- előbb adatbázis --</option>'; el('tableSelect').disabled=true;
+    }catch(e){ loginStatus.innerHTML='<span class="text-danger">Hiba: '+e.message+'</span>'; }
+  }
+
+  // ---------- LISTÁK ----------
+  async function loadDatabases(){
+    const d=await api('api/databases'); const s=el('dbSelect');
+    s.innerHTML='<option value="">-- válassz --</option>'; (d.databases||[]).forEach(db=>{const o=document.createElement('option');o.value=db;o.textContent=db;s.appendChild(o);});
+  }
+  async function loadTables(){
+    const db=el('dbSelect').value; const tsel=el('tableSelect'); tsel.disabled=true; tsel.innerHTML='<option>-- töltés --</option>';
+    if(!db){tsel.innerHTML='<option>-- előbb adatbázis --</option>';return;}
+    const d=await api('api/tables?db='+encodeURIComponent(db));
+    tsel.innerHTML='<option value="">-- válassz --</option>'; (d.tables||[]).forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t;tsel.appendChild(o);});
+    tsel.disabled=false; currentColumns=[]; orders=[]; wheres=[]; pkCols=[]; colWidths={}; localStorage.removeItem(keyLS());
+    el('orderCol').innerHTML='<option value="">(oszlop)</option>'; el('whereCol').innerHTML='<option value="">(oszlop)</option>'; el('aggCol').innerHTML='<option value="">(oszlop vagy üres)</option>';
+  }
+  async function loadColumnsForCurrent(){
+    const db=el('dbSelect').value, table=el('tableSelect').value; if(!db||!table) return;
+    const d=await api(`api/columns?db=${encodeURIComponent(db)}&table=${encodeURIComponent(table)}`);
+    currentColumns = (d.columns||[]).map(c=>c.COLUMN_NAME);
+    pkCols = d.primary_keys || [];
+    [el('orderCol'), el('whereCol'), el('aggCol')].forEach(sel=>{
+      const first = sel === el('aggCol') ? '<option value="">(oszlop vagy üres)</option>' : '<option value="">(oszlop)</option>';
+      sel.innerHTML=first; currentColumns.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n; sel.appendChild(o);});
+    });
+    // describe meta a duplikáláshoz (auto_increment kiszűréshez)
+    const dd = await api(`api/describe?db=${encodeURIComponent(db)}&table=${encodeURIComponent(table)}`);
+    describeMeta = dd.describe || [];
+    // oszlopszélesség
+    try{ colWidths = JSON.parse(localStorage.getItem(keyLS())||'{}'); }catch{ colWidths={}; }
+  }
+
+  // ---------- GRID ----------
+  function renderHeaderWithResize(cols){
+    const head=el('gridHead'); head.innerHTML='';
+    const tr=document.createElement('tr');
+    // checkbox fej
+    const thSel=document.createElement('th'); thSel.style.width='32px'; thSel.innerHTML='<input type="checkbox" id="chkAll">';
+    tr.appendChild(thSel);
+    cols.forEach((c, idx)=>{
+      const th=document.createElement('th'); th.textContent=c;
+      if(colWidths[c]) th.style.width = colWidths[c];
+      const res=document.createElement('div'); res.className='col-resizer';
+      res.addEventListener('mousedown', (e)=>{
+        e.preventDefault();
+        const startX=e.pageX; const startW = th.offsetWidth;
+        function onMove(ev){ const w=(startW + (ev.pageX-startX)); th.style.width=w+'px'; }
+        function onUp(){ document.removeEventListener('mousemove',onMove); document.removeEventListener('mouseup',onUp);
+          // persist
+          colWidths[c]=th.style.width; localStorage.setItem(keyLS(), JSON.stringify(colWidths));
+        }
+        document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+      });
+      th.appendChild(res);
+      tr.appendChild(th);
+    });
+    head.appendChild(tr);
+    // select all binding
+    const chkAll = document.getElementById('chkAll');
+    chkAll?.addEventListener('change', ()=> document.querySelectorAll('#gridBody .row-select').forEach(cb=>cb.checked = chkAll.checked));
+  }
+
+  function renderGrid(cols, rows){
+    lastCols=cols||[]; lastRows=rows||[];
+    renderHeaderWithResize(lastCols);
+    const body=el('gridBody'); body.innerHTML='';
+    rows.forEach((r, ridx)=>{
+      const tr=document.createElement('tr'); tr.dataset.row = ridx;
+      // row checkbox
+      const tdSel=document.createElement('td'); tdSel.innerHTML = '<input type="checkbox" class="row-select">'; tr.appendChild(tdSel);
+      cols.forEach(c=>{
+        const td=document.createElement('td'); td.dataset.col=c; td.classList.add('editable');
+        let v=r[c]; if(v==null) v=''; if(typeof v==='object') v=JSON.stringify(v);
+        td.textContent = String(v);
+        // inline edit
+        td.addEventListener('dblclick', ()=> startEditCell(td, r));
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+  }
+
+  function getRowPkFromRow(rowObj){
+    const pk={}; pkCols.forEach(k=>{ pk[k] = rowObj[k]; }); return pk;
+  }
+
+  function startEditCell(td, rowObj){
+    if(!editMode) return;
+    const col = td.dataset.col; if(pkCols.includes(col)) return; // PK-t nem piszkáljuk
+    td.classList.add('editing');
+    const old = td.textContent;
+    const inp = document.createElement('input');
+    inp.type='text'; inp.className='form-control form-control-sm'; inp.value=old;
+    td.textContent=''; td.appendChild(inp); inp.focus(); inp.select();
+    function cancel(){ td.classList.remove('editing'); td.innerHTML=''; td.textContent=old; }
+    function commit(){
+      const val = inp.value;
+      td.classList.remove('editing'); td.innerHTML=''; td.textContent=val;
+      saveCell(col, val, rowObj).catch(err=>{ td.textContent=old; alert('Mentési hiba: '+err.message); });
+    }
+    inp.addEventListener('keydown', (e)=>{ if(e.key==='Enter') commit(); else if(e.key==='Escape') cancel(); });
+    inp.addEventListener('blur', commit);
+  }
+
+  async function saveCell(column, value, rowObj){
+    const db=el('dbSelect').value, table=el('tableSelect').value;
+    const pk = getRowPkFromRow(rowObj);
+    await api('api/update_cell',{method:'POST',body:{csrf:CSRF, db, table, column, value, pk}});
+  }
+
+  // ---------- Sor műveletek ----------
+  function selectedRowObjs(){
+    const rows=[]; document.querySelectorAll('#gridBody tr').forEach((tr)=>{
+      const cb=tr.querySelector('.row-select'); if(cb && cb.checked){
+        const idx=parseInt(tr.dataset.row,10); rows.push(lastRows[idx]);
+      }
+    }); return rows;
+  }
+
+  function stripAutoIncrement(data){
+    // describeMeta: [{Field, Extra, ...}]
+    const copy={...data};
+    (describeMeta||[]).forEach(d=>{
+      if(String(d.Extra||'').toLowerCase().includes('auto_increment')){
+        delete copy[d.Field];
+      }
+    });
+    return copy;
+  }
+
+  async function newRow(){
+    if(!editMode) return alert('Kapcsold be a Szerkesztés módot.');
+    const db=el('dbSelect').value, table=el('tableSelect').value;
+    const draft={}; // üres insert (csak auto_increment megy)
+    await api('api/insert_row',{method:'POST',body:{csrf:CSRF, db, table, row:draft}});
+    await loadPreview(0);
+  }
+
+  async function duplicateRow(){
+    if(!editMode) return alert('Kapcsold be a Szerkesztés módot.');
+    const sel = selectedRowObjs(); if(sel.length!==1) return alert('Válassz ki pontosan egy sort a duplikáláshoz.');
+    const db=el('dbSelect').value, table=el('tableSelect').value;
+    const rowData = stripAutoIncrement(sel[0]);
+    await api('api/insert_row',{method:'POST',body:{csrf:CSRF, db, table, row:rowData}});
+    await loadPreview(0);
+  }
+
+  async function deleteSelected(){
+    if(!editMode) return alert('Kapcsold be a Szerkesztés módot.');
+    const sel = selectedRowObjs(); if(!sel.length) return alert('Nincs kijelölt sor.');
+    if(!confirm(`Biztosan töröljük a kijelölt ${sel.length} sort?`)) return;
+    const db=el('dbSelect').value, table=el('tableSelect').value;
+    const rowsPk = sel.map(getRowPkFromRow);
+    await api('api/delete_rows',{method:'POST',body:{csrf:CSRF, db, table, rows:rowsPk}});
+    await loadPreview(0);
+  }
+
+  // ---------- Rendezes/Where/Preview (meglévő logika rövidítve) ----------
+  function renderOrderPills(){ const b=el('orderPills'); b.innerHTML=''; orders.forEach((o,i)=> b.appendChild(pill(`${o.column} ${o.dir}`, ()=>{orders.splice(i,1); renderOrderPills();}))); }
+  function renderWherePills(){ const b=el('wherePills'); b.innerHTML=''; wheres.forEach((w,i)=>{let t=w.op; if(w.value!=null){ t+=' '+(Array.isArray(w.value)?JSON.stringify(w.value):w.value);} b.appendChild(pill(`${w.column} ${t}`, ()=>{wheres.splice(i,1); renderWherePills();})); }); }
+
+  function parseWhereValue(op, raw){
+    if(op==='IN'){ return raw.split(',').map(s=>s.trim()).filter(Boolean); }
+    if(op==='BETWEEN'){ if(raw.includes('..')){ const [a,b]=raw.split('..'); return [a.trim(), b.trim()]; }
+      const [a,b]=(raw||'').split(','); return [String(a||'').trim(), String(b||'').trim()]; }
+    if(op==='IS NULL' || op==='IS NOT NULL') return null;
+    return raw;
+  }
+
+  async function refreshRowCount(){
+    const db=el('dbSelect').value, table=el('tableSelect').value; if(!db||!table){rowInfo.textContent=''; return;}
+    try{ const r=await api('api/rowcount',{method:'POST',body:{csrf:CSRF, db, table, wheres, logic: el('logic').value }}); rowInfo.textContent=`Sorok (szűrve): ${r.count}`; }catch{ rowInfo.textContent=''; }
+  }
+  async function loadPreview(jump=0){
+    const db=el('dbSelect').value, table=el('tableSelect').value;
+    const limit=parseInt(el('limit').value||'50',10); let offset=parseInt(el('offset').value||'0',10);
+    if(!db||!table) return;
+    if(jump!==0){ offset=Math.max(0, offset + jump*limit); el('offset').value=offset; }
+    const data = await api('api/preview',{method:'POST',body:{csrf:CSRF, db, table, limit, offset, orders, wheres, logic: el('logic').value }});
+    renderGrid(data.columns, data.rows); await refreshRowCount();
+  }
+
+  // ---------- META/DIST/AGG/EXPORT/SQL (változatlan viselkedés, rövidítve) ----------
+  async function showColumns(){ const db=el('dbSelect').value, table=el('tableSelect').value; if(!db||!table) return;
+    const d=await api(`api/columns?db=${encodeURIComponent(db)}&table=${encodeURIComponent(table)}`);
+    const panel=document.getElementById('metaPanel'); const out=document.getElementById('metaOut');
+    panel.style.display=''; out.innerHTML = `<div class="mb-2 fw-semibold">Oszlopok</div>
+      <table class="table table-sm table-dark table-striped">
+      <thead><tr><th>Név</th><th>Típus</th><th>NULL</th><th>Kulcs</th><th>Alapértelmezett</th><th>Extra</th></tr></thead>
+      <tbody>${(d.columns||[]).map(c=>`<tr><td>${c.COLUMN_NAME??''}</td><td>${c.DATA_TYPE??''}</td><td>${c.IS_NULLABLE??''}</td><td>${c.COLUMN_KEY??''}</td><td>${c.COLUMN_DEFAULT??''}</td><td>${c.EXTRA??''}</td></tr>`).join('')}</tbody></table>`; }
+
+  async function showDescribe(){ const db=el('dbSelect').value, table=el('tableSelect').value; if(!db||!table) return;
+    const d=await api(`api/describe?db=${encodeURIComponent(db)}&table=${encodeURIComponent(table)}`);
+    const panel=document.getElementById('metaPanel2'); const out=document.getElementById('metaOut2'); panel.style.display='';
+    const desc=d.describe||[], idxs=d.indexes||[], create_sql=d.create_sql||'';
+    out.innerHTML = `<div class="mb-2 fw-semibold">DESCRIBE</div>
+      <table class="table table-sm table-dark table-striped">
+      <thead><tr><th>Field</th><th>Type</th><th>Null</th><th>Key</th><th>Default</th><th>Extra</th></tr></thead>
+      <tbody>${desc.map(r=>`<tr><td>${r.Field??''}</td><td>${r.Type??''}</td><td>${r.Null??''}</td><td>${r.Key??''}</td><td>${r.Default??''}</td><td>${r.Extra??''}</td></tr>`).join('')}</tbody></table>
+      <div class="mt-3 mb-2 fw-semibold">Indexek</div>
+      <table class="table table-sm table-dark table-striped">
+      <thead><tr><th>Key_name</th><th>Column</th><th>Non_unique</th><th>Seq_in_index</th><th>Index_type</th></tr></thead>
+      <tbody>${idxs.map(i=>`<tr><td>${i.Key_name??''}</td><td>${i.Column_name??''}</td><td>${i.Non_unique??''}</td><td>${i.Seq_in_index??''}</td><td>${i.Index_type??''}</td></tr>`).join('')}</tbody></table>
+      <div class="mt-3 mb-2 fw-semibold">CREATE TABLE</div><pre class="codebox">${(create_sql||'').replace(/[<&>]/g, s=>({ '<':'&lt;','>':'&gt;','&':'&amp;' }[s]))}</pre>`; }
+
+  function toCSV(cols, rows){ const esc=s=>{let v=(s==null)?'':String(s); if(/[",\n]/.test(v)) v='"'+v.replace(/"/g,'""')+'"'; return v; };
+    const head=cols.map(esc).join(','); const lines=(rows||[]).map(r=>cols.map(c=>esc(r[c])).join(',')); return [head,...lines].join('\n'); }
+  function download(filename, content, mime){ const b=new Blob([content],{type:mime}); const url=URL.createObjectURL(b);
+    const a=document.createElement('a'); a.href=url; a.download=filename; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1500); }
+  function exportCSV(){ if(!lastCols.length) return; download('export.csv', toCSV(lastCols,lastRows), 'text/csv;charset=utf-8'); }
+  function exportJSON(){ download('export.json', JSON.stringify({columns:lastCols,rows:lastRows},null,2),'application/json'); }
+
+  function renderSqlGrid(cols, rows){ const H=el('sqlHead'), B=el('sqlBody'); H.innerHTML=''; B.innerHTML='';
+    if(!cols || !cols.length) return; const tr=document.createElement('tr'); cols.forEach(c=>{const th=document.createElement('th'); th.textContent=c; tr.appendChild(th);}); H.appendChild(tr);
+    (rows||[]).forEach(r=>{const tr=document.createElement('tr'); cols.forEach(c=>{const td=document.createElement('td'); let v=r[c]; if(v==null)v=''; if(typeof v==='object') v=JSON.stringify(v); td.textContent=String(v); tr.appendChild(td);}); B.appendChild(tr);}); }
+  async function runSQL(){ const db=el('dbSelect').value, sql=el('sqlText').value||''; if(!db||!sql) return;
+    const res = await api('api/sql',{method:'POST',body:{csrf:CSRF, db, sql, readonly: !el('sqlWriteSwitch').checked }}); el('sqlMsg').textContent = res.message || ''; renderSqlGrid(res.columns, res.rows); }
+
+  // ---------- Bindings ----------
+  document.addEventListener('DOMContentLoaded', ()=>{
+    el('btnLogin').addEventListener('click', doLogin);
+    el('btnLogout').addEventListener('click', doLogout);
+
+    el('dbSelect').addEventListener('change', ()=>{ loadTables(); });
+    el('tableSelect').addEventListener('change', async ()=>{ await loadColumnsForCurrent(); });
+
+    el('btnAddOrder').addEventListener('click', ()=>{ const c=el('orderCol').value, d=el('orderDir').value||'ASC'; if(!c) return; orders.push({column:c, dir:d}); renderOrderPills(); });
+    el('btnClearOrder').addEventListener('click', ()=>{ orders=[]; renderOrderPills(); });
+
+    el('btnAddWhere').addEventListener('click', ()=>{ const c=el('whereCol').value, op=el('whereOp').value, raw=el('whereVal').value||''; if(!c||!op) return;
+      const v = (op==='IN'||op==='BETWEEN'||op.startsWith('IS')) ? parseWhereValue(op, raw) : raw; wheres.push({column:c, op:op, value:v}); renderWherePills(); });
+    el('btnClearWhere').addEventListener('click', ()=>{ wheres=[]; renderWherePills(); });
+    el('btnApplyFilter').addEventListener('click', ()=> loadPreview(0));
+
+    el('btnLoad').addEventListener('click', ()=>loadPreview(0));
+    el('btnPrev').addEventListener('click', ()=>loadPreview(-1));
+    el('btnNext').addEventListener('click', ()=>loadPreview(+1));
+
+    el('btnCols').addEventListener('click', showColumns);
+    el('btnDescribe').addEventListener('click', showDescribe);
+    el('btnDistinct').addEventListener('click', async ()=>{ const db=el('dbSelect').value, table=el('tableSelect').value, column=el('orderCol').value || el('whereCol').value;
+      if(!db||!table||!column) return; const res = await api('api/distinct',{method:'POST',body:{csrf:CSRF, db, table, column, limit:200, offset:0, wheres, logic: el('logic').value}});
+      document.getElementById('metaPanel').style.display=''; document.getElementById('metaOut').innerHTML = `<div class="mb-2 fw-semibold">DISTINCT ${column}</div><pre class="codebox">${JSON.stringify(res.values, null, 2)}</pre>`; });
+    el('btnAggRun').addEventListener('click', async ()=>{ const db=el('dbSelect').value, table=el('tableSelect').value, func=el('aggFunc').value, column=el('aggCol').value||null;
+      if(!db||!table||!func) return; const res = await api('api/aggregate',{method:'POST',body:{csrf:CSRF, db, table, func, column, wheres, logic: el('logic').value}});
+      document.getElementById('metaPanel').style.display=''; document.getElementById('metaOut').innerHTML = `<div class="mb-2 fw-semibold">AGG: ${func}(${column||'*'})</div><pre class="codebox">${JSON.stringify(res.value)}</pre>`; });
+
+    el('btnExportCSV').addEventListener('click', exportCSV);
+    el('btnExportJSON').addEventListener('click', exportJSON);
+
+    el('btnRunSQL').addEventListener('click', runSQL);
+
+    el('btnNewRow').addEventListener('click', newRow);
+    el('btnDupRow').addEventListener('click', duplicateRow);
+    el('btnDelRows').addEventListener('click', deleteSelected);
+
+    el('editSwitch').addEventListener('change', (e)=>{ editMode = e.target.checked; });
+
+    // keep-alive
+    setInterval(async ()=>{ try{ const r=await api('api/ping'); if(r.logged_in&&r.ok) loginStatus.innerHTML='<span class="text-success">Kapcsolat él.</span>'; }catch{} }, 60000);
+  });
+</script>
+{% endblock %}

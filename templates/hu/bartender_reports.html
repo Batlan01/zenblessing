@@ -1,0 +1,289 @@
+{% extends 'hu/base.html' %}
+{% block content %}
+<div class="container py-4">
+
+  <style>
+    /* Általános táblastílus */
+    .report-table {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: 100%;
+      font-size: 0.95rem;
+    }
+    .report-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #f1f3f5;
+      border-bottom: 2px solid #dee2e6;
+      color: #1f2937;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .report-table th,
+    .report-table td {
+      padding: .55rem .6rem;
+      border-bottom: 1px solid #eee;
+      vertical-align: middle;
+    }
+    .report-table tbody tr:nth-child(even) td {
+      background: #fafbfc;
+    }
+    .report-wrap {
+      max-height: 560px;
+      overflow-y: auto;
+      overflow-x: hidden; /* oszlopok férjenek ki */
+      border: 1px solid #e9ecef;
+      border-radius: .5rem;
+    }
+    .table-num { text-align: right; font-variant-numeric: tabular-nums; }
+    .table-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .badge-src { font-size: .75rem; }
+  </style>
+
+  <h1 class="mb-4">Nyomtatási riportok</h1>
+
+  <!-- Szűrők -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <form id="filterForm" class="row g-3">
+        <div class="col-md-2">
+          <label class="form-label">Dátumtól</label>
+          <input type="date" class="form-control" id="dateFrom">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Dátumig</label>
+          <input type="date" class="form-control" id="dateTo">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">PN</label>
+          <input type="text" class="form-control" id="pn">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">WO</label>
+          <input type="text" class="form-control" id="wo">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">REV</label>
+          <input type="text" class="form-control" id="rev">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Felhasználó</label>
+          <input type="text" class="form-control" id="user">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Nyomtató</label>
+          <input type="text" class="form-control" id="printer">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Sablon</label>
+          <input type="text" class="form-control" id="template">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Forrás</label>
+          <select id="source" class="form-select">
+            <option value="">(mind)</option>
+            <option value="all">all</option>
+            <option value="selected">selected</option>
+            <option value="reprint">reprint</option>
+          </select>
+        </div>
+        <div class="col-md-3 d-flex align-items-end gap-2">
+          <button type="button" id="btnSearch" class="btn btn-primary">Keresés</button>
+          <a id="btnExport" class="btn btn-outline-secondary" href="#">CSV</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Összesítő (mindig külön blokk) -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <div class="d-flex align-items-center gap-2">
+          <h5 class="mb-0">Összesítő</h5>
+          <small class="text-muted">(csoportosítás)</small>
+        </div>
+        <div class="d-flex gap-2">
+          <select id="sumGroupBy" class="form-select form-select-sm" style="width:auto">
+            <option value="user">Felhasználó</option>
+            <option value="printer">Nyomtató</option>
+            <option value="template">Sablon</option>
+            <option value="pn">PN</option>
+            <option value="wo">WO</option>
+          </select>
+          <button id="btnReloadSummary" class="btn btn-outline-primary btn-sm">Frissít</button>
+        </div>
+      </div>
+
+      <div class="report-wrap" style="max-height: 340px;">
+        <table class="report-table">
+          <colgroup>
+            <col style="width:45%">
+            <col style="width:15%">
+            <col style="width:15%">
+            <col style="width:15%">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Csoport</th>
+              <th class="table-num">Címkék</th>
+              <th class="table-num">Reprint</th>
+              <th class="table-num">Feladatok</th>
+            </tr>
+          </thead>
+          <tbody id="summaryBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Részletes sorok (mindig külön blokk) -->
+  <div class="card">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="mb-0">Részletes sorok</h5>
+        <small class="text-muted"><span id="rowsCount">0</span> találat</small>
+      </div>
+
+      <div class="report-wrap">
+        <table class="report-table">
+          <colgroup>
+            <col style="width:15%">
+            <col style="width:9%">
+            <col style="width:10%">
+            <col style="width:9%">
+            <col style="width:6%">
+            <col style="width:18%">
+            <col style="width:17%">
+            <col style="width:5%">
+            <col style="width:7%">
+            <col style="width:8%">
+            <col style="width:7%">
+            <col style="width:4%">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Idő</th>
+              <th>User</th>
+              <th>PN</th>
+              <th>WO</th>
+              <th>REV</th>
+              <th>Sablon</th>
+              <th>Nyomtató</th>
+              <th class="table-num">/Egység</th>
+              <th class="table-num">Össz</th>
+              <th class="table-num">Nyomtatott</th>
+              <th>Forrás</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="detailBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function qs() {
+  return {
+    date_from: document.getElementById('dateFrom').value,
+    date_to:   document.getElementById('dateTo').value,
+    pn:        document.getElementById('pn').value.trim(),
+    wo:        document.getElementById('wo').value.trim(),
+    rev:       document.getElementById('rev').value.trim(),
+    user:      document.getElementById('user').value.trim(),
+    printer:   document.getElementById('printer').value.trim(),
+    template:  document.getElementById('template').value.trim(),
+    source:    document.getElementById('source').value
+  };
+}
+
+function loadDetails(){
+  const p = qs();
+  const url = "/api/bartender/print_log?" + new URLSearchParams(p).toString();
+  document.getElementById('btnExport').href = "/api/bartender/print_log/export?" + new URLSearchParams(p).toString();
+
+  fetch(url).then(r=>r.json()).then(data=>{
+    const tbody = document.getElementById('detailBody');
+    tbody.innerHTML = "";
+    (data.items||[]).forEach(row=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        `<td><small class="table-mono">${row.printed_at}</small></td>
+         <td>${row.user_name||""}</td>
+         <td class="table-mono">${row.pn||""}</td>
+         <td class="table-mono">${row.wo||""}</td>
+         <td>${row.rev||""}</td>
+         <td>${row.template||""}</td>
+         <td>${row.printer_name||""}</td>
+         <td class="table-num">${row.copies_per_unit}</td>
+         <td class="table-num">${row.total_copies}</td>
+         <td class="table-num fw-semibold">${row.printed_copies}</td>
+         <td><span class="badge ${row.source==='reprint'?'bg-warning text-dark':'bg-secondary'} badge-src">${row.source}</span></td>
+         <td><button type="button" class="btn btn-sm btn-outline-danger js-del-log" data-id="${row.id}" title="Rekord törlése">🗑</button></td>`;
+      tbody.appendChild(tr);
+    });
+    document.getElementById('rowsCount').innerText = data.total || (data.items||[]).length || 0;
+  });
+}
+
+// Napló-rekord törlése (delegált esemény, mert a sorok dinamikusan jönnek)
+document.getElementById('detailBody').addEventListener('click', async function(e){
+  const btn = e.target.closest('.js-del-log');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  if (!id) return;
+  if (!confirm("Biztosan törlöd ezt a nyomtatási rekordot? A művelet nem visszavonható.")) return;
+
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/api/bartender/print_log/${id}`, { method: 'DELETE' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) throw new Error(j.error || ("HTTP " + r.status));
+
+    btn.closest('tr')?.remove();
+    const cnt = document.getElementById('rowsCount');
+    cnt.innerText = Math.max(0, (parseInt(cnt.innerText, 10) || 1) - 1);
+    loadSummary(); // az összesítő is frissüljön
+  } catch (err) {
+    btn.disabled = false;
+    alert("Törlés sikertelen: " + (err.message || err));
+  }
+});
+
+function loadSummary(){
+  const p = qs();
+  p.group_by = document.getElementById('sumGroupBy').value;
+  const url = "/api/bartender/print_log/summary?" + new URLSearchParams(p).toString();
+  fetch(url).then(r=>r.json()).then(data=>{
+    const tbody = document.getElementById('summaryBody');
+    tbody.innerHTML = "";
+    (data.rows||[]).forEach(r=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        `<td>${r.grp||"<em>n/a</em>"}</td>
+         <td class="table-num fw-semibold">${r.labels||0}</td>
+         <td class="table-num">${r.labels_reprint||0}</td>
+         <td class="table-num">${r.jobs||0}</td>`;
+      tbody.appendChild(tr);
+    });
+  });
+}
+
+document.getElementById('btnSearch').addEventListener('click', ()=>{ loadDetails(); loadSummary(); });
+document.getElementById('btnReloadSummary').addEventListener('click', loadSummary);
+
+// default: utolsó 7 nap
+(function initDates(){
+  const dto = new Date();
+  const dfrom = new Date(Date.now() - 6*24*3600*1000);
+  const pad = n=>String(n).padStart(2,'0');
+  const fmt = d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  document.getElementById('dateFrom').value = fmt(dfrom);
+  document.getElementById('dateTo').value   = fmt(dto);
+})();
+loadDetails(); loadSummary();
+</script>
+{% endblock %}

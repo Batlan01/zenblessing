@@ -1,0 +1,164 @@
+{% extends "sk/base.html" %}
+
+{% block title %}Progres používateľa{% endblock %}
+{% set active = 'users_progress' %}
+
+{% block page_title %}Progres používateľa{% endblock %}
+{% block page_header_right %}
+  <!-- Nyelv ikonok -->
+  <a href="{{ url_for('progress.users_progress', lang='hu') }}">
+    <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar" width="32" height="20">
+  </a>
+  <a class="ms-2" href="{{ url_for('progress.users_progress', lang='sk') }}">
+    <img src="{{ url_for('static', filename='flags/sk.png') }}" alt="Slovenský" width="32" height="20">
+  </a>
+{% endblock %}
+
+{% block content %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-messages mb-3">
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }} d-flex justify-content-between align-items-center" id="flash-message">
+          <span>{{ message }}</span>
+          <button class="btn btn-sm btn-link text-decoration-none" onclick="document.getElementById('flash-message').style.display='none'">✖</button>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<!-- Vezérlősáv -->
+<!-- Sötét csoport-panel: SZŰRŐ + TÁBLA -->
+<div class="surface-dark group-block mb-3">
+
+  <!-- Vezérlősáv -->
+  <div class="toolbar-pad d-flex flex-wrap gap-2 align-items-center">
+    <input id="search-bar" class="form-control" style="max-width: 260px" placeholder="Vyhľadávanie používateľa…">
+    <input id="date-picker" class="form-control" type="date" style="max-width: 180px">
+    <button id="btn-filter" class="btn btn-primary">Filtrovanie</button>
+
+    <div class="toolbar-divider"></div>
+
+    <button id="btn-export-day" class="btn btn-outline-secondary">Denné exporty (XLSX)</button>
+    <button id="btn-export-month" class="btn btn-outline-secondary">Mesačný export (XLSX)</button>
+
+    <div class="ms-auto small dim" id="status-area"></div>
+  </div>
+
+  <!-- finom elválasztó a szűrő és a tábla között -->
+  <div class="soft-sep"></div>
+
+  <!-- Adattábla -->
+  <div class="table-wrap">
+    <table id="users-progress-table" class="table table-sm table-striped align-middle">
+      <thead>
+        <tr>
+          <th style="width: 40%">Používateľ</th>
+          <th style="width: 20%">Efektívny čas</th>
+          <th style="width: 20%">Celkový čas</th>
+          <th style="width: 20%">Strata/Očakávania</th>
+        </tr>
+      </thead>
+      <tbody id="table-body"></tbody>
+    </table>
+  </div>
+
+</div>
+
+
+<script>
+  // --- kis segédek
+  function setStatus(msg) { document.getElementById('status-area').textContent = msg || ''; }
+
+  function formatHMS(seconds) {
+    if (!seconds || seconds <= 0) return "0 hours 0 minutes 0 seconds";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    return `${h} hours ${m} minutes ${s} seconds`;
+  }
+
+  // kereső mező — debounce
+  let debounceTimer = null;
+  document.getElementById('search-bar').addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(applyTextFilter, 150);
+  });
+
+  function applyTextFilter() {
+    const q = document.getElementById('search-bar').value.toLowerCase();
+    document.querySelectorAll('#table-body tr').forEach(tr => {
+      const name = tr.querySelector('td')?.textContent.toLowerCase() || '';
+      tr.style.display = name.includes(q) ? '' : 'none';
+    });
+  }
+
+  // adatok betöltése adott napra
+  async function loadDataForDate(dateStr) {
+    if (!dateStr) { alert("Vyberte si dátum!"); return; }
+    setStatus('Načítava sa...');
+    try {
+      const res = await fetch(`/api/users_progress?date=${encodeURIComponent(dateStr)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      const tbody = document.getElementById('table-body');
+      tbody.innerHTML = '';
+
+      data.forEach(row => {
+        // backend már formázott stringeket ad; ha szám jönne, fallback a formatHMS-re
+        const eff = (typeof row.effective_time === 'string') ? row.effective_time : formatHMS(row.effective_time);
+        const all = (typeof row.all_time === 'string') ? row.all_time : formatHMS(row.all_time);
+        const loss = row.loss_waited || "0 hours 0 minutes 0 seconds";
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${row.user}</td>
+          <td>${eff}</td>
+          <td>${all}</td>
+          <td>${loss}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      applyTextFilter();
+      setStatus(`Výsledky: ${data.length}`);
+    } catch (e) {
+      console.error(e);
+      setStatus('Chyba pri načítaní.');
+      alert('Hiba történt az adatok betöltésekor.');
+    }
+  }
+
+  // gombok
+  document.getElementById('btn-filter').addEventListener('click', () => {
+    const d = document.getElementById('date-picker').value;
+    loadDataForDate(d);
+  });
+
+  // napi export: ne legyen dupla – elég átirányítani a letöltő endpointra
+  document.getElementById('btn-export-day').addEventListener('click', () => {
+    const d = document.getElementById('date-picker').value;
+    if (!d) return alert('Válassz dátumot!');
+    window.location.href = `/api/users_progress_day?date=${encodeURIComponent(d)}`;
+  });
+
+  // havi export: a backend készíti az xlsx-et – csak átirányítunk
+  document.getElementById('btn-export-month').addEventListener('click', () => {
+    const d = document.getElementById('date-picker').value;
+    if (!d) return alert('Válassz dátumot!');
+    const [year, month] = d.split('-');
+    window.location.href = `/api/users_progress_month?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`;
+  });
+
+  // init – ma
+  document.addEventListener('DOMContentLoaded', () => {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('date-picker').value = today;
+    loadDataForDate(today);
+  });
+</script>
+
+{% endblock %}

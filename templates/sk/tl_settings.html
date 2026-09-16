@@ -1,0 +1,430 @@
+{% extends (lang ~ '/base.html') %}
+{% block title %}Ostatné nastavenia{% endblock %}
+{% set active = 'tl_settings' %}
+{% block page_title %}Ostatné nastavenia – oprávnenia TeamLeader{% endblock %}
+
+{% block page_header_right %}
+  <button class="btn btn-primary btn-sm" id="btnNew">
+    <i class="fa-solid fa-plus me-1"></i>Pridať osobu
+  </button>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .tl-badge { font-size: .72rem; }
+  .tl-scope-chip {
+    display: inline-block; padding: .1rem .45rem; margin: 0 .2rem .2rem 0;
+    border-radius: 999px; font-size: .72rem; background: rgba(13,110,253,.12);
+    color: #0d6efd; border: 1px solid rgba(13,110,253,.25);
+  }
+  .tl-inherit { font-size: .78rem; font-style: italic; opacity: .7; }
+  .tl-subject { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  #adResults { max-height: 220px; overflow-y: auto; }
+  #adResults .list-group-item { cursor: pointer; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+  {% if load_error %}
+  <div class="alert alert-danger">
+    Načítanie pravidiel zlyhalo: {{ load_error }}
+  </div>
+  {% endif %}
+
+  <div class="alert alert-info d-flex gap-2 align-items-start">
+    <i class="fa-solid fa-circle-info mt-1"></i>
+    <div>
+      Tu sa nastavuje, kto má na <strong>stránke TeamLeader</strong> k čomu prístup.
+      Pravidlo môže platiť pre konkrétneho <strong>používateľa</strong> alebo pre celý
+      <strong>job title</strong>. Ak na niekoho sedia obe, silnejšie je pravidlo na
+      úrovni používateľa. Na koho niet pravidla, tomu ostáva doterajšie automatické
+      zaradenie podľa job title.
+    </div>
+  </div>
+
+  <div class="card card--dim shadow-sm border-0">
+    <div class="card-body">
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+        <input id="filterBox" class="form-control form-control-sm" style="max-width: 280px"
+               placeholder="Filtrovať podľa mena / job title…">
+        <div class="form-check form-switch ms-2">
+          <input class="form-check-input" type="checkbox" id="onlyActive">
+          <label class="form-check-label" for="onlyActive">Iba aktívne</label>
+        </div>
+        <div class="ms-auto small dim" id="rowCount"></div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th style="width: 110px">Typ</th>
+              <th>Meno</th>
+              <th style="width: 90px" class="text-center">WO vyhľadávanie</th>
+              <th style="width: 95px" class="text-center">Priorita</th>
+              <th style="width: 110px" class="text-center">Plný prístup</th>
+              <th>Stanice</th>
+              <th>OTD scope</th>
+              <th>Poznámka</th>
+              <th style="width: 80px" class="text-center">Aktívne</th>
+              <th style="width: 110px" class="text-end">Akcie</th>
+            </tr>
+          </thead>
+          <tbody id="rulesBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal na úpravu -->
+<div class="modal fade" id="ruleModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="ruleModalTitle">Pridať osobu</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="ruleId">
+
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Typ pravidla</label>
+            <select id="fSubjectType" class="form-select">
+              <option value="user">Používateľ</option>
+              <option value="job_title">Job title (skupina)</option>
+            </select>
+          </div>
+
+          <div class="col-md-8">
+            <label class="form-label" id="lblSubject">Používateľské meno</label>
+            <input id="fSubject" class="form-control" autocomplete="off"
+                   placeholder="pl. ntrencik">
+            <div class="form-text" id="hintSubject">
+              AD používateľské meno (sAMAccountName). Pre vyhľadávanie napíš aspoň 2 znaky.
+            </div>
+            <div class="list-group mt-1 d-none" id="adResults"></div>
+          </div>
+
+          <div class="col-md-12">
+            <label class="form-label">Zobrazované meno (voliteľné)</label>
+            <input id="fDisplayName" class="form-control" placeholder="pl. Trenčík Nikolas">
+          </div>
+
+          <div class="col-md-6">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="fWoSearch">
+              <label class="form-check-label" for="fWoSearch">Môže používať WO vyhľadávanie</label>
+            </div>
+            <div class="form-check form-switch mt-2">
+              <input class="form-check-input" type="checkbox" id="fSetPriority">
+              <label class="form-check-label" for="fSetPriority">Môže nastavovať prioritu (WO vyhľadávanie, Assembly, OTD)</label>
+              <div class="form-text">Označenie „hotové" môže nezávisle od toho meniť každý, kto používa TL stránku.</div>
+            </div>
+            <div class="form-check form-switch mt-2">
+              <input class="form-check-input" type="checkbox" id="fFullAccess">
+              <label class="form-check-label" for="fFullAccess">
+                Plný prístup (všetky stanice a OTD scope)
+              </label>
+            </div>
+            <div class="form-check form-switch mt-2">
+              <input class="form-check-input" type="checkbox" id="fActive" checked>
+              <label class="form-check-label" for="fActive">Aktívne pravidlo</label>
+            </div>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Poznámka</label>
+            <textarea id="fNote" class="form-control" rows="3"
+                      placeholder="Napr. prečo dostal toto oprávnenie"></textarea>
+          </div>
+
+          <div class="col-md-6" id="wrapStations">
+            <label class="form-label">Stanice (Assembly / Čakajúce)</label>
+            <div id="fStations" class="d-flex flex-wrap gap-2">
+              {% for s in all_stations %}
+              <div class="form-check">
+                <input class="form-check-input station-cb" type="checkbox" value="{{ s }}" id="st_{{ s }}">
+                <label class="form-check-label" for="st_{{ s }}">{{ s }}</label>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="form-text">
+              Ak nevyberieš ani jednu, ostáva doterajšie automatické zaradenie podľa job title.
+            </div>
+          </div>
+
+          <div class="col-md-6" id="wrapOtd">
+            <label class="form-label">OTD scope</label>
+            <div id="fOtd" class="d-flex flex-wrap gap-2">
+              {% for s in all_otd_scopes %}
+              <div class="form-check">
+                <input class="form-check-input otd-cb" type="checkbox" value="{{ s }}" id="otd_{{ s }}">
+                <label class="form-check-label" for="otd_{{ s }}">{{ s }}</label>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="form-text">
+              Ak necháš prázdne, aj tu ostáva automatické zaradenie.
+            </div>
+          </div>
+        </div>
+
+        <div class="alert alert-danger mt-3 d-none" id="modalError"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Zrušiť</button>
+        <button class="btn btn-primary" id="btnSave">Uložiť</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  const API = "/{{ lang }}/tl-settings/api";
+  const ALL_STATIONS = {{ all_stations | tojson }};
+  const ALL_OTD = {{ all_otd_scopes | tojson }};
+
+  let rules = {{ rules | tojson }};
+  const modalEl = document.getElementById("ruleModal");
+  const modal = new bootstrap.Modal(modalEl);
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+
+  // ---------- Lista ----------
+  function chips(list) {
+    if (!list || !list.length) return '<span class="tl-inherit">zdedené</span>';
+    return list.map(s => `<span class="tl-scope-chip">${esc(s)}</span>`).join("");
+  }
+
+  function yesNo(v) {
+    return v
+      ? '<i class="fa-solid fa-check text-success"></i>'
+      : '<i class="fa-solid fa-minus dim"></i>';
+  }
+
+  function render() {
+    const q = ($("filterBox").value || "").trim().toLowerCase();
+    const onlyActive = $("onlyActive").checked;
+    const body = $("rulesBody");
+
+    const shown = rules.filter(r => {
+      if (onlyActive && !r.active) return false;
+      if (!q) return true;
+      return (r.subject + " " + (r.display_name || "") + " " + (r.note || ""))
+        .toLowerCase().includes(q);
+    });
+
+    $("rowCount").textContent = `${shown.length} / ${rules.length} pravidiel`;
+
+    if (!shown.length) {
+      body.innerHTML = `<tr><td colspan="10" class="text-center dim py-4">
+        Niet čo zobraziť.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = shown.map(r => `
+      <tr>
+        <td>
+          <span class="badge tl-badge ${r.subject_type === 'user' ? 'bg-primary' : 'bg-secondary'}">
+            ${r.subject_type === 'user' ? 'Používateľ' : 'Job title'}
+          </span>
+        </td>
+        <td>
+          <div class="tl-subject">${esc(r.subject)}</div>
+          ${r.display_name ? `<div class="small dim">${esc(r.display_name)}</div>` : ""}
+        </td>
+        <td class="text-center">${yesNo(r.can_wo_search)}</td>
+        <td class="text-center">${yesNo(r.can_set_priority)}</td>
+        <td class="text-center">${yesNo(r.full_access)}</td>
+        <td>${r.full_access ? '<span class="tl-scope-chip">VŠETKO</span>' : chips(r.stations)}</td>
+        <td>${r.full_access ? '<span class="tl-scope-chip">VŠETKO</span>' : chips(r.otd_scopes)}</td>
+        <td class="small">${esc(r.note || "")}</td>
+        <td class="text-center">${yesNo(r.active)}</td>
+        <td class="text-end text-nowrap">
+          <button class="btn btn-sm btn-outline-secondary" data-edit="${r.id}" title="Upraviť">
+            <i class="fa-solid fa-pen"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-danger" data-del="${r.id}" title="Zmazať">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </td>
+      </tr>`).join("");
+  }
+
+  // ---------- Modal ----------
+  function setChecks(selector, values) {
+    const vals = (values || []).map(v => String(v).toUpperCase());
+    document.querySelectorAll(selector).forEach(cb => {
+      cb.checked = vals.includes(cb.value.toUpperCase());
+    });
+  }
+
+  function getChecks(selector) {
+    return Array.from(document.querySelectorAll(selector))
+      .filter(cb => cb.checked).map(cb => cb.value);
+  }
+
+  function syncSubjectLabels() {
+    const isUser = $("fSubjectType").value === "user";
+    $("lblSubject").textContent = isUser ? "Používateľské meno" : "Job title";
+    $("fSubject").placeholder = isUser ? "pl. ntrencik" : "pl. QUALITY TEAM LEADER";
+    $("hintSubject").textContent = isUser
+      ? "AD používateľské meno (sAMAccountName). Pre vyhľadávanie napíš aspoň 2 znaky."
+      : "Presný text AD job title. Platí pre každého, kto má tento titul.";
+    if (!isUser) $("adResults").classList.add("d-none");
+  }
+
+  function syncFullAccess() {
+    const full = $("fFullAccess").checked;
+    $("wrapStations").classList.toggle("opacity-50", full);
+    $("wrapOtd").classList.toggle("opacity-50", full);
+    document.querySelectorAll(".station-cb, .otd-cb").forEach(cb => cb.disabled = full);
+  }
+
+  function openModal(rule) {
+    $("modalError").classList.add("d-none");
+    $("adResults").classList.add("d-none");
+    $("ruleId").value = rule ? rule.id : "";
+    $("ruleModalTitle").textContent = rule ? "Úprava pravidla" : "Pridať osobu";
+    $("fSubjectType").value = rule ? rule.subject_type : "user";
+    $("fSubject").value = rule ? rule.subject : "";
+    $("fDisplayName").value = rule ? (rule.display_name || "") : "";
+    $("fNote").value = rule ? (rule.note || "") : "";
+    $("fWoSearch").checked = rule ? !!rule.can_wo_search : false;
+    $("fSetPriority").checked = rule ? !!rule.can_set_priority : false;
+    $("fFullAccess").checked = rule ? !!rule.full_access : false;
+    $("fActive").checked = rule ? !!rule.active : true;
+    setChecks(".station-cb", rule ? rule.stations : []);
+    setChecks(".otd-cb", rule ? rule.otd_scopes : []);
+    syncSubjectLabels();
+    syncFullAccess();
+    modal.show();
+  }
+
+  async function send(url, options) {
+    const res = await fetch(url, options);
+    let data = {};
+    try { data = await res.json(); } catch (e) { /* nem JSON */ }
+    if (!res.ok || data.ok === false) {
+      throw new Error(data.msg || `Chyba (HTTP ${res.status})`);
+    }
+    return data;
+  }
+
+  async function save() {
+    const id = $("ruleId").value;
+    const payload = {
+      subject_type: $("fSubjectType").value,
+      subject: $("fSubject").value.trim(),
+      display_name: $("fDisplayName").value.trim(),
+      note: $("fNote").value.trim(),
+      can_wo_search: $("fWoSearch").checked,
+      can_set_priority: $("fSetPriority").checked,
+      full_access: $("fFullAccess").checked,
+      active: $("fActive").checked ? 1 : 0,
+      stations: getChecks(".station-cb").join(","),
+      otd_scopes: getChecks(".otd-cb").join(","),
+    };
+
+    $("btnSave").disabled = true;
+    try {
+      const data = await send(id ? `${API}/rules/${id}` : `${API}/rules`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      rules = data.rules || rules;
+      render();
+      modal.hide();
+    } catch (e) {
+      const box = $("modalError");
+      box.textContent = e.message;
+      box.classList.remove("d-none");
+    } finally {
+      $("btnSave").disabled = false;
+    }
+  }
+
+  async function remove(id) {
+    const r = rules.find(x => String(x.id) === String(id));
+    if (!confirm(`Naozaj chceš zmazať toto pravidlo?\n\n${r ? r.subject : id}`)) return;
+    try {
+      const data = await send(`${API}/rules/${id}`, { method: "DELETE" });
+      rules = data.rules || rules;
+      render();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  // ---------- AD névkiegészítés ----------
+  let adTimer = null;
+  $("fSubject").addEventListener("input", () => {
+    if ($("fSubjectType").value !== "user") return;
+    clearTimeout(adTimer);
+    const q = $("fSubject").value.trim();
+    const box = $("adResults");
+    if (q.length < 2) { box.classList.add("d-none"); return; }
+
+    adTimer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API}/ad-users?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        const users = (data && data.users) || [];
+        if (!users.length) { box.classList.add("d-none"); return; }
+        box.innerHTML = users.map(u => `
+          <button type="button" class="list-group-item list-group-item-action"
+                  data-username="${esc(u.username)}" data-display="${esc(u.display_name)}">
+            <span class="tl-subject">${esc(u.username)}</span>
+            <span class="dim"> – ${esc(u.display_name)}</span>
+            ${u.job_title ? `<span class="small dim"> (${esc(u.job_title)})</span>` : ""}
+            ${u.disabled ? '<span class="badge bg-warning text-dark ms-1 tl-badge">zakázaný</span>' : ""}
+          </button>`).join("");
+        box.classList.remove("d-none");
+      } catch (e) {
+        box.classList.add("d-none");
+      }
+    }, 300);
+  });
+
+  $("adResults").addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-username]");
+    if (!btn) return;
+    $("fSubject").value = btn.dataset.username;
+    if (!$("fDisplayName").value) $("fDisplayName").value = btn.dataset.display || "";
+    $("adResults").classList.add("d-none");
+  });
+
+  // ---------- Események ----------
+  $("btnNew").addEventListener("click", () => openModal(null));
+  $("btnSave").addEventListener("click", save);
+  $("fSubjectType").addEventListener("change", syncSubjectLabels);
+  $("fFullAccess").addEventListener("change", syncFullAccess);
+  $("filterBox").addEventListener("input", render);
+  $("onlyActive").addEventListener("change", render);
+
+  $("rulesBody").addEventListener("click", (ev) => {
+    const edit = ev.target.closest("[data-edit]");
+    if (edit) {
+      const r = rules.find(x => String(x.id) === edit.dataset.edit);
+      if (r) openModal(r);
+      return;
+    }
+    const del = ev.target.closest("[data-del]");
+    if (del) remove(del.dataset.del);
+  });
+
+  render();
+})();
+</script>
+{% endblock %}

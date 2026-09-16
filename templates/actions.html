@@ -1,0 +1,117 @@
+{% extends lang ~ '/base.html' %}
+{% block title %}Domain Deploy – Akciók{% endblock %}
+{% block page_title %}Domain Deploy – Akciók (teszt / azonnali telepítés){% endblock %}
+
+{% block content %}
+<div class="container-fluid my-3">
+  <div class="row g-3">
+
+    <!-- Teszt egy gepre -->
+    <div class="col-12 col-lg-6">
+      <div class="card h-100"><div class="card-body">
+        <h6><i class="fa-solid fa-vial me-1"></i>Teszt egy konkrét gépre</h6>
+        <p class="small text-muted">Egyszeri feladat egy gépre. Az agent a következő futáskor (indulás / óránkénti polling) hajtja végre.</p>
+        <div class="mb-2">
+          <label class="form-label small">Gép (hostname)</label>
+          <input id="jHost" class="form-control form-control-sm" list="machineList" placeholder="pl. PC-FIN-01">
+          <datalist id="machineList">
+            {% for m in machines %}<option value="{{ m.hostname }}">{% endfor %}
+          </datalist>
+        </div>
+        <div class="row g-2">
+          <div class="col-7"><label class="form-label small">Csomag</label>
+            <select id="jPkg" class="form-select form-select-sm">
+              {% for p in packages %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+            </select></div>
+          <div class="col-5"><label class="form-label small">Művelet</label>
+            <select id="jAction" class="form-select form-select-sm">
+              {% for a in actions %}<option value="{{ a }}">{{ 'telepítés' if a=='install' else 'eltávolítás' }}</option>{% endfor %}
+            </select></div>
+        </div>
+        <button id="btnJob" class="btn btn-primary btn-sm mt-3"><i class="fa-solid fa-play me-1"></i>Feladat sorba állítása</button>
+      </div></div>
+    </div>
+
+    <!-- Scope akcio -->
+    <div class="col-12 col-lg-6">
+      <div class="card h-100"><div class="card-body">
+        <h6><i class="fa-solid fa-layer-group me-1"></i>Azonnali akció egy hatókörre</h6>
+        <p class="small text-muted">A <strong>már ismert</strong> (bejelentkezett) gépekre hoz létre egy-egy feladatot.
+           Tartós állapothoz (új gépekre is) használd a <a href="{{ url_for('deploy.assignments_page', lang=lang) }}">Hozzárendeléseket</a>.</p>
+        <div class="row g-2">
+          <div class="col-6"><label class="form-label small">Csomag</label>
+            <select id="sPkg" class="form-select form-select-sm">
+              {% for p in packages %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+            </select></div>
+          <div class="col-6"><label class="form-label small">Művelet</label>
+            <select id="sAction" class="form-select form-select-sm">
+              {% for a in actions %}<option value="{{ a }}">{{ 'telepítés' if a=='install' else 'eltávolítás' }}</option>{% endfor %}
+            </select></div>
+          <div class="col-6"><label class="form-label small">Hatókör</label>
+            <select id="sType" class="form-select form-select-sm">
+              {% for t in match_types %}<option value="{{ t }}">{{ {'global':'mindenki (all)','group':'csoport','ou':'OU','hostname':'gép/személy'}[t] }}</option>{% endfor %}
+            </select></div>
+          <div class="col-6"><label class="form-label small">Érték</label>
+            <input id="sVal" class="form-control form-control-sm" placeholder="IT-PCs / OU=Penzugy / PC-*"></div>
+        </div>
+        <button id="btnScope" class="btn btn-warning btn-sm mt-3"><i class="fa-solid fa-bolt me-1"></i>Indítás a hatókörre</button>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="card mt-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>Feladatok</span>
+      <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()"><i class="fa-solid fa-rotate"></i></button>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-striped align-middle mb-0">
+        <thead><tr><th>Idő</th><th>Gép</th><th>Csomag</th><th>Művelet</th><th>Állapot</th><th>Eredmény</th></tr></thead>
+        <tbody>
+          {% for j in jobs %}
+          <tr>
+            <td class="small text-muted text-nowrap">{{ j.created_at }}</td>
+            <td class="small">{{ j.hostname }}</td>
+            <td class="small">{{ j.package_name }}</td>
+            <td class="small">{{ j.action }}</td>
+            <td>
+              {% if j.status == 'done' %}<span class="badge bg-success">kész</span>
+              {% elif j.status == 'error' %}<span class="badge bg-danger">hiba</span>
+              {% else %}<span class="badge bg-secondary">függőben</span>{% endif %}
+            </td>
+            <td class="small text-muted">{{ j.result }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-muted py-3">Még nincs feladat.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const BASE="/{{ lang }}/deploy";
+  function jx(u,o){return fetch(u,Object.assign({credentials:"same-origin",headers:{"Content-Type":"application/json"}},o||{})).then(r=>r.json());}
+  function toast(m,t){const e=document.createElement("div");e.className="toast text-white bg-"+(t||"primary")+" border-0 show position-fixed top-0 end-0 m-3";e.style.zIndex=1300;e.innerHTML='<div class="d-flex"><div class="toast-body">'+m+'</div></div>';document.body.appendChild(e);setTimeout(()=>e.remove(),4500);}
+
+  document.getElementById("btnJob").onclick=()=>{
+    const body={hostname:document.getElementById("jHost").value,package_id:document.getElementById("jPkg").value,action:document.getElementById("jAction").value};
+    if(!body.hostname){toast("Add meg a gépnevet.","danger");return;}
+    jx(BASE+"/api/job",{method:"POST",body:JSON.stringify(body)}).then(j=>{
+      if(!j.ok)throw new Error(j.error); toast("Feladat sorba állítva.","success"); setTimeout(()=>location.reload(),700);
+    }).catch(e=>toast(e.message,"danger"));
+  };
+  document.getElementById("btnScope").onclick=()=>{
+    const body={package_id:document.getElementById("sPkg").value,action:document.getElementById("sAction").value,
+      match_type:document.getElementById("sType").value,match_value:document.getElementById("sVal").value};
+    jx(BASE+"/api/job/scope",{method:"POST",body:JSON.stringify(body)}).then(j=>{
+      if(!j.ok)throw new Error(j.error);
+      toast("Létrehozott feladatok: "+j.created+(j.hosts&&j.hosts.length?(" ("+j.hosts.join(", ")+")"):""),"success");
+      setTimeout(()=>location.reload(),900);
+    }).catch(e=>toast(e.message,"danger"));
+  };
+})();
+</script>
+{% endblock %}

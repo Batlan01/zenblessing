@@ -1,0 +1,181 @@
+{% extends "sk/base.html" %}
+
+{% block title %}WO Process{% endblock %}
+{% set active = 'wo_progress' %}
+
+{% block page_title %}WO Process stránka{% endblock %}
+{% block page_header_right %}
+  <a href="{{ url_for('progress.wo_progress', lang='hu') }}">
+    <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar" width="32" height="20">
+  </a>
+  <a class="ms-2" href="{{ url_for('progress.wo_progress', lang='sk') }}">
+    <img src="{{ url_for('static', filename='flags/sk.png') }}" alt="Slovenský" width="32" height="20">
+  </a>
+{% endblock %}
+
+{% block content %}
+<div class="card card--dim p-3">
+  <!-- Szűrő -->
+  <div class="d-flex flex-wrap gap-3 align-items-end mb-3">
+    <div>
+      <label for="startDate" class="form-label">Dátum začiatku</label>
+      <input id="startDate" type="date" class="form-control">
+    </div>
+    <div>
+      <label for="endDate" class="form-label">Posledný dátum</label>
+      <input id="endDate" type="date" class="form-control">
+    </div>
+    <div>
+      <button id="filterBtn" class="btn btn-primary mt-2">Filtrovanie</button>
+    </div>
+  </div>
+
+  <!-- Elválasztó vonal -->
+  <hr class="text-light">
+
+  <!-- elválasztó után, a táblázat előtt -->
+<div id="wo_progress-loader" class="text-center d-none">
+  <div class="spinner-border spinner-border-sm text-light" role="status" aria-label="Betöltés…"></div>
+  <span class="ms-2 text-light">Načítava sa...</span>
+</div>
+
+
+  <!-- Táblázat -->
+  <div class="table-responsive">
+    <table id="wo_progress" class="table table-striped table-hover align-middle">
+      <thead>
+        <tr>
+          <th>WO Číslo</th>
+          <th>WO Množstvo</th>
+          <th>STANDARD TIME</th>
+          <th>PROD</th>
+          <th>CRIMP</th>
+          <th>SOLD</th>
+          <th>MOLD</th>
+          <th>TEST</th>
+          <th>QC</th>
+          <th>SHIP</th>
+          <th>WIPRECIEVE</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <!-- Lapozás -->
+  <div class="d-flex justify-content-between align-items-center mt-2">
+    <div class="small text-light" id="table-info"></div>
+    <div>
+      <button id="prevPage" class="btn-pagination me-2" disabled>Predchádzajúce</button>
+      <button id="nextPage" class="btn-pagination">Ďalej</button>
+    </div>
+  </div>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // --- elemek
+  const els = {
+    start:  document.getElementById('startDate'),
+    end:    document.getElementById('endDate'),
+    filter: document.getElementById('filterBtn'),
+    loader: document.getElementById('wo_progress-loader'),
+    tbody:  document.querySelector('#wo_progress tbody'),
+    prev:   document.getElementById('prevPage'),
+    next:   document.getElementById('nextPage'),
+    info:   document.getElementById('table-info') // opcionális, ha van
+  };
+
+  // ha valami hiányzik, ne dőljön el
+  for (const [k,v] of Object.entries(els)) {
+    if (!v) console.warn(`[WO] Hiányzó elem: ${k}`);
+  }
+
+  let currentPage = 1;
+  const limit = 50;
+
+  const setLoading = (on) => {
+    if (!els.loader) return;
+    els.loader.classList.toggle('d-none', !on);
+  };
+
+  const setPager = (page, totalPages, totalRecords) => {
+    if (els.prev) els.prev.disabled = page <= 1;
+    if (els.next) els.next.disabled = page >= totalPages;
+    if (els.info) els.info.textContent = `Výsledky: ${totalRecords} | Stránka: ${page}/${totalPages}`;
+  };
+
+  async function fetchData(page=1) {
+    // validálás
+    const startDate = els.start?.value;
+    const endDate   = els.end?.value;
+    if (!startDate || !endDate) {
+      console.error('Chýbajúce dátumy!');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const url = `/api/wo_progress_api?page=${page}&limit=${limit}` +
+                  `&start_date=${encodeURIComponent(startDate)}` +
+                  `&end_date=${encodeURIComponent(endDate)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      // tábla ürít + feltölt
+      if (els.tbody) {
+        els.tbody.innerHTML = '';
+        const rows = data?.data ?? [];
+        if (rows.length === 0) {
+          els.tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted">Nincs adat.</td></tr>`;
+        } else {
+          rows.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${item.WO}</td>
+              <td>${item.total_qty}</td>
+              <td>${item.st_time ?? '0'}</td>
+              <td>${item.PROD ?? 0}</td>
+              <td>${item.CRIMP ?? 0}</td>
+              <td>${item.SOLD ?? 0}</td>
+              <td>${item.MOLD ?? 0}</td>
+              <td>${item.TEST ?? 0}</td>
+              <td>${item.QC ?? 0}</td>
+              <td>${item.SHIP ?? 0}</td>
+              <td>${item.VYPRISIV ?? 0}</td>
+            `;
+            els.tbody.appendChild(tr);
+          });
+        }
+      }
+
+      currentPage = data?.page ?? page;
+      const totalPages  = data?.total_pages ?? currentPage;
+      const totalRecords= data?.total_records ?? (data?.data?.length ?? 0);
+      setPager(currentPage, totalPages, totalRecords);
+    } catch (err) {
+      console.error('Betöltési hiba:', err);
+      if (els.tbody) {
+        els.tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger">Hiba történt az adatok betöltésekor.</td></tr>`;
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // események
+  els.filter?.addEventListener('click', () => fetchData(1));
+  els.prev?.addEventListener('click', () => { if (currentPage > 1) fetchData(currentPage - 1); });
+  els.next?.addEventListener('click', () => { fetchData(currentPage + 1); });
+
+  // alap dátumok + első lekérés
+  const today = new Date();
+  const lastWeek = new Date(); lastWeek.setDate(today.getDate()-7);
+  els.start && (els.start.value = lastWeek.toISOString().split('T')[0]);
+  els.end   && (els.end.value   = today.toISOString().split('T')[0]);
+
+  fetchData(1);
+});
+</script>
+
+{% endblock %}

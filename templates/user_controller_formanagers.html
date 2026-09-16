@@ -1,0 +1,273 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Users Controller</title>
+<link href="/static/style.css" rel="stylesheet"/>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-messages">
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}" id="flash-message">
+<span>{{ message }}</span>
+<button class="close-btn" onclick="closeFlashMessage()">✖</button>
+</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+
+<script>
+  function closeFlashMessage() {
+      document.getElementById('flash-message').style.display = 'none';
+  }
+</script>
+
+
+<link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet"/></head>
+<body>
+<h1>Users Controller</h1>
+<div id="search-bar-container">
+<input id="search-bar" onkeyup="filterTable()" placeholder="Search..." type="text"/>
+<div id="select-all-container">
+<button id="export_to_excel" onclick="exportToExcel()">Export to Excel</button>
+</div>
+</div>
+<!-- Második táblázat -->
+<div class="table-container">
+<h3>Összeszerelési állapotok</h3>
+<div id="assembly-loader" style="display: none; text-align: center;">Betöltés...</div>
+<table id="assembly-table">
+<thead>
+<tr>
+<th>Felhasználó</th>
+<th>WO</th>
+<th>PN</th>
+<th>Start Time</th>
+<th>End Time</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+<div class="pagination">
+<button class="page-btn" id="prev-btn" onclick="changeAssemblyPage(-1)">← Előző</button>
+<span class="current-page" id="page-number">1</span>
+<button class="page-btn" id="next-btn" onclick="changeAssemblyPage(1)">Következő →</button>
+</div>
+</div>
+
+<script>
+        let overtimePage = 1;
+        let assemblyPage = 1;
+
+        function loadOvertimeTable() {
+			document.getElementById("overtime-loader").style.display = "block";
+			fetch(`/api/overtime_events?page=${overtimePage}`)
+				.then(response => response.json())
+				.then(data => {
+					const tableBody = document.querySelector("#overtime-table tbody");
+					tableBody.innerHTML = "";
+
+					data.data.forEach(item => {
+						let qty = parseFloat(item.QTY) || 0; // Mennyiség
+						let prodTimePerUnit = parseFloat(item.PROD_time) || 0; // Gyártási idő egy db-ra
+						let elapsedTimeHours = parseFloat(item.elapsed_time) || 0; // Eltelt idő órában (NEM OSZTJUK ÚJRA)
+
+						// **🔹 Elvárt idő = QTY * PROD_time/db**
+						let expectedTime = (qty > 0 && prodTimePerUnit > 0) ? (qty * prodTimePerUnit).toFixed(2) : "N/A";
+
+						// **🔹 Különbség = Elvárt idő - Eltelt idő**
+						let timeDifference = (expectedTime !== "N/A") ? (expectedTime - elapsedTimeHours).toFixed(2) : "N/A";
+
+						// **🔹 Táblázat feltöltése**
+						if (timeDifference !== "N/A" && timeDifference < 0) {
+							tableBody.innerHTML += `
+								<tr>
+									<td>${item.felhasznalo}</td>
+									<td>${item.WO}</td>
+									<td>${item.PN}</td>
+									<td>${qty}</td>
+									<td>${item.start_time}</td>
+									<td>${prodTimePerUnit.toFixed(2)}</td>
+									<td>${elapsedTimeHours} / ${expectedTime} / ${timeDifference}</td>
+								</tr>`;
+						}
+					});
+
+					document.getElementById("overtime-page-number").textContent = overtimePage;
+					document.getElementById("overtime-loader").style.display = "none";
+				})
+				.catch(error => {
+					console.error("Hiba történt:", error);
+					document.getElementById("overtime-loader").style.display = "none";
+				});
+		}
+
+
+        function loadAssemblyTable() {
+            document.getElementById("assembly-loader").style.display = "block";
+            fetch(`/api/assembly_data?page=${assemblyPage}`)
+                .then(response => response.json())
+                .then(data => {
+                    const tableBody = document.querySelector("#assembly-table tbody");
+                    tableBody.innerHTML = "";
+                    data.forEach(item => {
+                        let rowClass = item.status_class;
+                        let iconColor = item.status_icon === "fa-check-circle" ? "#28a745" : "#ffc107";
+                        tableBody.innerHTML += `<tr class="${rowClass}">
+                            <td>${item.felhasznalo}</td>
+                            <td>${item.WO}</td>
+                            <td>${item.PN}</td>
+                            <td>${item.start_time}</td>
+                            <td>${item.end_time}</td>
+                            <td><i class="fas ${item.status_icon}" style="color: ${iconColor};"></i> ${item.status}</td>
+                        </tr>`;
+                    });
+                    document.getElementById("page-number").textContent = assemblyPage;
+                    document.getElementById("assembly-loader").style.display = "none";
+                });
+        }
+
+        function changeOvertimePage(offset) { overtimePage += offset; loadOvertimeTable(); }
+        function changeAssemblyPage(offset) { assemblyPage += offset; loadAssemblyTable(); }
+
+        setInterval(() => { loadOvertimeTable(); loadAssemblyTable(); }, 60000);
+        document.addEventListener("DOMContentLoaded", () => { loadOvertimeTable(); loadAssemblyTable(); });
+    </script>
+</body>
+</html>
+<script>
+$(document).ready(function() {
+    // 📌 Az oldal betöltésekor mindig frissítse az első oldalt
+    loadUserData(1); 
+    startAutoRefresh();
+
+    // 📌 Keresőmező figyelése
+    $('#search-bar').on('keyup', function() {
+        filterTable();
+    });
+
+    // 📌 Select All checkbox funkció
+    $('#select-all-checkbox').change(function() {
+        selectAllRows();
+    });
+
+    // 📌 Checkbox kiválasztásának figyelése
+    $(document).on('change', '.row-checkbox', function() {
+        checkCheckboxes();
+    });
+});
+
+// 📌 Globális változók
+let currentPage = 1; // 📌 Mindig az első oldalról indulunk
+
+// 📌 Adatok betöltése az API-ból
+function loadUserData(page = 1) {
+    currentPage = page; // 📌 Az aktuális oldalt frissítjük
+    $.getJSON(`/api/users_data?page=${currentPage}`, function(data) {
+        var tableBody = $('#users-table tbody');
+        tableBody.empty(); // 🚀 Ürítsük ki a táblázatot, mielőtt új adatokat töltünk be
+
+        data.forEach(function(row) {
+            let rowClass = "";
+            let icon = "";
+            let iconColor = "";
+
+            // **🔹 Státusz beállítása**
+            if (row.status.includes("Jelenleg itt van")) {
+                rowClass = "status-current";
+                icon = "fa-check-circle"; // ✅ Pipa
+                iconColor = "#28a745"; // Zöld
+            } else {
+                rowClass = "status-sent";
+                icon = "fa-arrow-right"; // ➡️ Nyíl
+                iconColor = "#ffc107"; // Sárga
+            }
+
+            // **🔹 Táblázat sorainak generálása**
+            var tr = `<tr id="row-${row.ID}" class="${rowClass}">
+                <td>${row.worker_name}</td>
+                <td>${row.work_order_data}</td>
+                <td class="editable">${row.start_time}</td>
+                <td class="editable">${row.end_time}</td>
+                <td class="editable">
+                    <i class="fas ${icon}" style="color: ${iconColor};"></i> ${row.status}
+                </td>
+                <td>${row.qty}</td>
+            </tr>`;
+
+            tableBody.append(tr);
+        });
+
+        // 📌 Az oldalszám frissítése a láblécben
+        $('#page-number').text(currentPage);
+        checkCheckboxes();
+    }).fail(function() {
+        console.error("Hiba történt az API hívás során!");
+    });
+}
+
+// 📌 Oldalak közötti navigáció
+function changePage(offset) {
+    let newPage = currentPage + offset;
+    if (newPage < 1) return; // 📌 Ne engedjük a negatív oldalakat
+    loadUserData(newPage);
+}
+
+// 📌 Kereső funkció frissítése
+function filterTable() {
+    var input = $('#search-bar').val().toLowerCase();
+    $('#users-table tbody tr').each(function() {
+        var rowText = $(this).text().toLowerCase();
+        $(this).toggle(rowText.indexOf(input) > -1);
+    });
+
+    if (input === "") {
+        startAutoRefresh(); // Ha nincs keresési szöveg, indítsuk újra az automatikus frissítést
+    } else {
+        stopAutoRefresh(); // Ha van keresési szöveg, állítsuk le a frissítést
+    }
+}
+
+// 📌 Automatikus frissítés elindítása
+function startAutoRefresh() {
+    stopAutoRefresh(); // Előző frissítési ciklus törlése
+    refreshInterval = setInterval(function() {
+        if (!$('.row-checkbox:checked').length) {
+            loadUserData(currentPage); // 📌 Az aktuális oldal frissítése
+        }
+    }, 5000); // 5 másodpercenként frissítünk
+}
+
+// 📌 Automatikus frissítés leállítása
+function stopAutoRefresh() {
+    clearInterval(refreshInterval);
+}
+
+// 📌 Select All checkbox kezelése
+function selectAllRows() {
+    var isChecked = $('#select-all-checkbox').is(':checked');
+    $('.row-checkbox').prop('checked', isChecked);
+    checkCheckboxes();
+}
+
+// 📌 Ellenőrizzük, hogy van-e kijelölt checkbox
+function checkCheckboxes() {
+    if ($('.row-checkbox:checked').length > 0) {
+        stopAutoRefresh(); // Ha van kijelölt sor, ne frissítsen automatikusan
+    } else {
+        startAutoRefresh(); // Ha nincs kijelölt sor, frissítsen
+    }
+}
+
+    </script>
+{% endblock %}

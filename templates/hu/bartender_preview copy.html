@@ -1,0 +1,1388 @@
+{% extends (lang ~ '/base.html') %}
+{% block title %}Bartender előnézet{% endblock %}
+{% set active = 'bartender_preview' %}
+{% block page_title %}Bartender előnézet{% endblock %}
+
+{# --- csak a zászlók kerülnek ide --- #}
+{% block page_header_right %}
+  <a href="{{ url_for('bartender.preview_page', lang='hu') }}" title="Magyar">
+    <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar" width="32" height="20">
+  </a>
+  <a class="ms-2" href="{{ url_for('bartender.preview_page', lang='sk') }}" title="Slovenský">
+    <img src="{{ url_for('static', filename='flags/sk.png') }}" alt="Slovenský" width="32" height="20">
+  </a>
+{% endblock %}
+
+{# ha a base-nek van külön head extra blokkja, ide tedd a CSS-t #}
+{% block extra_head  %}
+<script src="https://code.jquery.com/jquery-3.7.1.min.js" crossorigin="anonymous"></script>
+<style>
+  .template-container{display:flex;flex-wrap:wrap;gap:20px;margin-top:20px}
+  .template-card{position:relative;border:1px solid #ddd;border-radius:8px;padding:15px;width:300px;
+    box-shadow:0 2px 4px rgba(0,0,0,.1);cursor:pointer;user-select:none;transition:box-shadow .15s, transform .05s;
+    overflow:visible;background:#fff;}
+  .template-card:hover{box-shadow:0 4px 10px rgba(0,0,0,.15)}
+  .template-card.selected{outline:3px solid #198754; box-shadow:0 0 0 4px rgba(25,135,84,.15)}
+  .checkmark{position:absolute;top:10px;left:10px;width:24px;height:24px;border-radius:50%;
+    border:2px solid #198754;background:#fff;display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:14px;color:#198754;opacity:.2;transition:opacity .15s, background .15s, color .15s; z-index:3;}
+  .template-card.selected .checkmark{opacity:1;background:#198754;color:#fff}
+  .menu-wrap{position:absolute;top:8px;right:8px;z-index:5}
+  .menu-btn{width:28px;height:28px;border:0;background:transparent;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+  .menu-btn:hover{background:#f3f3f3}
+  .menu-icon .dot{display:block;width:4px;height:4px;border-radius:50%;background:#444;margin:2px auto}
+  .menu{position:absolute;top:36px;right:0;min-width:200px;background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.12);display:none}
+  .menu.open{display:block}
+  .menu-item{padding:10px 12px;cursor:pointer}
+  .menu-item:hover{background:#f7f7f7}
+  .preview-lines { margin:.5rem 0 0; padding-left:1rem; }
+  .preview-lines li { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.25; }
+  pre.xml { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.9rem; white-space:pre-wrap; max-height: 360px; overflow:auto; }
+  .printed-card{background:#fcfffc}
+  .badge-reprint{font-size:.75rem}
+  .toast .btn-close { filter: invert(1) grayscale(100%); opacity: .8; }
+  .toast.success { background:#198754; color:#fff; }
+  .toast.warning { background:#ffc107; color:#212529; }
+  .toast.error   { background:#dc3545; color:#fff; }
+  .toast.info    { background:#0dcaf0; color:#212529; }
+  .template-card { padding-bottom: 56px; } /* hely a sarokgombnak */
+  .card-print-btn{
+    position:absolute; right:12px; bottom:12px;
+    border:0; border-radius:8px; padding:8px 12px;
+    background:#198754; color:#fff; font-weight:600; font-size:.9rem;
+    box-shadow:0 2px 6px rgba(0,0,0,.15); cursor:pointer;
+  }
+  .card-print-btn:hover{ filter: brightness(1.05); }
+  /* a globális print selected panelt elrejtjük */
+  .global-print-panel{ display:none !important; }
+</style>
+{% endblock %}
+
+{# --- IDE jön az oldal tartalma --- #}
+{% block content %}
+  <div class="container mt-5">
+    <h1 class="mb-4">Bartender Template Preview</h1>
+
+    <div class="card mb-4">
+      <div class="card-body">
+        <form id="previewForm" action="#">
+          <div class="mb-3">
+            <label for="inputString" class="form-label">
+              Add meg a PN stringet (pl.: <code>PN-ABC123|WO-12345|REV-A|QTY-100|</code>):
+            </label>
+            <input id="inputString" name="inputString" class="form-control"
+                   placeholder="PN-ABC123|WO-12345|REV-A|QTY-100|" required />
+          </div>
+          <button type="button" id="genPreviewBtn" class="btn btn-primary">Generate Preview</button>
+        </form>
+
+        <!-- felső üzenetszalag -->
+        <div id="pageMsg" class="alert mt-3 d-none"></div>
+      </div>
+    </div>
+
+    <div id="previewResults" class="d-none">
+      <h3 class="mb-3">Preview Summary</h3>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-md-3"><strong>PN:</strong> <span id="previewPN"></span></div>
+            <div class="col-md-3"><strong>WO:</strong> <span id="previewWO"></span></div>
+            <div class="col-md-3"><strong>REV:</strong> <span id="previewREV"></span></div>
+            <div class="col-md-3"><strong>Quantity:</strong> <span id="previewQTY"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex align-items-center justify-content-between mb-2 global-print-panel">
+        <h4 class="mb-0">Templates to Print</h4>
+        <div>
+          <span class="me-3"><strong>Selected:</strong> <span id="selCount">0</span></span>
+          <button id="printSelectedBtn" class="btn btn-outline-success btn-sm" disabled>Print selected</button>
+        </div>
+      </div>
+
+
+      <div id="templatesContainer" class="template-container"></div>
+
+      <div class="d-flex align-items-center justify-content-between mt-4">
+        <h4 class="mb-0">Printed (this session / history)</h4>
+      </div>
+      <div id="printedContainer" class="template-container"></div>
+
+      <div class="row mt-4">
+        <div class="col-md-6">
+          <div id="xmlPreviewCard" class="card d-none">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">XML előnézet (összes)</h4>
+                <button id="copyXmlBtn" class="btn btn-sm btn-outline-secondary">Másolás</button>
+              </div>
+              <pre id="xmlPreview" class="xml mt-3"></pre>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div id="xmlSelectedCard" class="card d-none">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">XML (csak kijelöltek)</h4>
+                <button id="copyXmlSelBtn" class="btn btn-sm btn-outline-secondary">Másolás</button>
+              </div>
+              <pre id="xmlSelected" class="xml mt-3"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mt-4">
+        <div class="card-body">
+          <h5 class="mb-2">Print log (szöveges)</h5>
+          <ul id="printLog" class="mb-0"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="diagCard" class="card mt-4 d-none">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">Debug / Diagnostics (FROM – TO)</h5>
+      <button id="toggleDiagBtn" class="btn btn-sm btn-outline-secondary">Mutat</button>
+    </div>
+    <div id="diagBody" class="mt-3 d-none">
+      <div class="mb-2">
+        <strong>Összes FROM sablon:</strong> <span id="diagFromCount">0</span> &nbsp;|&nbsp;
+        <strong>Összes TO sablon:</strong> <span id="diagToCount">0</span>
+      </div>
+      <div class="mb-3">
+        <strong>Hiányzó párok:</strong>
+        <ul id="diagMissingPairs" class="mb-0"></ul>
+      </div>
+      <div class="mb-3">
+        <strong>FROM/TO sablonok listája:</strong>
+        <ul id="diagList" class="mb-0"></ul>
+      </div>
+      <div>
+        <strong>Nyers preview (rövidítve):</strong>
+        <pre id="diagJson" class="xml" style="max-height:260px"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+  <!-- Toast stack a jobb felső sarokban -->
+  <div class="position-fixed top-0 end-0 p-3" style="z-index:1100">
+    <div id="toastStack" class="toast-container"></div>
+  </div>
+
+  <!-- Print confirmation modal -->
+  <div class="modal fade" id="printConfirmModal" tabindex="-1" aria-labelledby="printConfirmTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="printConfirmTitle">Nyomtatás megerősítése</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Bezárás"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-2"><strong>Nyomtató:</strong> <span id="modalPrinterName"></span></div>
+          <div class="mb-3"><strong>Etikett:</strong> <span id="modalTplName"></span></div>
+          <p class="mb-0" id="modalCheckText" style="line-height:1.45"></p>
+          <input type="hidden" id="modalTplHidden" />
+          <input type="hidden" id="modalCopiesHidden" />
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Mégse</button>
+          <button type="button" class="btn btn-success" id="confirmPrintBtn">Print</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+ 
+{% block extra_scripts %}
+  <script>
+    window.__lastPreview ??= null;
+    window.__lastQty ??= 0;
+    window.DEBUG_XML = false;
+    window.__forceRawTpls = new Set();
+    function dbgGroup(title, data, color = "#0a7") {
+  try {
+    console.groupCollapsed(`%c${title}`, `color:${color};font-weight:600`);
+    if (data !== undefined) console.log(data);
+  } finally {
+    console.groupEnd();
+  }
+}
+
+    function isConTemplate(t){
+      t = String(t||"");
+      // 1L.btw és ne legyen ID/FROM/TO
+      return /1L\.btw$/i.test(t) && !/id\s*label/i.test(t) && !/from/i.test(t) && !/to/i.test(t);
+    }
+    function isFromTemplate(t){ return /from/i.test(String(t||"")); }
+    function isToTemplate(t){ return /to/i.test(String(t||"")); }
+
+
+
+    function ensureIssuePrefix(v){
+      v = String(v || "").trim();
+      if (!v) return v;
+      return v.toUpperCase().startsWith("ISSUE") ? v : ("ISSUE " + v);
+    }
+
+    // REV-ből ISSUE előtag levétele
+function stripIssuePrefix(s){
+  return String(s || "").replace(/^ISSUE\s*/i, "");
+}
+
+// PN-ből SVK előtag levétele (SVK-, SVK⎵)
+function stripSvkPrefix(s){
+  return String(s || "").replace(/^SVK[-\s]*/i, "");
+}
+
+// Field-specifikus tisztítás SPECIAL (RAW) forrásnál
+function sanitizeSpecialValue(fieldKey, value){
+  const v = String(value ?? "");
+  if (!v) return v;
+
+  switch ((fieldKey || "").toUpperCase()){
+    case "REV": return stripIssuePrefix(v);   // pl. "ISSUE A" -> "A"
+    case "PN":  return stripSvkPrefix(v);     // pl. "SVK-12345" -> "12345"
+    // ide vehetsz fel további mintákat később (pl. ECN, ha kéne külön szabály)
+    default:    return v;                     // általános: hagyjuk érintetlenül
+  }
+}
+
+
+
+    // -------------------- ÜZENETKEZELÉS --------------------
+    function toastMsg(text, level = "info", autohideMs = 0) {
+      const id = "t" + Math.random().toString(16).slice(2);
+      const wrap = document.getElementById("toastStack");
+      const el = document.createElement("div");
+      el.className = `toast align-items-center ${level}`;
+      el.id = id;
+      el.setAttribute("role","status");
+      el.setAttribute("aria-live","polite");
+      el.setAttribute("aria-atomic","true");
+      el.dataset.bsAutohide = autohideMs > 0 ? "true" : "false";
+      el.dataset.bsDelay = String(autohideMs);
+      el.innerHTML = `
+        <div class="d-flex">
+          <div class="toast-body">${text}</div>
+          <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>`;
+      wrap.appendChild(el);
+      const bsToast = new bootstrap.Toast(el);
+      bsToast.show();
+      el.addEventListener("hidden.bs.toast", () => el.remove());
+    }
+
+    // kompatibilis showMsg: 2. param lehet boolean (régi) vagy "success|warning|error|info"
+    function showMsg(text, levelOrErr = false, autohideMs = 6000) {
+      const box = document.getElementById("pageMsg");
+      const level = (typeof levelOrErr === "boolean")
+          ? (levelOrErr ? "error" : "success")
+          : (levelOrErr || "success");
+
+      box.classList.remove("d-none","alert-success","alert-danger","alert-warning","alert-info");
+      const cls = (level === "error") ? "alert-danger"
+                : (level === "warning") ? "alert-warning"
+                : (level === "info") ? "alert-info"
+                : "alert-success";
+      box.classList.add(cls);
+      box.innerHTML = typeof text === "string" ? text : String(text ?? "");
+
+      if (autohideMs > 0) {
+        clearTimeout(box.__hideTimer);
+        box.__hideTimer = setTimeout(() => box.classList.add("d-none"), autohideMs);
+      }
+    }
+
+    // Globális AJAX hibák
+    $(document).ajaxError(function(_evt, jqxhr, settings){
+      console.groupCollapsed("%cAJAX ERROR", "color:#c00;font-weight:700", settings?.url || "");
+      console.log("status:", jqxhr?.status, jqxhr?.statusText);
+      console.log("responseJSON:", jqxhr?.responseJSON);
+      console.log("responseText:", jqxhr?.responseText?.slice(0,2000)); // 2k elég
+      console.dir(jqxhr);
+      console.groupEnd();
+    });
+
+
+    // Promise/unhandled hibák
+    window.addEventListener("unhandledrejection", (e) => {
+      const msg = (e.reason && (e.reason.message || e.reason)) || "Ismeretlen hiba (promise).";
+      showMsg(String(msg), "error");
+      toastMsg(String(msg), "error");
+    });
+  function collectSpecialTemplates(resp) {
+  const { list } = normalizeSpecial(resp); // Get the normalized list without duplicates
+  const templates = {};
+  const linesByTpl = {};
+  const copiesByTpl = {};
+
+  list.forEach(item => {
+    const tpl = String(item.template || "").trim();
+    if (!tpl) return;
+    const qty = Math.max(0, parseInt(item.qty, 10) || 0);
+
+    if (!templates[tpl]) templates[tpl] = 0;
+    templates[tpl] += 1;
+
+    copiesByTpl[tpl] = (copiesByTpl[tpl] || 0) + qty;
+
+    if (!linesByTpl[tpl]) linesByTpl[tpl] = Array.isArray(item.lines) ? item.lines : [];
+  });
+
+  return { templates, linesByTpl, copiesByTpl };
+}
+
+
+    // -------------------- Segédek --------------------
+function parseField(str, key){
+  const m = String(str||"").match(new RegExp(key + "-(.*?)\\|"));
+  return (m && m[1]) ? m[1].trim() : "";
+}
+    function xmlEscape(s){ return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;"); }
+
+  function substringsForTemplate(templateName, lines, opts){
+  const t = templateName || "";
+  const L = (lines || []).map(x => String(x||"").trim());
+  const source = (opts && opts.source) || "normal"; // "normal" | "special"
+  const RAW = (source === "special");               // special: semmilyen elő/utótag
+
+  // CON 1L
+  if (isConTemplate(t)) return { CON: extractConValue(L[0] || "") };
+
+  // FROM / TO
+  if (/from/i.test(t)) return { FROM_UP: L[0] || "", FROM_DOWN: L[1] || "" };
+  if (/to/i.test(t))   return {   TO_UP: L[0] || "",   TO_DOWN: L[1] || "" };
+
+  // ID 4L (WO, <_>, PN, REV)
+  if (/id\s*label\s*4l/i.test(t)) {
+    const wo  = L[0] || "";
+    const pn  = RAW ? sanitizeSpecialValue("PN",  L[2] || "")  : (L[2] || "");
+    const rev = RAW ? sanitizeSpecialValue("REV", L[3] || "")  : ensureIssuePrefix(L[3] || (__lastPreview && __lastPreview.rev) || "");
+    return { WO: wo, PN: pn, REV: rev };
+  }
+
+  // ID 3L (WO, PN, REV)
+  if (/id\s*label\s*3l/i.test(t)) {
+    const wo  = L[0] || "";
+    const pn  = RAW ? sanitizeSpecialValue("PN",  L[1] || "")  : (L[1] || "");
+    const rev = RAW ? sanitizeSpecialValue("REV", L[2] || "")  : ensureIssuePrefix(L[2] || (__lastPreview && __lastPreview.rev) || "");
+    return { WO: wo, PN: pn, REV: rev };
+  }
+
+  // Általános: LINE1..LINE10
+  const out = {};
+  for (let i=0;i<Math.min(10, L.length);i++) out["LINE"+(i+1)] = L[i];
+  return out;
+}
+
+
+
+
+function formatSkDate(d = new Date()){
+  const day = d.getDate();
+  const mon = d.getMonth() + 1;
+  const yr  = d.getFullYear();
+  return `${day}/${mon}/${yr}`;
+}
+
+function isSpecialTemplateName(resp, tpl){
+  const { set } = normalizeSpecial(resp);
+  return set.has(String(tpl||"").trim());
+}
+
+function getIsoWeekYear(d = new Date()){
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = (date.getUTCDay() + 6) % 7; // hétfő=0
+  date.setUTCDate(date.getUTCDate() - dayNum + 3);
+  const isoYear = date.getUTCFullYear();
+  const jan4 = new Date(Date.UTC(isoYear, 0, 4));
+  const week = 1 + Math.round(((date - jan4) / 86400000 - ((jan4.getUTCDay() + 6) % 7) + 3) / 7);
+  return { week, year: isoYear };
+}
+
+function getScanParams(inputStr){
+  const s = String(inputStr || "");
+  const { week, year } = getIsoWeekYear(new Date());
+  const todaySk = formatSkDate(new Date());
+  return {
+    SCAN_WO:   parseField(s, "WO"),     // „inputból beolvasott WO-…| érték”
+    SCAN_PN:   parseField(s, "PN"),     // „inputból beolvasott PN-…| érték”
+    SCAN_DATE: todaySk,                 // mai nap SK formátumban
+    SCAN_WEEK: `${week} / ${todaySk}`   // „aktuális munkahet / aktuális dátum”
+  };
+}
+
+function replaceScanTokens(str, scan){
+  if (!str) return str;
+  return String(str)
+    .replace(/<SCAN_WO>/g,   scan.SCAN_WO || "")
+    .replace(/<SCAN_PN>/g,   scan.SCAN_PN || "")
+    .replace(/<SCAN_DATE>/g, scan.SCAN_DATE || "")
+    .replace(/<SCAN_WEEK>/g, scan.SCAN_WEEK || "");
+}
+function replaceScanTokensInLines(lines, scan){
+  return (lines || []).map(v => replaceScanTokens(v, scan));
+}
+    function docPrintXML(template, copies, printer, substr){
+      const ns = Object.entries(substr || {}).map(
+        ([k,v]) => `  <NamedSubString Name="${xmlEscape(k)}"><Value>${xmlEscape(v)}</Value></NamedSubString>`
+      ).join("\n");
+      return (
+`<Print JobName="${xmlEscape('Batch_' + printer)}">
+  <Format>${xmlEscape('C:\\\\Users\\\\ntrencik\\\\Documents\\\\BarTender\\\\Integrations\\\\Templates\\\\' + template)}</Format>
+  <PrintSetup>
+    <IdenticalCopiesOfLabel>${xmlEscape(copies)}</IdenticalCopiesOfLabel>
+    <Printer>${xmlEscape(printer)}</Printer>
+  </PrintSetup>
+${ns}
+</Print>`
+      );
+    }
+
+  function buildBatchPreviewXML(resp, qty){
+  const byPrinter = {};
+  const q = parseInt(qty,10) || 0;
+  const { set: specialSet } = normalizeSpecial(resp);
+  const scan = window.__scan || getScanParams($("#inputString").val().trim());
+
+  // Normál sablonok
+  for (const [tpl, perUnit] of Object.entries(resp.templates || {})) {
+    if (specialSet.has(String(tpl).trim())) continue;
+    const printer = (resp.printers && resp.printers[tpl]) || "";
+    if (!printer) continue;
+
+    const total = (parseInt(perUnit,10) || 0) * q;
+    if (total <= 0) continue;
+
+    // <<< TOKENCSERE ITT >>>
+    const lines = replaceScanTokensInLines((resp.line_preview?.[tpl]) || [], scan);
+
+    (byPrinter[printer] ||= []).push({
+      template: tpl,
+      copies: total,
+      lines,
+      source: "normal"
+    });
+  }
+
+  // Specials
+// Specials (QTY-val SZOROZVA)
+const sp = collectSpecialTemplates(resp);
+Object.entries(sp.copiesByTpl).forEach(([tpl, perUnit]) => {
+  const printer = (resp.printers && resp.printers[tpl]) || "";
+  if (!printer || (perUnit <= 0)) return;
+
+  const lines = replaceScanTokensInLines(sp.linesByTpl[tpl] || [], scan);
+  const copies = (parseInt(perUnit, 10) || 0) * q;                  // ← perUnit × QTY
+
+  if (copies <= 0) return;
+  (byPrinter[printer] ||= []).push({
+    template: tpl,
+    copies,
+    lines,
+    source: "special"
+  });
+});
+
+
+  const prints = [];
+  for (const [printer, docs] of Object.entries(byPrinter)) {
+    for (const d of docs) {
+      const subs = substringsForTemplate(d.template, d.lines, { source: d.source });
+      prints.push(docPrintXML(d.template, d.copies, printer, subs));
+    }
+  }
+  return `<?xml version="1.0" encoding="utf-8"?>\n<XMLScript Version="2.0"><Command>\n${prints.join("\n")}\n</Command></XMLScript>`;
+}
+
+
+
+
+
+
+
+function buildSelectedPreviewXML(resp, qty, selectedCopiesMap){
+  const byPrinter = {};
+  const q = parseInt(qty,10) || 0;
+  const { set: specialSet } = normalizeSpecial(resp);
+  const scan = window.__scan || getScanParams($("#inputString").val().trim());
+
+  for (const [tpl, wantCopies] of Object.entries(selectedCopiesMap || {})) {
+    const printer = (resp.printers && resp.printers[tpl]) || "";
+    if (!printer) continue;
+
+    const source = specialSet.has(String(tpl||"").trim()) ? "special" : "normal";
+
+    if (isConTemplate(tpl)) {
+      const values  = replaceScanTokensInLines((resp.line_preview?.[tpl]) || [], scan);
+      const perUnit = parseInt((resp.templates || {})[tpl] || "0", 10) || 0;
+      const items   = Math.min(perUnit, values.length, Math.floor((parseInt(wantCopies,10)||0) / Math.max(1,q)));
+      for (let i = 0; i < items; i++) {
+        (byPrinter[printer] ||= []).push({
+          template: tpl,
+          copies: q,
+          lines: [String(values[i]||"")],
+          source
+        });
+      }
+      continue;
+    }
+
+    // ID / FROM / TO
+    const lines = replaceScanTokensInLines((resp.line_preview?.[tpl]) || [], scan);
+
+    (byPrinter[printer] ||= []).push({
+      template: tpl,
+      copies: Math.max(0, parseInt(wantCopies,10) || 0),
+      lines,
+      source
+    });
+  }
+
+  const prints = [];
+  for (const [printer, docs] of Object.entries(byPrinter)) {
+    for (const d of docs) {
+      const subs = substringsForTemplate(d.template, d.lines, { source: d.source });
+      prints.push(docPrintXML(d.template, d.copies, printer, subs));
+    }
+  }
+  return `<?xml version="1.0" encoding="utf-8"?>\n<XMLScript Version="2.0"><Command>\n${prints.join("\n")}\n</Command></XMLScript>`;
+}
+
+
+
+
+
+
+
+    
+    function renderSelectedXml(){
+      if (!__lastPreview) return;
+      const copiesMap = getSelectedCopiesMap();
+      const hasAny = Object.keys(copiesMap).length > 0;
+      $("#xmlSelected").text(buildSelectedPreviewXML(__lastPreview, __lastQty, copiesMap));
+      if (DEBUG_XML) console.debug("[XML selected]\n", $("#xmlSelected").text());
+      $("#xmlSelectedCard").toggleClass("d-none", !hasAny);
+    }
+
+    function updateSelCount(){
+      $("#selCount").text($(".template-card.selected").length);
+      $("#printSelectedBtn").prop("disabled", $(".template-card.selected").length === 0);
+      renderSelectedXml();
+    }
+    function addLogEntry(pn, wo, rev, list){
+      const time = new Date().toLocaleString();
+      const li = document.createElement("li");
+      li.innerHTML = `<strong>${xmlEscape(time)}</strong> — PN: ${xmlEscape(pn)}, WO: ${xmlEscape(wo)}, REV: ${xmlEscape(rev||"")}
+        <br><small>Printed: ${list.map(x=>`<code>${$("<div>").text(x).html()}</code>`).join(", ")}</small>`;
+      document.getElementById("printLog").prepend(li);
+    }
+
+    // --- Printed kártya, reprint funkcióval ---
+    function createPrintedCard(template, printerName, lines, printedCopies){
+      const safeTpl = $("<div>").text(template).html();
+      const linesHtml = (lines||[]).length
+        ? `<ul class="preview-lines">${lines.map(ln => `<li>${$("<div>").text(ln).html()}</li>`).join("")}</ul>`
+        : "";
+      const card = $(`
+        <div class="template-card printed-card"
+             data-template="${safeTpl}"
+             data-printed-copies="${printedCopies}"
+             data-reprint-copies="${printedCopies}">
+          <div class="checkmark">✓</div>
+          <div class="menu-wrap">
+            <button class="menu-btn" type="button" aria-label="menu">
+              <span class="menu-icon"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
+            </button>
+            <div class="menu">
+              <div class="menu-item js-set-reprint-copies">Reprint copies…</div>
+              <div class="menu-item js-reprint">Újranyomtatás</div>
+            </div>
+          </div>
+          <div class="template-info">
+            <div><strong>Template:</strong> ${template}</div>
+            <div><strong>Printer:</strong> ${printerName || "<em>n/a</em>"}</div>
+            <div><strong>Printed copies:</strong> <span class="printed-copies">${printedCopies}</span></div>
+            <div class="js-row-reprint d-none"><strong>Reprint copies:</strong> <span class="reprint-copies">—</span> <span class="badge bg-secondary badge-reprint d-none ms-1">reprint</span></div>
+            ${linesHtml}
+          </div>
+        </div>
+      `);
+
+      card.find(".menu-btn").on("click", function(e){
+        e.stopPropagation();
+        const $m = card.find(".menu");
+        $(".menu").not($m).removeClass("open");
+        $m.toggleClass("open");
+      });
+
+      card.find(".js-set-reprint-copies").on("click", function(e){
+        e.stopPropagation();
+        card.find(".menu").removeClass("open");
+
+        const current = parseInt(card.attr("data-reprint-copies") || "", 10);
+        const preset = Number.isFinite(current) && current > 0 ? current : (parseInt(card.attr("data-printed-copies")||"0",10)||1);
+
+        const val = window.prompt("Add meg az újranyomtatandó darabszámot:", String(preset));
+        if (val === null) return;
+
+        const n = parseInt(val, 10);
+        if (!Number.isFinite(n) || n <= 0){ alert("Érvénytelen érték. Adj meg pozitív egész számot."); return; }
+
+        card.attr("data-reprint-copies", String(n));
+        card.find(".reprint-copies").text(String(n));
+        card.find(".js-row-reprint").removeClass("d-none");
+      });
+
+      card.find(".js-reprint").on("click", function(e){
+        e.stopPropagation();
+        card.find(".menu").removeClass("open");
+
+        const copies = parseInt(card.attr("data-reprint-copies") || card.attr("data-printed-copies") || "0", 10) || 0;
+        if (copies <= 0){ alert("Nincs beállított darabszám."); return; }
+        if (!confirm(`Biztos újranyomtatod ezt a sablont ${copies} példányban?`)) return;
+
+        const inputStr = $("#inputString").val().trim();
+        $.ajax({
+          url: "/api/bartender/print",
+          type: "POST",
+          contentType: "application/x-www-form-urlencoded; charset=UTF-8",
+          data: {
+            text: inputStr,
+            selected: JSON.stringify([template]),
+            selected_copies: JSON.stringify({ [template]: copies }),
+            reprint: "1"
+          },
+          success: function (r) {
+            if (r && r.error) { showMsg("Nyomtatási hiba: " + r.error, "error"); return; }
+            card.find(".badge-reprint").removeClass("d-none");
+            addLogEntry(parseField(inputStr,"PN"), parseField(inputStr,"WO"), parseField(inputStr,"REV"),
+                        [`${template} × ${copies} (reprint)`]);
+            showMsg("Újranyomtatás elküldve.");
+            toastMsg("Újranyomtatás elküldve.", "success");
+          }
+        });
+      });
+
+      return card;
+    }
+
+    function loadAndRenderHistory(pn, wo, rev) {
+      $("#printedContainer").empty();
+      $.getJSON("/api/bartender/print_log", { pn, wo, rev, limit: 100 })
+        .done(function(resp){
+          (resp.items || []).forEach(function(it){
+            // CON eset: a sorokból csak az ÉRTÉK jelenjen meg
+            const shownLines = isConTemplate(it.template)
+              ? (it.lines || []).map(extractConValue)
+              : (it.lines || []);
+
+            const card = createPrintedCard(
+              it.template,
+              it.printer_name,
+              shownLines,
+              it.printed_copies || 0
+            );
+            if (String(it.source || "").toLowerCase() === "reprint") {
+              card.find(".badge-reprint").removeClass("d-none");
+              card.find(".js-row-reprint").removeClass("d-none");
+              card.find(".reprint-copies").text(String(it.printed_copies || 0));
+              card.attr("data-reprint-copies", String(it.printed_copies || 0));
+            }
+            $("#printedContainer").append(card);
+          });
+        });
+    }
+
+
+    // menük bezárása kártyán kívüli kattintásra
+    $(document).on("click", function(e){
+      if (!$(e.target).closest(".menu-wrap").length) $(".menu").removeClass("open");
+    });
+
+    // -------------------- FŐ LOGIKA --------------------
+    function renderTemplates(response, qty) {
+  $("#templatesContainer").empty();
+
+  const { set: specialSet } = normalizeSpecial(response);
+  const scan = window.__scan || getScanParams($("#inputString").val().trim());
+
+  // Normál sablonok
+  for (const [template, perUnitRaw] of Object.entries(response.templates || {})) {
+    if (specialSet.has(String(template).trim())) continue;
+
+    const printerName = (response.printers && response.printers[template]) || "<em>nincs hozzárendelve</em>";
+    const linesRaw = (response.line_preview && response.line_preview[template]) || [];
+
+    // <<< TOKENCSERE ITT >>>
+    const linesRepl = replaceScanTokensInLines(linesRaw, scan);
+    const lines = isConTemplate(template) ? linesRepl.map(extractConValue) : linesRepl;
+
+    const perUnit = parseInt(perUnitRaw, 10) || 0;
+    const totalCopies = perUnit * (parseInt(qty,10) || 0);
+
+    const safeTpl = $("<div>").text(template).html();
+    $("#templatesContainer").append(
+      makeCard({ template, safeTpl, printerName, lines, perUnit, totalCopies })
+    );
+  }
+
+  // Specials (nem szorozzuk QTY-val)
+
+const sp = collectSpecialTemplates(response);
+for (const [template] of Object.entries(sp.templates)) {
+  const printerName = (response.printers && response.printers[template]) || "<em>nincs hozzárendelve</em>";
+  const rawLines = sp.linesByTpl[template] || [];
+  const lines = replaceScanTokensInLines(rawLines, scan);
+
+  const perUnit = parseInt(sp.copiesByTpl[template] || 0, 10);     // ← mennyi darab / 1 egység
+  const totalCopies = perUnit * (parseInt(qty, 10) || 0);           // ← perUnit × QTY
+
+  const safeTpl = $("<div>").text(template).html();
+  $("#templatesContainer").append(
+    makeCard({ template, safeTpl, printerName, lines, perUnit, totalCopies })
+  );
+}
+
+
+}
+
+
+
+
+
+// === SPECIAL normalizálás + utilok ============================
+function normalizeSpecial(resp) {
+  const raw = resp && resp.special_labels;
+  const list = [];
+  
+  if (!raw) return { list, set: new Set() };
+
+  if (Array.isArray(raw)) {
+    raw.forEach(item => {
+      if (!item) return;
+      if (typeof item === "string") {
+        list.push({ template: item.trim(), qty: 1, lines: [] });
+      } else if (typeof item === "object") {
+        const tpl = String(item.template || "").trim();
+        if (!tpl) return;
+        const qty = Math.max(0, parseInt(item.qty, 10) || 0);
+        const lines = Array.isArray(item.lines) ? item.lines.map(x => String(x || "")) : [];
+        list.push({ template: tpl, qty, lines });
+      }
+    });
+  } else if (typeof raw === "object") {
+    Object.entries(raw).forEach(([tpl, v]) => {
+      const name = String(tpl || "").trim();
+      if (!name) return;
+      if (Array.isArray(v)) {
+        list.push({ template: name, qty: 1, lines: v.map(x => String(x || "")) });
+      } else if (typeof v === "object") {
+        const qty = Math.max(0, parseInt(v.qty, 10) || 0);
+        const lines = Array.isArray(v.lines) ? v.lines.map(x => String(x || "")) : [];
+        list.push({ template: name, qty, lines });
+      } else if (typeof v === "string") {
+        list.push({ template: name, qty: 1, lines: [v] });
+      }
+    });
+  }
+
+  // Filter out duplicate templates early
+  const uniqueList = Array.from(new Set(list.map(item => item.template)))
+                         .map(template => list.find(item => item.template === template));
+
+  console.groupCollapsed("%c[Preview] special_labels (normalized)", "color:#0a7;font-weight:600");
+  console.table(uniqueList.map(x => ({ template: x.template, qty: x.qty, lines: (x.lines || []).join(" | ") })));
+  console.groupEnd();
+
+  return { list: uniqueList, set: new Set(uniqueList.map(x => x.template)) };
+}
+
+
+
+
+function logPreviewDebug({response, stage, inputStr, qty, extra}){
+  const pn  = (inputStr.match(/PN-(.*?)\|/)  || [,''])[1];
+  const wo  = (inputStr.match(/WO-(.*?)\|/)  || [,''])[1];
+  const rev = (inputStr.match(/REV-(.*?)\|/) || [,''])[1];
+  const ecn = (inputStr.match(/ECN-(.*?)\|/) || [,''])[1];
+
+  const tCount   = Object.keys(response?.templates || {}).length;
+  const lpCount  = Object.keys(response?.line_preview || {}).length;
+  const prCount  = Object.keys(response?.printers || {}).length;
+  const specialCount = Array.isArray(response?.special_labels)
+    ? response.special_labels.filter(s => (s?.template||'').trim()).length : 0;
+
+  console.groupCollapsed(
+    `%c[Bartender Preview] ${stage}  PN=${pn||'-'} WO=${wo||'-'} REV=${rev||'-'} ECN=${ecn||'-'}  QTY=${qty??'—'}`,
+    "color:#0a7;font-weight:600"
+  );
+  console.log("has_templates_effective:", !!response?.has_templates_effective);
+  if (response?.matched) console.log("matched:", response.matched);
+  console.log("counts:", { templates:tCount, line_preview:lpCount, printers:prCount, special:specialCount });
+  if (Array.isArray(response?.skipped) && response.skipped.length){
+    console.table(response.skipped.map(s => ({template:s.template, reason:s.reason})));
+  }
+  if (extra) console.log("extra:", extra);
+
+  // gyors rálátás: sablonok és printerek
+  if (tCount)  console.table(Object.entries(response.templates).map(([k,v])=>({template:k, per_unit:v})));
+  if (prCount) console.table(Object.entries(response.printers).map(([k,v])=>({template:k, printer:v})));
+
+  // speciálisok (ha vannak)
+  if (specialCount){
+    console.table((response.special_labels||[]).map((x,i)=>({
+      i,
+      template: x?.template || '',
+      qty: x?.qty || 0,
+      lines: (x?.lines||[]).join(" | ")
+    })));
+  }
+  console.groupEnd();
+}
+
+
+
+    $(function () {
+      // Ne küldje el a formot natívan
+      $("#previewForm").on("submit", (e) => e.preventDefault());
+
+      // Enter → Generate Preview
+      $("#inputString").on("keydown", function(e){
+        if (e.key === "Enter" || e.keyCode === 13) {
+          e.preventDefault();
+          $("#genPreviewBtn").trigger("click");
+        }
+      });
+
+      $("#genPreviewBtn").on("click", function () {
+        const inputStr = $("#inputString").val().trim();
+        if (!inputStr){
+          showMsg("Adj meg egy érvényes bemenetet!", "warning");
+          toastMsg("Bemenet hiányzik.", "warning");
+          return;
+        }
+
+        const pn  = parseField(inputStr, "PN");
+        const wo  = parseField(inputStr, "WO");
+        const rev = parseField(inputStr, "REV");
+        const ecn = parseField(inputStr, "ECN");
+
+        $.ajax({
+          url: "/api/bartender/preview",
+          type: "POST",
+          contentType: "application/json",
+          data: JSON.stringify({ template: null, pn, wo, rev, ecn }),
+          success: function (response) {
+            const inputStr = $("#inputString").val().trim();
+            window.__scan = getScanParams(inputStr);
+
+            // --- 3/a: nyers válasz konzolba ---
+            logPreviewDebug({ response, stage: "response-raw", inputStr });
+
+            // Hiba a backendtől
+            if (response && response.error) {
+              console.error("[Preview error]", response.error);
+              showMsg("Hiba: " + response.error, "error");
+              return;
+            }
+
+            // QTY feloldás + log
+            const qtyFromInputRaw = parseField(inputStr, "QTY");
+            const qtyFromInput = parseInt(qtyFromInputRaw, 10);
+            const qty = Number.isFinite(qtyFromInput) ? qtyFromInput : (response.qty_sum || 0);
+            logPreviewDebug({ response, stage: "after-qty", inputStr, qty });
+
+            // Kért mezők és egyezések
+            const requested = {
+              pn:  parseField(inputStr, "PN"),
+              rev: parseField(inputStr, "REV"),
+              ecn: parseField(inputStr, "ECN"),
+            };
+            const mm = response.matched || { pn: true, rev: true, ecn: true };
+
+            // Speciális címkék darabszáma (ha csak speciális van, ne jelezzünk "nincs etikett"-et)
+            const specialCount = Array.isArray(response.special_labels)
+              ? response.special_labels.filter(s => (s?.template || "").trim()).length
+              : 0;
+
+            // Hiány-ellenőrzés
+            const missing = [];
+            if (requested.rev && mm.rev === false) missing.push("REV");
+            if (requested.ecn && mm.ecn === false) missing.push("ECN");
+            if (!response.has_templates_effective && specialCount === 0) missing.push("etikettek");
+
+            if (missing.length) {
+              logPreviewDebug({ response, stage: "missing-exit", inputStr, qty, extra: { missing } });
+
+              const human = (missing.length === 1)
+                ? missing[0]
+                : (missing.length === 2 ? `${missing[0]} és ${missing[1]}` : missing.join(", "));
+
+              const msg = `Az alábbi ${requested.pn} PN-hez nincs meg hozzárendelt ${human}, `
+                        + `kérjük értesítsd a Team Leadert és készítsd el az etikettet a Bartenderrel`;
+
+              showMsg(msg, "error", 0);
+
+              // UI reset
+              window.__lastPreview = null;
+              window.__lastQty = 0;
+              $("#previewResults").addClass("d-none");
+              $("#templatesContainer, #printedContainer").empty();
+              $("#xmlPreview").text("");  $("#xmlPreviewCard").addClass("d-none");
+              $("#xmlSelected").text(""); $("#xmlSelectedCard").addClass("d-none");
+              return;
+            }
+
+            // Opcionális info a kihagyott sablonokról (nincs printer)
+            if ((response.skipped || []).length) {
+              const noPr = response.skipped
+                .filter(s => (s.reason || "").includes("no_printer"))
+                .map(s => s.template)
+                .filter(Boolean);
+              if (noPr.length) {
+                console.warn("[Preview] Nincs nyomtató hozzárendelve:", noPr);
+                // UI-ban nem kötelező jelezni, csak ha szeretnéd:
+                // toastMsg(`Figyelem: nincs nyomtató hozzárendelve: ${noPr.join(", ")}`, "warning");
+              }
+            }
+
+            // --- 3/b: render előtt log ---
+            logPreviewDebug({ response, stage: "render-start", inputStr, qty });
+
+            // State frissítés
+            window.__lastPreview = response;
+            window.__lastQty = qty;
+
+            // Summary
+            $("#previewPN").text(response.pn);
+            $("#previewWO").text(response.wo);
+            $("#previewREV").text(response.rev || "N/A");
+            $("#previewQTY").text(qty);
+
+            // Előző nyomatok betöltése
+            loadAndRenderHistory(response.pn, response.wo, response.rev);
+
+            // Kártyák renderelése
+            $("#templatesContainer").empty();
+            renderTemplates(response, qty);
+
+            // Diagnosztika panel frissítése
+            window.__lastPreview = response;
+            renderDiagnostics(response);
+
+            // XML előnézet (összes)
+            const xmlAll = buildBatchPreviewXML(response, qty);
+            $("#xmlPreview").text(xmlAll);
+            if (typeof DEBUG_XML !== "undefined" && DEBUG_XML) {
+              console.debug("[XML all]\n" + xmlAll);
+            }
+            $("#xmlPreviewCard").removeClass("d-none");
+
+            // Kijelöltek XML-je (kezdetben üres, de frissítjük, ha van kijelölés)
+            renderSelectedXml();
+
+            // UI megjelenítés
+            $("#previewResults").removeClass("d-none");
+            updateSelCount();
+
+            // Felhasználói visszajelzés
+            showMsg("Preview adatok betöltve.");
+            // toastMsg("Preview adatok betöltve.", "success"); // ha nem akarsz toastot, hagyd kikommentezve
+
+            // --- 3/c: render után log ---
+            logPreviewDebug({ response, stage: "render-done", inputStr, qty });
+
+
+            // Nyers, lerövidített áttekintés a bejövő adatokról
+            dbgGroup("[Preview API] raw payload", {
+              pn: response.pn, wo: response.wo, rev: response.rev,
+              templates: response.templates,
+              printers: response.printers,
+              line_preview: response.line_preview,
+              special_labels: response.special_labels
+            });
+
+          }
+
+        });
+      });
+
+      $("#copyXmlBtn").on("click", function(){
+        const txt = $("#xmlPreview").text();
+        navigator.clipboard.writeText(txt).then(
+          () => $(this).text("Kimásolva ✓").prop("disabled", true),
+          () => toastMsg("Nem sikerült a másolás.", "error")
+        );
+      });
+      $("#copyXmlSelBtn").on("click", function(){
+        const txt = $("#xmlSelected").text();
+        navigator.clipboard.writeText(txt).then(
+          () => $(this).text("Kimásolva ✓").prop("disabled", true),
+          () => toastMsg("Nem sikerült a másolás.", "error")
+        );
+      });
+
+      $("#printButton").on("click", function () {
+        const inputStr = $("#inputString").val().trim();
+        const pn  = parseField(inputStr, "PN");
+        const wo  = parseField(inputStr, "WO");
+        const rev = parseField(inputStr, "REV");
+
+        $.ajax({
+          url: "/api/bartender/print",
+          type: "POST",
+          contentType: "application/x-www-form-urlencoded; charset=UTF-8",
+          data: { text: inputStr },
+          success: function (r) {
+            if (r && r.error) { showMsg("Nyomtatási hiba: " + r.error, "error"); return; }
+            showMsg("Nyomtatási feladat elküldve.");
+            toastMsg("Nyomtatási feladat elküldve.", "success");
+
+            const details = Object.entries(r.templates || {}).map(([tpl, perUnit]) => {
+              const total = (parseInt(perUnit,10)||0) * (parseInt(r.qty_sum,10)||0);
+              return { template: tpl, copies: total };
+            });
+
+            details.forEach(d => {
+              const printerName = (r.printers && r.printers[d.template]) || "";
+              const lines = (__lastPreview && __lastPreview.line_preview && __lastPreview.line_preview[d.template]) || [];
+              $("#printedContainer").append(createPrintedCard(d.template, printerName, lines, d.copies));
+              $(`.template-card[data-template="${d.template.replace(/"/g,'\\"')}"]`).remove();
+            });
+            updateSelCount();
+            addLogEntry(pn, wo, rev, details.map(d => `${d.template} × ${d.copies}`));
+          }
+        });
+      });
+      
+      // Modal: megerősített nyomtatás CSAK az adott kártyára
+$("#confirmPrintBtn").on("click", function(){
+  const inputStr = $("#inputString").val().trim();
+  const tpl = $("#modalTplHidden").val();
+  const copies = parseInt($("#modalCopiesHidden").val() || "0", 10) || 0;
+
+  if (!tpl){
+    showMsg("Hiányzó sablon.", "error");
+    return;
+  }
+  if (copies <= 0){
+    showMsg("A darabszám 0. Állíts be pozitív értéket a kártya menüjében (Printable copies).", "warning");
+    return;
+  }
+
+  const selected = [tpl];
+  const copiesMap = { [tpl]: copies };
+
+  $.ajax({
+    url: "/api/bartender/print",
+    type: "POST",
+    contentType: "application/x-www-form-urlencoded; charset=UTF-8",
+    data: {
+      text: inputStr,
+      selected: JSON.stringify(selected),
+      selected_copies: JSON.stringify(copiesMap)
+    },
+    success: function (r) {
+      if (r && r.error) { showMsg("Nyomtatási hiba: " + r.error, "error"); return; }
+
+      // printed kártya létrehozás és átpakolás
+      const printerName = (r.printers && r.printers[tpl]) ||
+                          (__lastPreview && __lastPreview.printers && __lastPreview.printers[tpl]) || "";
+      const lines = (__lastPreview && __lastPreview.line_preview && __lastPreview.line_preview[tpl]) || [];
+
+      $("#printedContainer").append(createPrintedCard(tpl, printerName, lines, copies));
+      $(`.template-card[data-template="${tpl.replace(/"/g,'\\"')}"]`).remove();
+
+      // log + UI
+      const pn  = parseField(inputStr, "PN");
+      const wo  = parseField(inputStr, "WO");
+      const rev = parseField(inputStr, "REV");
+      addLogEntry(pn, wo, rev, [`${tpl} × ${copies}`]);
+
+      showMsg("Nyomtatási feladat elküldve.");
+      toastMsg("Nyomtatási feladat elküldve.", "success");
+
+      // modal bezárása
+      const el = document.getElementById("printConfirmModal");
+      const inst = bootstrap.Modal.getInstance(el);
+      if (inst) inst.hide();
+
+      updateSelCount();
+    }
+  });
+});
+
+
+      $("#printSelectedBtn").on("click", function () {
+        const inputStr = $("#inputString").val().trim();
+        const pn  = parseField(inputStr, "PN");
+        const wo  = parseField(inputStr, "WO");
+        const rev = parseField(inputStr, "REV");
+
+        const copiesMap = getSelectedCopiesMap();
+        const selected = Object.keys(copiesMap);
+        if (!selected.length){ showMsg("Nincs kijelölt sablon.", "warning"); toastMsg("Nincs kijelölt sablon.", "warning"); return; }
+
+        const details = selected.map(tpl => ({ template: tpl, copies: copiesMap[tpl] || 0 }));
+
+        $.ajax({
+          url: "/api/bartender/print",
+          type: "POST",
+          contentType: "application/x-www-form-urlencoded; charset=UTF-8",
+          data: {
+            text: inputStr,
+            selected: JSON.stringify(selected),
+            selected_copies: JSON.stringify(copiesMap)
+          },
+          success: function (r) {
+            if (r && r.error) { showMsg("Nyomtatási hiba: " + r.error, "error"); return; }
+
+            details.forEach(d => {
+              const printerName = (r.printers && r.printers[d.template]) ||
+                                  (__lastPreview && __lastPreview.printers && __lastPreview.printers[d.template]) || "";
+              const lines = (__lastPreview && __lastPreview.line_preview && __lastPreview.line_preview[d.template]) || [];
+              $("#printedContainer").append(createPrintedCard(d.template, printerName, lines, d.copies));
+              // csak a kijelölt kártyákat takarítsuk el ehhez a sablonhoz:
+              $(`.template-card.selected[data-template="${d.template.replace(/"/g,'\\"')}"]`).remove();
+            });
+
+            updateSelCount();
+            addLogEntry(pn, wo, rev, details.map(d => `${d.template} × ${d.copies}`));
+            showMsg("Kijelölt sablonok nyomtatása elküldve.");
+            toastMsg("Kijelölt sablonok nyomtatása elküldve.", "success");
+          }
+        });
+      });
+
+    });
+
+    function makeCard({ template, safeTpl, printerName, lines, perUnit, totalCopies }) {
+      const linesHtml = (lines||[]).length
+        ? `<ul class="preview-lines">${lines.map(ln => `<li>${$("<div>").text(ln).html()}</li>`).join("")}</ul>`
+        : "";
+
+      const $card = $(`
+        <div class="template-card" data-template="${safeTpl}" data-override-copies="">
+          <div class="checkmark">✓</div>
+          <div class="menu-wrap">
+            <button class="menu-btn" type="button" aria-label="menu">
+              <span class="menu-icon"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
+            </button>
+            <div class="menu">
+              <div class="menu-item js-set-copies">Printable copies</div>
+            </div>
+          </div>
+          <div class="template-info">
+            <div><strong>Template:</strong> ${template}</div>
+            <div><strong>Printer:</strong> ${printerName || "<em>nincs hozzárendelve</em>"}</div>
+            <div><strong>Copies per unit:</strong> ${perUnit}</div>
+            <div><strong>Total copies:</strong> <span class="total-copies">${totalCopies}</span></div>
+            ${linesHtml}
+          </div>
+
+          <!-- ÚJ: per-kártya Print selected gomb -->
+          <button class="card-print-btn" type="button">Print selected</button>
+        </div>
+      `);
+
+
+      $card.on("click", function (e) {
+        if ($(e.target).closest(".menu-wrap").length) return;
+        $(this).toggleClass("selected");
+        updateSelCount();
+      });
+
+      $card.find(".menu-btn").on("click", function(e){
+        e.stopPropagation();
+        const $m = $card.find(".menu");
+        $(".menu").not($m).removeClass("open");
+        $m.toggleClass("open");
+      });
+
+      // Per-kártya "Print selected" gomb: csak modal megnyitás (nem nyomtat azonnal)
+      $card.find(".card-print-btn").on("click", function(e){
+        e.stopPropagation();
+
+        const tpl = $card.attr("data-template");
+        const total = parseInt($card.find(".total-copies").text(), 10) || 0;
+        const override = parseInt($card.attr("data-override-copies") || "", 10);
+        const copies = Number.isFinite(override) && override >= 0 ? Math.min(override, total) : total;
+
+        // printer kiolvasása a kártyáról (HTML-ből)
+        let printer = $card.find(".template-info").find("div:contains('Printer:')").text() || "";
+        printer = printer.replace(/^.*Printer:\s*/i,"").trim();
+        printer = printer.replace(/^<em>.*<\/em>$/i, "").trim(); // ha n/a volt
+
+        // etikett neve .btw nélkül
+        const labelNoExt = String(tpl || "").replace(/\.btw$/i, "");
+
+        // modal mezők feltöltése
+        $("#modalPrinterName").text(printer || "—");
+        $("#modalTplName").text(labelNoExt || "—");
+        $("#modalTplHidden").val(tpl);
+        $("#modalCopiesHidden").val(String(Math.max(0, copies)));
+
+        const checkText = `Ellenőrizd, hogy a „${printer || "—"}” nyomtatóban a(z) „${labelNoExt}” etikett típusú szalag van.`;
+        $("#modalCheckText").text(checkText);
+
+        // modal megnyitása
+        const m = new bootstrap.Modal(document.getElementById("printConfirmModal"));
+        m.show();
+      });
+
+
+      $card.find(".js-set-copies").on("click", function(e){
+        e.stopPropagation();
+        $card.find(".menu").removeClass("open");
+
+        const total = parseInt($card.find(".total-copies").text(), 10) || 0;
+        const current = parseInt($card.attr("data-override-copies") || "", 10);
+        const preset = Number.isFinite(current) && current >= 0 ? current : total;
+
+        const val = window.prompt("Add meg a nyomtatandó darabszámot ehhez a kártyához:", String(preset));
+        if (val === null) return;
+        let n = parseInt(val, 10);
+        if (!Number.isFinite(n) || n < 0){ alert("Érvénytelen érték."); return; }
+        if (n > total){ alert("Nem lehet több, mint a Total copies."); n = total; }
+
+        $card.attr("data-override-copies", n === 0 ? "" : String(n));
+        renderSelectedXml();
+      });
+
+      return $card;
+    }
+
+
+function getSelectedCopiesMap(){
+  // { "<template>": összes_kért_példány }
+  const map = {};
+  $(".template-card.selected").each(function(){
+    const tpl = $(this).attr("data-template");
+    const total = parseInt($(this).find(".total-copies").text(), 10) || 0;
+    const override = parseInt($(this).attr("data-override-copies") || "", 10);
+    const copies = Number.isFinite(override) && override >= 0 ? Math.min(override, total) : total;
+    map[tpl] = (map[tpl] || 0) + copies;   // több FROM/TO kártya → összeadódik
+  });
+  return map;
+}
+// --- DIAG: FROM/TO párok kigyűjtése és ellenőrzése ---
+function baseNameOfFT(tpl){
+  // pl. "9320-5807 (DAT-34) From 2L.btw" → "9320-5807 (DAT-34) 2L.btw"
+  return String(tpl||"")
+    .replace(/\bfrom\b/i,"")
+    .replace(/\bto\b/i,"")
+    .replace(/\s{2,}/g," ")
+    .trim();
+}
+
+function buildFromToIndex(response){
+  const idx = {}; // base -> {from:[], to:[]}
+  for (const tpl of Object.keys(response.templates || {})) {
+    const isFrom = /from/i.test(tpl);
+    const isTo   = /to/i.test(tpl);
+    if (!isFrom && !isTo) continue;
+
+    const base = baseNameOfFT(tpl);
+    (idx[base] ||= { from: [], to: [] });
+    if (isFrom) idx[base].from.push(tpl);
+    if (isTo)   idx[base].to.push(tpl);
+  }
+  return idx;
+}
+
+function renderDiagnostics(response){
+  // láthatóvá tesszük a kártyát
+  $("#diagCard").removeClass("d-none");
+
+  const idx = buildFromToIndex(response);
+  const allFrom = [];
+  const allTo   = [];
+  const missingLis = [];
+  const listLis = [];
+
+  Object.entries(idx).forEach(([base, pair])=>{
+    allFrom.push(...pair.from);
+    allTo.push(...pair.to);
+
+    // listázás
+    listLis.push(
+      `<li><code>${$("<div>").text(base).html()}</code><br>
+        FROM: ${pair.from.length ? pair.from.map(x=>`<code>${$("<div>").text(x).html()}</code>`).join(", ") : "<em>nincs</em>"}<br>
+        TO:&nbsp;&nbsp;&nbsp;${pair.to.length ? pair.to.map(x=>`<code>${$("<div>").text(x).html()}</code>`).join(", ") : "<em>nincs</em>"}
+       </li>`
+    );
+
+    // hiányzó oldalak
+    if (!pair.from.length || !pair.to.length){
+      const miss = !pair.from.length ? "FROM hiányzik" : "TO hiányzik";
+      missingLis.push(`<li><strong>${$("<div>").text(base).html()}</strong>: ${miss}</li>`);
+    }
+  });
+
+  $("#diagFromCount").text(allFrom.length);
+  $("#diagToCount").text(allTo.length);
+  $("#diagList").html(listLis.join(""));
+  $("#diagMissingPairs").html(missingLis.length ? missingLis.join("") : "<li><em>Nincs hiányzó pár.</em></li>");
+
+  // Rövidített preview JSON (csak a sablonok + line_preview FROM/TO része)
+  const short = {
+    templates: Object.fromEntries(
+      Object.entries(response.templates||{}).filter(([k])=>/from|to/i.test(k))
+    ),
+    line_preview: Object.fromEntries(
+      Object.entries(response.line_preview||{}).filter(([k])=>/from|to/i.test(k))
+    )
+  };
+  $("#diagJson").text(JSON.stringify(short, null, 2));
+
+  // Konzolra is dobunk mindent
+  console.groupCollapsed("%cFROM/TO Diagnostics","color:#0a7");
+  console.log("Összes FROM:", allFrom.length, allFrom);
+  console.log("Összes TO:", allTo.length, allTo);
+  console.table(Object.entries(idx).map(([base,pair])=>({
+    base, FROM_count: pair.from.length, TO_count: pair.to.length
+  })));
+  if (missingLis.length) console.warn("Hiányzó párok:", $(missingLis.join("")).text());
+  console.groupEnd();
+}
+
+// Toggle gomb a kártyán
+$(document).on("click","#toggleDiagBtn", function(){
+  $("#diagBody").toggleClass("d-none");
+  $(this).text( $("#diagBody").hasClass("d-none") ? "Mutat" : "Elrejt" );
+});
+// A CON sorból (pl. "ABC123 — Motor 1" vagy "ABC123 - Motor 1") csak az értéket adja vissza.
+function extractConValue(raw){
+  let s = String(raw || "").trim();
+  // ha "CON:" előtag lenne, szedjük le
+  s = s.replace(/^CON[:\s-]*/i, "").trim();
+  if (s.includes("—")) return s.split("—").pop().trim();
+  if (s.includes(" - ")) return s.split(" - ").pop().trim();
+  return s;
+}
+
+function normalizeConToValues(resp){
+  const out = JSON.parse(JSON.stringify(resp || {}));
+  if (out && out.line_preview){
+    Object.entries(out.line_preview).forEach(([tpl, arr])=>{
+      if (isConTemplate(tpl)) out.line_preview[tpl] = (arr || []).map(extractConValue);
+    });
+  }
+  return out;
+}
+
+
+
+  </script>
+{% endblock %}
+{% endblock %}

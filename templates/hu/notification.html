@@ -1,0 +1,546 @@
+{% extends (lang ~ '/base.html') %}
+{% block title %}Értesítések{% endblock %}
+{% set active = 'notifications' %}
+{% block page_title %}Értesítés küldése{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+  <div class="row g-4">
+    <div class="col-lg-7">
+      <div class="card shadow-sm border-0">
+        <div class="card-body">
+          <h5 class="mb-3">Új értesítés</h5>
+
+          <div class="mb-3">
+            <label class="form-label">Üzenet</label>
+            <textarea id="msg" class="form-control" rows="3" placeholder="Pl.: Karbantartás 10 perc múlva..."></textarea>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Típus (UI)</label>
+              <select id="ui" class="form-select">
+                <option value="toast">Toast (sarok)</option>
+                <option value="modal">Modal (felugró)</option>
+                <option value="banner">Banner (felül)</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Szint</label>
+              <select id="level" class="form-select">
+                <option value="info">info</option>
+                <option value="warning" selected>warning</option>
+                <option value="success">success</option>
+                <option value="danger">danger</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">ETA (perc)</label>
+              <input id="eta" class="form-control" placeholder="pl. 10">
+            </div>
+          </div>
+
+          <div class="row g-3 mt-1">
+            <div class="col-md-6">
+              <label class="form-label">Leállás ideje (opcionális)</label>
+              <input id="shutdown_at" type="datetime-local" class="form-control">
+              <div class="form-text">Ha megadod, a kliens oldalon visszaszámláló lesz.</div>
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+              <div class="form-check form-switch me-4" id="wrapToastAfterModal" style="display:none;">
+                <input class="form-check-input" type="checkbox" id="toast_after_modal" checked>
+                <label class="form-check-label" for="toast_after_modal">Modal után maradjon toast</label>
+              </div>
+
+              <div class="form-check form-switch" id="wrapSticky" style="display:block;">
+                <input class="form-check-input" type="checkbox" id="sticky">
+                <label class="form-check-label" for="sticky">Toast legyen sticky</label>
+              </div>
+            </div>
+          </div>
+
+          <hr class="my-4">
+
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Célzás</label>
+              <select id="target_type" class="form-select">
+                <option value="all" selected>Mindenkinek</option>
+                <option value="device">Device (név/IP)</option>
+                <option value="user">User (ID / név)</option>
+                <option value="page">Page (active key)</option>
+                <option value="role">Role (pl. IT / QC)</option>
+              </select>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">Cél érték</label>
+
+              <!-- Page célzáshoz autocomplete lista -->
+              <input id="target_value" class="form-control" placeholder="pl. 10.10.40.84 vagy IT vagy scan" list="pageOptions">
+              <datalist id="pageOptions">
+                <!-- FIX oldal kulcsok (a képen lévők) -->
+                <option value="devices"></option>
+                <option value="programs"></option>
+                <option value="errors"></option>
+                <option value="pn_progress"></option>
+                <option value="users_progress"></option>
+                <option value="teamleaders"></option>
+                <option value="wo_progress"></option>
+                <option value="bartender_edit"></option>
+                <option value="bartender_preview"></option>
+                <option value="scan"></option>
+                <option value="hr"></option>
+                <option value="database"></option>
+                <option value="qr_injector"></option>
+                <option value="qr_logs"></option>
+                <option value="bartender_reports"></option>
+                <option value="tables"></option>
+                <option value="notifications"></option>
+              </datalist>
+
+              <div class="form-text">Ha “Mindenkinek”, akkor üresen hagyhatod.</div>
+              <div id="targetHint" class="small text-muted mt-1"></div>
+            </div>
+          </div>
+
+          <div class="mt-3">
+            <div class="d-flex align-items-center justify-content-between">
+              <div class="fw-semibold">Multi-target (opcionális)</div>
+              <button class="btn btn-sm btn-outline-primary" id="addTargetBtn" type="button">+ hozzáadás</button>
+            </div>
+            <div id="multiTargets" class="mt-2 d-flex flex-column gap-2"></div>
+          </div>
+
+          <div class="d-flex gap-2 mt-4">
+            <button class="btn btn-primary" id="sendBtn">Küldés</button>
+            <button class="btn btn-outline-secondary" id="refreshBtn" type="button">Frissítés</button>
+          </div>
+
+          <div class="mt-3" id="sendResult" class="text-muted small"></div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm border-0 mt-4">
+        <div class="card-body">
+          <h5 class="mb-3">Maintenance mode</h5>
+
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="maintEnabled">
+            <label class="form-check-label" for="maintEnabled">Karbantartás mód bekapcsolva</label>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Üzenet</label>
+            <input id="maintMsg" class="form-control" placeholder="Pl. Karbantartás folyamatban...">
+          </div>
+
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Szint</label>
+              <select id="maintLevel" class="form-select">
+                <option value="info">info</option>
+                <option value="warning" selected>warning</option>
+                <option value="success">success</option>
+                <option value="danger">danger</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">ETA (perc)</label>
+              <input id="maintEta" class="form-control" placeholder="pl. 10">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Leállás ideje</label>
+              <input id="maintShutdown" type="datetime-local" class="form-control">
+            </div>
+          </div>
+
+          <div class="mt-3">
+            <button class="btn btn-warning" id="maintApply">Alkalmaz</button>
+            <button class="btn btn-outline-danger" id="maintOff" type="button">Kikapcsol</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="col-lg-5">
+      <div class="card shadow-sm border-0">
+        <div class="card-body">
+          <div class="d-flex align-items-start justify-content-between">
+            <div>
+              <h5 class="mb-1">Online kliensek</h5>
+              <div class="text-muted small">Kattints egy sorra → betölti a célzást a kiválasztott célzási típus szerint.</div>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" id="clientsBtn" type="button">Frissítés</button>
+          </div>
+
+          <div class="table-responsive mt-3">
+            <table class="table table-sm">
+              <thead class="table-dark">
+                <tr>
+                  <th>DEVICE</th>
+                  <th>USER</th>
+                  <th>PAGE</th>
+                </tr>
+              </thead>
+              <tbody id="clientsTbody">
+                <tr><td colspan="3" class="text-muted">Nincs online kliens.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div id="clientsCount" class="text-muted small"></div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm border-0 mt-4">
+        <div class="card-body">
+          <h5 class="mb-3">Értesítések (history + aktív)</h5>
+          <div class="table-responsive">
+            <table class="table table-sm">
+              <thead class="table-light">
+                <tr>
+                  <th>UI</th>
+                  <th>Msg</th>
+                  <th>Target</th>
+                  <th>Ack</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="noticesTbody">
+                <tr><td colspan="5" class="text-muted">Betöltés...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="noticeDetails" class="small text-muted"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+
+  // --- FIX page keys (a képen lévők) ---
+  const PAGE_KEYS = [
+    "devices",
+    "programs",
+    "errors",
+    "pn_progress",
+    "users_progress",
+    "teamleaders",
+    "wo_progress",
+    "bartender_edit",
+    "bartender_preview",
+    "scan",
+    "hr",
+    "database",
+    "qr_injector",
+    "qr_logs",
+    "bartender_reports",
+    "tables",
+    "notifications",
+  ];
+
+  function escapeHtml(s){
+    return String(s || "")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+  }
+
+  function updateTargetHint() {
+    const tt = ($("target_type").value || "all").toLowerCase();
+    const hint = $("targetHint");
+    if (!hint) return;
+
+    if (tt === "page") {
+      hint.textContent = "Válassz page key-t (autocomplete): pl. scan, devices, tables...";
+      $("target_value").setAttribute("list", "pageOptions");
+    } else {
+      hint.textContent = "";
+      $("target_value").removeAttribute("list");
+    }
+  }
+
+  $("target_type").addEventListener("change", updateTargetHint);
+  updateTargetHint();
+
+  function showUiToggles() {
+    const ui = ($("ui").value || "toast").toLowerCase();
+
+    const wrapSticky = $("wrapSticky");
+    const wrapToastAfterModal = $("wrapToastAfterModal");
+
+    if (ui === "modal") {
+      wrapToastAfterModal.style.display = "";
+      wrapSticky.style.display = $("toast_after_modal").checked ? "" : "none";
+    } else if (ui === "toast") {
+      wrapToastAfterModal.style.display = "none";
+      wrapSticky.style.display = "";
+    } else { // banner
+      wrapToastAfterModal.style.display = "none";
+      wrapSticky.style.display = "none";
+    }
+  }
+
+  $("ui").addEventListener("change", showUiToggles);
+  $("toast_after_modal").addEventListener("change", showUiToggles);
+  showUiToggles();
+
+  function addMultiTargetRow(type="", value="") {
+    const wrap = document.createElement("div");
+    wrap.className = "d-flex gap-2";
+
+    wrap.innerHTML = `
+      <select class="form-select form-select-sm" style="max-width:180px">
+        <option value="device">device</option>
+        <option value="user">user</option>
+        <option value="page">page</option>
+        <option value="role">role</option>
+      </select>
+      <input class="form-control form-control-sm" placeholder="érték" />
+      <button class="btn btn-sm btn-outline-danger" type="button">X</button>
+    `;
+
+    const sel = wrap.querySelector("select");
+    const inp = wrap.querySelector("input");
+    const del = wrap.querySelector("button");
+
+    sel.value = type || "device";
+    inp.value = value || "";
+
+    del.addEventListener("click", () => wrap.remove());
+
+    $("multiTargets").appendChild(wrap);
+  }
+
+  $("addTargetBtn").addEventListener("click", () => addMultiTargetRow());
+
+  function collectMultiTargets() {
+    const rows = Array.from($("multiTargets").children);
+    const out = [];
+    for (const r of rows) {
+      const sel = r.querySelector("select");
+      const inp = r.querySelector("input");
+      const type = (sel?.value || "").trim();
+      const value = (inp?.value || "").trim();
+      if (type && value) out.push({type, value});
+    }
+    return out;
+  }
+
+  async function api(url, opts={}) {
+    const res = await fetch(url, {
+      credentials: "same-origin",
+      headers: {"Content-Type":"application/json"},
+      ...opts
+    });
+    const text = await res.text();
+    try { return JSON.parse(text); } catch { return {ok:false, raw:text}; }
+  }
+
+  function mergePageOptionsFromClients(clients) {
+    const dl = $("pageOptions");
+    if (!dl) return;
+
+    const onlinePages = (clients || [])
+      .map(c => (c.page || "").trim())
+      .filter(Boolean);
+
+    const all = new Set([...PAGE_KEYS, ...onlinePages]);
+    const sorted = Array.from(all).sort();
+
+    dl.innerHTML = sorted.map(p => `<option value="${escapeHtml(p)}"></option>`).join("");
+  }
+
+  async function refreshAll() {
+    const data = await api(`/${encodeURIComponent("{{ lang }}")}/notifications/api/state`);
+    if (!data.ok) return;
+
+    // maintenance
+    const m = data.maintenance || {};
+    $("maintEnabled").checked = !!m.enabled;
+    $("maintMsg").value = m.message || "";
+    $("maintLevel").value = m.level || "warning";
+    $("maintEta").value = (m.eta_minutes ?? "") === null ? "" : (m.eta_minutes ?? "");
+    $("maintShutdown").value = m.shutdown_at ? (m.shutdown_at.replace("Z","").slice(0,16)) : "";
+
+    // clients
+    renderClients(data.clients || []);
+    mergePageOptionsFromClients(data.clients || []);
+
+    // notices
+    renderNotices(data.notices || []);
+  }
+
+  function renderClients(clients) {
+    const tbody = $("clientsTbody");
+    tbody.innerHTML = "";
+    if (!clients.length) {
+      tbody.innerHTML = `<tr><td colspan="3" class="text-muted">Nincs online kliens.</td></tr>`;
+      $("clientsCount").textContent = "0 kliens online";
+      return;
+    }
+
+    for (const c of clients) {
+      const tr = document.createElement("tr");
+      tr.style.cursor = "pointer";
+      tr.innerHTML = `
+        <td>${escapeHtml(c.device_ip || c.device_name || "-")}</td>
+        <td>${escapeHtml(c.display_name || c.user_id || "-")}</td>
+        <td>${escapeHtml(c.page || "-")}</td>
+      `;
+
+      tr.addEventListener("click", () => {
+        const tt = ($("target_type").value || "device").toLowerCase();
+
+        if (tt === "page") {
+          $("target_value").value = c.page || "";
+        } else if (tt === "user") {
+          $("target_value").value = c.display_name || c.user_id || "";
+        } else if (tt === "device") {
+          $("target_value").value = c.device_ip || c.device_name || "";
+        } else {
+          // all / role -> nem tudjuk biztosan, marad kézi
+          $("target_type").value = "device";
+          $("target_value").value = c.device_ip || c.device_name || "";
+        }
+      });
+
+      tbody.appendChild(tr);
+    }
+
+    $("clientsCount").textContent = `${clients.length} kliens online`;
+  }
+
+  async function ackCount(notice_id) {
+    const data = await api(`/${encodeURIComponent("{{ lang }}")}/notifications/api/acks/${encodeURIComponent(notice_id)}`);
+    if (!data.ok) return 0;
+    return Object.keys(data.acks || {}).length;
+  }
+
+  async function renderNotices(notices) {
+    const tbody = $("noticesTbody");
+    tbody.innerHTML = "";
+
+    if (!notices.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="text-muted">Nincs értesítés.</td></tr>`;
+      return;
+    }
+
+    for (const n of notices.slice(0, 30)) {
+      const tr = document.createElement("tr");
+
+      const targets = (n.targets || []).map(t => `${t.type}:${t.value}`).join(", ");
+      const msgShort = (n.message || "").slice(0, 40) + ((n.message || "").length > 40 ? "…" : "");
+      const isActive = !!n.active;
+
+      const ack = await ackCount(n.notice_id);
+
+      tr.innerHTML = `
+        <td>${escapeHtml(n.ui)}${isActive ? "" : " (off)"}</td>
+        <td>${escapeHtml(msgShort)}</td>
+        <td class="text-muted">${escapeHtml(targets || "all")}</td>
+        <td>${ack}</td>
+        <td class="text-end">
+          ${isActive ? `<button class="btn btn-sm btn-outline-warning me-1" data-stop="${escapeHtml(n.notice_id)}">Stop</button>` : ""}
+          <button class="btn btn-sm btn-outline-danger" data-del="${escapeHtml(n.notice_id)}">Del</button>
+        </td>
+      `;
+
+      tr.addEventListener("click", () => {
+        $("noticeDetails").textContent = `ID: ${n.notice_id} | ${n.created_at} | by: ${n.created_by || "-"} | level: ${n.level}`;
+      });
+
+      tbody.appendChild(tr);
+    }
+
+    tbody.querySelectorAll("[data-stop]").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const id = btn.getAttribute("data-stop");
+        await api(`/${encodeURIComponent("{{ lang }}")}/notifications/api/notices/${encodeURIComponent(id)}/stop`, {method:"POST", body:"{}"});
+        refreshAll();
+      });
+    });
+
+    tbody.querySelectorAll("[data-del]").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const id = btn.getAttribute("data-del");
+        await api(`/${encodeURIComponent("{{ lang }}")}/notifications/api/notices/${encodeURIComponent(id)}`, {method:"DELETE"});
+        refreshAll();
+      });
+    });
+  }
+
+  $("clientsBtn").addEventListener("click", refreshAll);
+  $("refreshBtn").addEventListener("click", refreshAll);
+
+  $("sendBtn").addEventListener("click", async () => {
+    const payload = {
+      message: ($("msg").value || "").trim(),
+      ui: $("ui").value,
+      level: $("level").value,
+      eta_minutes: ($("eta").value || "").trim(),
+      shutdown_at: ($("shutdown_at").value || "").trim(),
+      toast_after_modal: $("toast_after_modal").checked,
+      sticky: $("sticky").checked,
+      target_type: $("target_type").value,
+      target_value: ($("target_value").value || "").trim(),
+      multi_targets: collectMultiTargets(),
+    };
+
+    const data = await api(`/${encodeURIComponent("{{ lang }}")}/notifications/api/send`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+
+    if (!data.ok) {
+      $("sendResult").textContent = "Hiba: " + (data.error || data.raw || "unknown");
+      return;
+    }
+    $("sendResult").textContent = "Elküldve ✅ (ID: " + data.notice.notice_id + ")";
+    refreshAll();
+  });
+
+  $("maintApply").addEventListener("click", async () => {
+    const payload = {
+      enabled: $("maintEnabled").checked,
+      message: ($("maintMsg").value || "").trim(),
+      level: $("maintLevel").value,
+      eta_minutes: ($("maintEta").value || "").trim(),
+      shutdown_at: ($("maintShutdown").value || "").trim(),
+    };
+    const data = await api(`/${encodeURIComponent("{{ lang }}")}/notifications/api/maintenance`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    if (!data.ok) alert("Hiba maintenance mentésnél");
+    refreshAll();
+  });
+
+  $("maintOff").addEventListener("click", async () => {
+    const data = await api(`/${encodeURIComponent("{{ lang }}")}/notifications/api/maintenance`, {
+      method: "POST",
+      body: JSON.stringify({enabled:false, message:""})
+    });
+    if (!data.ok) alert("Hiba maintenance kikapcsolásnál");
+    refreshAll();
+  });
+
+  // inicializáljuk a datalist fix tartalmát (online nélkül is legyen)
+  mergePageOptionsFromClients([]);
+
+  refreshAll();
+})();
+</script>
+{% endblock %}

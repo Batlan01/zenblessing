@@ -1,0 +1,88 @@
+{% extends lang ~ '/base.html' %}
+{% block title %}Domain Deploy – Hozzárendelések{% endblock %}
+{% block page_title %}Domain Deploy – Hozzárendelések (OU / csoport → csomag){% endblock %}
+
+{% block content %}
+<div class="container-fluid my-3">
+  <div class="card mb-3"><div class="card-body">
+    <h6 class="mb-3">Új hozzárendelés</h6>
+    <div class="row g-2 align-items-end">
+      <div class="col-12 col-md-3">
+        <label class="form-label small">Csomag</label>
+        <select id="aPkg" class="form-select form-select-sm">
+          {% for p in packages %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small">Művelet</label>
+        <select id="aAction" class="form-select form-select-sm">
+          {% for a in actions %}<option value="{{ a }}">{{ 'telepítés' if a=='install' else 'eltávolítás' }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small">Hatókör</label>
+        <select id="aType" class="form-select form-select-sm">
+          {% for t in match_types %}<option value="{{ t }}">{{ {'global':'mindenki (all)','group':'csoport','ou':'OU','hostname':'gép/személy'}[t] }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-3">
+        <label class="form-label small">Érték</label>
+        <input id="aVal" class="form-control form-control-sm" placeholder="csoport: 'IT-PCs' · OU: 'OU=Penzugy' · gép: 'PC-FIN-*'">
+      </div>
+      <div class="col-12 col-md-2">
+        <button id="aAdd" class="btn btn-primary btn-sm w-100"><i class="fa-solid fa-plus me-1"></i>Hozzáad</button>
+      </div>
+    </div>
+    <div class="form-text mt-1">
+      <strong>Művelet</strong>: <em>telepítés</em> = kívánt állapot (ha törlöd a hozzárendelést, az agent eltávolítja) ·
+      <em>eltávolítás</em> = tiltott szoftver (az agent leszedi). ·
+      Hatókör: <strong>all</strong> minden gép · <strong>csoport</strong> AD-csoport · <strong>OU</strong> OU DN részlet · <strong>gép/személy</strong> név/maszk (<code>*</code>,<code>?</code>)
+    </div>
+  </div></div>
+
+  <div class="card"><div class="table-responsive">
+    <table class="table table-sm table-striped align-middle mb-0">
+      <thead><tr><th>Csomag</th><th>Művelet</th><th>Hatókör</th><th>Érték</th><th></th></tr></thead>
+      <tbody id="aBody">
+        {% for a in assignments %}
+        <tr>
+          <td>{% if not a.package_enabled %}<i class="fa-solid fa-ban text-muted me-1"></i>{% endif %}{{ a.package_name }}</td>
+          <td>
+            {% if a.action == 'remove' %}<span class="badge bg-danger">eltávolítás</span>
+            {% else %}<span class="badge bg-success">telepítés</span>{% endif %}
+          </td>
+          <td><span class="badge bg-info text-dark">{{ a.match_type }}</span></td>
+          <td><code>{{ a.match_value }}</code></td>
+          <td><button class="btn btn-sm btn-outline-danger" data-del="{{ a.id }}"><i class="fa-solid fa-trash"></i></button></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-3">Még nincs hozzárendelés.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+</div>
+
+<script>
+(function(){
+  const BASE="/{{ lang }}/deploy";
+  function jx(url,opt){return fetch(url,Object.assign({credentials:"same-origin",headers:{"Content-Type":"application/json"}},opt||{})).then(r=>r.json());}
+  function toast(m,t){const e=document.createElement("div");e.className="toast text-white bg-"+(t||"primary")+" border-0 show position-fixed top-0 end-0 m-3";e.style.zIndex=1300;e.innerHTML='<div class="d-flex"><div class="toast-body">'+m+'</div></div>';document.body.appendChild(e);setTimeout(()=>e.remove(),4000);}
+
+  document.getElementById("aType").onchange=function(){
+    document.getElementById("aVal").disabled = (this.value==="global");
+  };
+  document.getElementById("aAdd").onclick=()=>{
+    const body={package_id:document.getElementById("aPkg").value,match_type:document.getElementById("aType").value,
+      match_value:document.getElementById("aVal").value,action:document.getElementById("aAction").value};
+    jx(BASE+"/api/assignment",{method:"POST",body:JSON.stringify(body)}).then(j=>{
+      if(!j.ok)throw new Error(j.error);
+      location.reload();
+    }).catch(e=>toast(e.message,"danger"));
+  };
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{
+    jx(BASE+"/api/assignment/"+b.dataset.del,{method:"DELETE"}).then(()=>location.reload());
+  });
+})();
+</script>
+{% endblock %}

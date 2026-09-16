@@ -1,0 +1,1325 @@
+{% extends (lang ~ '/base.html') %}
+{% block title %}Email Modul – Admin{% endblock %}
+{% set active = 'email_admin' %}
+{% block page_title %}Email Modul – Admin{% endblock %}
+
+{% block extra_head %}
+<script src="https://code.jquery.com/jquery-3.7.1.min.js" crossorigin="anonymous"></script>
+<style>
+/* ── Alap elrendezés ── */
+.em-tabs .nav-link          { font-size:.85rem; padding:.45rem .9rem; }
+.em-tabs .nav-link.active   { font-weight:700; }
+
+/* ── Kártyák / szekciók ── */
+.em-section                 { background:#fff; border:1px solid #e0e0e0; border-radius:10px;
+                               padding:20px 22px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+.em-section + .em-section   { margin-top:18px; }
+
+/* ── SMTP állapot panel ── */
+.smtp-info-row              { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.smtp-field                 { display:flex; flex-direction:column; gap:2px; }
+.smtp-field label           { font-size:.7rem; font-weight:700; color:#6c757d;
+                               text-transform:uppercase; letter-spacing:.04em; margin:0; }
+.smtp-field span            { font-family:ui-monospace,monospace; font-size:.88rem; color:#212529; }
+.smtp-badge-ok              { background:#d1e7dd; color:#0f5132;
+                               font-size:.75rem; font-weight:700; padding:3px 10px;
+                               border-radius:20px; white-space:nowrap; }
+.smtp-badge-warn            { background:#fff3cd; color:#664d03;
+                               font-size:.75rem; font-weight:700; padding:3px 10px;
+                               border-radius:20px; white-space:nowrap; }
+
+/* ── Táblázat stílusok ── */
+.em-table                   { width:100%; border-collapse:collapse; font-size:.88rem; }
+.em-table thead th          { background:#f8f9fa; padding:8px 12px; font-weight:700;
+                               font-size:.74rem; text-transform:uppercase; letter-spacing:.04em;
+                               color:#6c757d; border-bottom:2px solid #dee2e6; white-space:nowrap; }
+.em-table tbody tr          { border-bottom:1px solid #f0f0f0; }
+.em-table tbody tr:hover    { background:#f8f9ff; }
+.em-table tbody td          { padding:8px 12px; vertical-align:middle; }
+.em-table .td-mono          { font-family:ui-monospace,monospace; font-size:.82rem; color:#0d6efd; }
+.em-table .td-actions       { white-space:nowrap; text-align:right; }
+.em-table .td-actions button{ padding:2px 8px; font-size:.78rem; }
+
+/* ── Badge-ek ── */
+.badge-active   { background:#d1e7dd; color:#0f5132; }
+.badge-inactive { background:#e2e3e5; color:#6c757d; }
+.badge-user     { background:#cff4fc; color:#055160; }
+.badge-group    { background:#e2d9f3; color:#432874; }
+.badge-ok       { background:#d1e7dd; color:#0f5132; }
+.badge-error    { background:#f8d7da; color:#842029; }
+.em-badge       { font-size:.72rem; padding:2px 7px; border-radius:4px; font-weight:600; }
+
+/* ── Modál body textarea ── */
+#bodyTemplateInput          { font-family:ui-monospace,monospace; font-size:.83rem;
+                               min-height:180px; resize:vertical; }
+#varHintInput               { font-family:ui-monospace,monospace; font-size:.8rem; }
+
+/* ── Fogadó sor a konfigban ── */
+.recip-row                  { display:flex; align-items:center; gap:8px; padding:5px 0;
+                               border-bottom:1px solid #f0f0f0; }
+.recip-row:last-child       { border-bottom:none; }
+.recip-name                 { flex:1; font-size:.87rem; }
+.recip-email                { font-size:.78rem; color:#6c757d; font-family:monospace; }
+
+/* ── Napló táblázat ── */
+.log-to                     { max-width:260px; overflow:hidden; text-overflow:ellipsis;
+                               white-space:nowrap; font-size:.78rem; color:#555; }
+
+/* ── Oldal skeleton ── */
+.skeleton-row               { height:38px; border-radius:6px; margin-bottom:6px;
+                               background:linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%);
+                               background-size:200% 100%; animation:shimmer 1.2s infinite; }
+@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+/* ── Állapotjelző sáv ── */
+.em-statusbar               { font-size:.82rem; color:#6c757d; padding:6px 0 0; min-height:22px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3" style="max-width:1100px">
+
+  <!-- ── Tab navigáció ── -->
+  <ul class="nav nav-tabs em-tabs mb-3" id="emTabs">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabSmtp">
+      <i class="fa-solid fa-gear me-1"></i>SMTP</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabUsers">
+      <i class="fa-solid fa-users me-1"></i>Felhasználók</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabGroups">
+      <i class="fa-solid fa-layer-group me-1"></i>Csoportok</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabConfigs">
+      <i class="fa-solid fa-envelope-open-text me-1"></i>Oldal konfigurációk</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabLog" id="tabLogBtn">
+      <i class="fa-solid fa-clock-rotate-left me-1"></i>Küldési napló</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabSchedules" id="tabSchedulesBtn">
+      <i class="fa-solid fa-calendar-check me-1"></i>Ütemezett riportok</button></li>
+  </ul>
+
+  <div id="pageMsg" class="alert d-none mb-3"></div>
+
+  <!-- ═══ BARTENDER TESZT MÓD ═══ -->
+  <div class="em-section mb-3" id="btTestModeSection">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+      <div>
+        <h5 class="mb-1"><i class="fa-solid fa-flask me-2 text-warning"></i>Bartender teszt mód</h5>
+        <small class="text-muted">
+          Bekapcsolva: az etikett-előnézetet <strong>nem szakítja meg a QC-blokk</strong>,
+          és az automatikus email értesítések (hiányzó sablon / QC letiltás) <strong>nem mennek ki</strong>.
+          Tesztelés után kapcsold vissza!
+        </small>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <span id="btTestModeBadge" class="badge bg-secondary">Kikapcsolva</span>
+        <div class="form-check form-switch m-0">
+          <input class="form-check-input" type="checkbox" role="switch" id="btTestMode" style="transform:scale(1.4)">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-content">
+
+    <!-- ════════════════════════════════════════════════════════════
+         TAB: SMTP
+    ════════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade show active" id="tabSmtp">
+      <div class="em-section">
+        <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+          <h5 class="mb-0"><i class="fa-solid fa-server me-2 text-secondary"></i>SMTP beállítások</h5>
+        </div>
+
+        <div class="smtp-info-row mb-3">
+          <div class="smtp-field">
+            <label>Host</label>
+            <span>{{ smtp_cfg.host }}</span>
+          </div>
+          <div class="smtp-field">
+            <label>Port</label>
+            <span>{{ smtp_cfg.port }}</span>
+          </div>
+          <div class="smtp-field">
+            <label>Felhasználónév</label>
+            <span>{{ smtp_cfg.username or '—' }}</span>
+          </div>
+          <div class="smtp-field">
+            <label>Jelszó</label>
+            {% if smtp_cfg.password_set %}
+              <span class="smtp-badge-ok"><i class="fa-solid fa-lock me-1"></i>Beállítva</span>
+            {% else %}
+              <span class="smtp-badge-warn"><i class="fa-solid fa-triangle-exclamation me-1"></i>Nincs beállítva</span>
+            {% endif %}
+          </div>
+          <div class="smtp-field">
+            <label>Feladó neve</label>
+            <span>{{ smtp_cfg.from_name or '—' }}</span>
+          </div>
+          <div class="smtp-field">
+            <label>Feladó e-mail</label>
+            <span>{{ smtp_cfg.from_email or '—' }}</span>
+          </div>
+        </div>
+
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+          <button id="smtpTestBtn" class="btn btn-outline-primary btn-sm">
+            <i class="fa-solid fa-plug me-1"></i>Kapcsolat tesztelése
+          </button>
+          <span id="smtpTestResult" class="em-statusbar"></span>
+        </div>
+
+        <hr class="my-3">
+        <div style="font-size:.82rem; color:#6c757d; line-height:1.7">
+          <span class="mt-1 d-block">O365: <em>Exchange Admin Center → Users → Mailboxes → [fiók] → Mail Apps → SMTP AUTH engedélyezése</em></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════
+         TAB: FELHASZNÁLÓK
+    ════════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="tabUsers">
+      <div class="em-section">
+        <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+          <h5 class="mb-0"><i class="fa-solid fa-users me-2 text-secondary"></i>Fogadók kezelése</h5>
+          <button class="btn btn-primary btn-sm" id="addUserBtn">
+            <i class="fa-solid fa-plus me-1"></i>Új felhasználó
+          </button>
+        </div>
+        <div id="userTableWrap">
+          <div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div>
+        </div>
+        <div class="em-statusbar" id="userStatusBar"></div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════
+         TAB: CSOPORTOK
+    ════════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="tabGroups">
+      <div class="em-section">
+        <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+          <h5 class="mb-0"><i class="fa-solid fa-layer-group me-2 text-secondary"></i>Csoportok kezelése</h5>
+          <button class="btn btn-primary btn-sm" id="addGroupBtn">
+            <i class="fa-solid fa-plus me-1"></i>Új csoport
+          </button>
+        </div>
+        <div id="groupTableWrap">
+          <div class="skeleton-row"></div><div class="skeleton-row"></div>
+        </div>
+        <div class="em-statusbar" id="groupStatusBar"></div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════
+         TAB: OLDAL KONFIGURÁCIÓK
+    ════════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="tabConfigs">
+      <div class="em-section">
+        <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+          <h5 class="mb-0"><i class="fa-solid fa-envelope-open-text me-2 text-secondary"></i>Oldal konfigurációk</h5>
+          <button class="btn btn-primary btn-sm" id="addConfigBtn">
+            <i class="fa-solid fa-plus me-1"></i>Új konfiguráció
+          </button>
+        </div>
+        <div id="configTableWrap">
+          <div class="skeleton-row"></div><div class="skeleton-row"></div>
+        </div>
+        <div class="em-statusbar" id="configStatusBar"></div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════
+         TAB: KÜLDÉSI NAPLÓ
+    ════════════════════════════════════════════════════════════ -->
+    <div class="tab-pane fade" id="tabLog">
+      <div class="em-section">
+        <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+          <h5 class="mb-0"><i class="fa-solid fa-clock-rotate-left me-2 text-secondary"></i>Küldési napló</h5>
+          <button class="btn btn-outline-secondary btn-sm" id="refreshLogBtn">
+            <i class="fa-solid fa-rotate me-1"></i>Frissítés
+          </button>
+        </div>
+        <div id="logTableWrap">
+          <div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div>
+        </div>
+        <div class="em-statusbar" id="logStatusBar"></div>
+      </div>
+    </div>
+
+    <!-- ═══ ÜTEMEZETT RIPORTOK TAB PANE ═══ -->
+    <div class="tab-pane fade" id="tabSchedules">
+      <style>
+      .sched-status-ok    { color:#198754; font-weight:600; }
+      .sched-status-error { color:#dc3545; font-weight:600; }
+      .sched-status-never { color:#6c757d; }
+      .sched-active-badge { display:inline-block; padding:1px 8px; border-radius:20px; font-size:.72rem; font-weight:600; }
+      .sched-active-on  { background:#d1e7dd; color:#0f5132; }
+      .sched-active-off { background:#e2e3e5; color:#6c757d; }
+      .freq-badge { display:inline-block; padding:1px 7px; border-radius:4px; font-size:.72rem;
+                    background:#e8f4fd; color:#0c63a4; font-weight:600; }
+      </style>
+      <div class="em-section mt-0">
+        <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+          <h5 class="mb-0"><i class="fa-solid fa-calendar-check me-2 text-secondary"></i>Ütemezett riportok</h5>
+          <button class="btn btn-primary btn-sm" id="addSchedBtn">
+            <i class="fa-solid fa-plus me-1"></i>Új ütemezés
+          </button>
+        </div>
+        <p class="text-muted small mb-3">
+          Az itt beállított riportok automatikusan generálódnak és emailben kerülnek kiküldésre
+          a megadott időpontban. Az Excel mellékletek az előző nap / hónap adatait tartalmazzák.
+        </p>
+        <div id="schedTableWrap">
+          <div class="skeleton-row"></div><div class="skeleton-row"></div>
+        </div>
+        <div class="em-statusbar" id="schedStatusBar"></div>
+      </div>
+    </div>
+
+  </div><!-- /tab-content -->
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════
+     MODÁLOK
+════════════════════════════════════════════════════════════════════════ -->
+
+<!-- Felhasználó hozzáadás / szerkesztés -->
+<div class="modal fade" id="userModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title" id="userModalTitle">Felhasználó</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="userModalId">
+        <div class="mb-2">
+          <label class="form-label form-label-sm mb-1">Név</label>
+          <input type="text" class="form-control form-control-sm" id="userModalName" placeholder="Kovács János">
+        </div>
+        <div class="mb-2">
+          <label class="form-label form-label-sm mb-1">E-mail</label>
+          <input type="email" class="form-control form-control-sm" id="userModalEmail" placeholder="jkovacs@ceg.hu">
+        </div>
+        <div class="mb-2">
+          <label class="form-label form-label-sm mb-1">Rendszer login
+            <span class="text-muted fw-normal" style="font-size:.72rem">(opcionális – auto-küldéshez)</span>
+          </label>
+          <input type="text" class="form-control form-control-sm font-monospace" id="userModalUsername"
+                 placeholder="pl. ntrencik">
+          <div class="form-text" style="font-size:.72rem">Az alkalmazásban megjelenő felhasználónév – ez alapján azonosítja a rendszer a fogadót.</div>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="userModalActive" checked>
+          <label class="form-check-label form-label-sm" for="userModalActive">Aktív</label>
+        </div>
+        <div class="mt-2 text-danger" id="userModalErr" style="font-size:.82rem"></div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Mégse</button>
+        <button type="button" class="btn btn-primary btn-sm" id="userModalSave">
+          <i class="fa-solid fa-floppy-disk me-1"></i>Mentés
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Csoport hozzáadás / szerkesztés -->
+<div class="modal fade" id="groupModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title" id="groupModalTitle">Csoport</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="groupModalId">
+        <div class="mb-2">
+          <label class="form-label form-label-sm mb-1">Csoport neve</label>
+          <input type="text" class="form-control form-control-sm" id="groupModalName" placeholder="pl. QC csapat">
+        </div>
+        <div class="mb-2">
+          <label class="form-label form-label-sm mb-1">Leírás (opcionális)</label>
+          <input type="text" class="form-control form-control-sm" id="groupModalDesc" placeholder="">
+        </div>
+        <div class="mt-2 text-danger" id="groupModalErr" style="font-size:.82rem"></div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Mégse</button>
+        <button type="button" class="btn btn-primary btn-sm" id="groupModalSave">
+          <i class="fa-solid fa-floppy-disk me-1"></i>Mentés
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Csoport tagok kezelése -->
+<div class="modal fade" id="membersModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:520px">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title"><i class="fa-solid fa-users me-2"></i><span id="membersModalTitle">Csoport tagjai</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pt-2" style="max-height:60vh; overflow-y:auto">
+        <div id="membersList" class="mb-3"></div>
+        <div class="d-flex gap-2 align-items-center">
+          <select class="form-select form-select-sm flex-grow-1" id="memberAddSelect">
+            <option value="">– Felhasználó hozzáadása –</option>
+          </select>
+          <button class="btn btn-success btn-sm" id="memberAddBtn">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Oldal konfiguráció szerkesztő -->
+<div class="modal fade" id="configModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:680px">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title" id="configModalTitle">Konfiguráció</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="configModalId">
+        <div class="row g-2 mb-2">
+          <div class="col-5">
+            <label class="form-label form-label-sm mb-1">Page key <span class="text-danger">*</span></label>
+            <input type="text" class="form-control form-control-sm font-monospace"
+                   id="configModalKey" placeholder="pl. qc_bartender_confirm">
+            <div class="form-text" style="font-size:.73rem">Egyedi azonosító (kódból hivatkozol rá)</div>
+          </div>
+          <div class="col-7">
+            <label class="form-label form-label-sm mb-1">Megjelenítési név <span class="text-danger">*</span></label>
+            <input type="text" class="form-control form-control-sm" id="configModalLabel"
+                   placeholder="pl. QC Bartender – Ellenőrzés">
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label form-label-sm mb-1">Tárgy sablon</label>
+          <input type="text" class="form-control form-control-sm font-monospace"
+                 id="configModalSubject" placeholder="[QC] {{pn}} – ellenőrizve ({{confirmed_by}})">
+          <div class="form-text" style="font-size:.73rem">Használj <code>{{változó}}</code> helyettesítőket</div>
+        </div>
+        <div class="mb-2">
+          <div class="d-flex align-items-center justify-content-between mb-1">
+            <label class="form-label form-label-sm mb-0">Törzs sablon</label>
+            <div class="form-check form-check-inline mb-0">
+              <input class="form-check-input" type="checkbox" id="configModalIsHtml" checked>
+              <label class="form-check-label" style="font-size:.78rem" for="configModalIsHtml">HTML</label>
+            </div>
+          </div>
+          <textarea class="form-control" id="bodyTemplateInput"
+                    placeholder="<p>A <b>{{pn}}</b> PN sablonjai ellenőrizve – {{confirmed_by}} által.</p>"></textarea>
+          <div class="form-text" style="font-size:.73rem">HTML vagy plain text. Változók: <code>{{változó_neve}}</code></div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label form-label-sm mb-1">Elérhető változók (dokumentáció)</label>
+          <input type="text" id="varHintInput" class="form-control form-control-sm"
+                 placeholder="pn, rev, confirmed_by, confirmed_at">
+          <div class="form-text" style="font-size:.73rem">Az oldalon elérhető {{változók}} felsorolása – csak emlékeztetőnek</div>
+        </div>
+        <div class="p-2 rounded mb-1" style="background:#f0f5ff;border:1px solid #cfe2ff">
+          <div class="form-check mb-0">
+            <input class="form-check-input" type="checkbox" id="configModalAutoRecipient">
+            <label class="form-check-label" for="configModalAutoRecipient" style="font-size:.85rem;font-weight:600">
+              <i class="fa-solid fa-user-check me-1 text-primary"></i>Automatikus küldés a létrehozónak
+            </label>
+          </div>
+          <div class="form-text mt-1" style="font-size:.72rem">
+            Ha be van pipálva, a rendszer az <code>auto_recipient_username</code> dinamikus változó alapján
+            automatikusan megkeresi az illető e-mail címét az email_users táblában
+            (username mező) és hozzáadja a TO listához.
+          </div>
+        </div>
+        <div class="mt-2 text-danger" id="configModalErr" style="font-size:.82rem"></div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Mégse</button>
+        <button type="button" class="btn btn-primary btn-sm" id="configModalSave">
+          <i class="fa-solid fa-floppy-disk me-1"></i>Mentés
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Fogadók kezelése egy konfighoz -->
+<div class="modal fade" id="recipientsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:520px">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title">
+          <i class="fa-solid fa-paper-plane me-2"></i>
+          Fogadók – <span id="recipientsModalTitle" class="font-monospace"></span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pt-2" style="max-height:60vh; overflow-y:auto">
+        <div id="recipientsList" class="mb-3"></div>
+        <div class="d-flex gap-2 align-items-center mb-2 flex-wrap">
+          <select class="form-select form-select-sm" id="recipientRoleSelect" style="max-width:80px">
+            <option value="to">TO</option>
+            <option value="cc">CC</option>
+          </select>
+          <select class="form-select form-select-sm" id="recipientTypeSelect" style="max-width:110px">
+            <option value="user">Felhasználó</option>
+            <option value="group">Csoport</option>
+          </select>
+          <select class="form-select form-select-sm flex-grow-1" id="recipientIdSelect">
+            <option value="">– Válassz –</option>
+          </select>
+          <button class="btn btn-success btn-sm" id="recipientAddBtn">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+        <div class="mt-3 pt-2 border-top">
+          <div class="d-flex gap-2 align-items-center flex-wrap">
+            <span style="font-size:.82rem; color:#6c757d">Teszt küldés dinamikus adattal:</span>
+            <input type="text" id="testDynInput" class="form-control form-control-sm"
+                   placeholder='{"pn":"9320-5807","confirmed_by":"teszt"}' style="flex:1;font-size:.78rem;font-family:monospace">
+            <button class="btn btn-outline-primary btn-sm" id="testSendBtn">
+              <i class="fa-solid fa-paper-plane me-1"></i>Küldés
+            </button>
+          </div>
+          <div class="mt-1 em-statusbar" id="testSendResult"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Ütemezés szerkesztő modál ══════════════════════════════════════════ -->
+<div class="modal fade" id="schedModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:640px">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title" id="schedModalTitle">Ütemezés</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="max-height:80vh;overflow-y:auto">
+        <input type="hidden" id="schedModalId">
+        <div class="mb-2">
+          <label class="form-label form-label-sm mb-1">Ütemezés neve <span class="text-danger">*</span></label>
+          <input type="text" class="form-control form-control-sm" id="schedModalName" placeholder="pl. Napi riport – menedzsment">
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label form-label-sm mb-1">Riport típusa <span class="text-danger">*</span></label>
+            <select class="form-select form-select-sm" id="schedModalType">
+              <option value="users_day">Napi – Users Progress</option>
+              <option value="users_month">Havi – Users Progress</option>
+              <option value="wo_day">Napi – WO Timeline</option>
+              <option value="wo_month">Havi – WO Timeline</option>
+              <option value="both_day">Napi – Mindkettő</option>
+              <option value="both_month" selected>Havi – Mindkettő</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label form-label-sm mb-1">Frekvencia</label>
+            <select class="form-select form-select-sm" id="schedModalFreq">
+              <option value="daily" selected>Naponta</option>
+              <option value="weekly">Hetente</option>
+              <option value="monthly">Havonta</option>
+            </select>
+          </div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-4">
+            <label class="form-label form-label-sm mb-1">Időpont (óra)</label>
+            <input type="number" class="form-control form-control-sm" id="schedModalHour" min="0" max="23" value="15">
+          </div>
+          <div class="col-4">
+            <label class="form-label form-label-sm mb-1">Időpont (perc)</label>
+            <input type="number" class="form-control form-control-sm" id="schedModalMinute" min="0" max="59" value="30">
+          </div>
+          <div class="col-4" id="schedModalDowWrap" style="display:none">
+            <label class="form-label form-label-sm mb-1">Hét napja</label>
+            <select class="form-select form-select-sm" id="schedModalDow">
+              <option value="0">Hétfő</option><option value="1">Kedd</option>
+              <option value="2">Szerda</option><option value="3">Csütörtök</option>
+              <option value="4">Péntek</option><option value="5">Szombat</option>
+              <option value="6">Vasárnap</option>
+            </select>
+          </div>
+          <div class="col-4" id="schedModalDomWrap" style="display:none">
+            <label class="form-label form-label-sm mb-1">Hónap napja</label>
+            <input type="number" class="form-control form-control-sm" id="schedModalDom" min="1" max="28" value="1">
+          </div>
+        </div>
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" id="schedModalActive" checked>
+          <label class="form-check-label form-label-sm" for="schedModalActive">Aktív</label>
+        </div>
+
+        <hr class="my-2">
+        <div class="mb-1" style="font-size:.75rem;font-weight:700;color:#0369a1;text-transform:uppercase;letter-spacing:.05em">
+          <i class="fa-solid fa-envelope me-1"></i>Email sablon
+          <span class="fw-normal text-muted ms-1" style="text-transform:none">(üresen hagyva = alapértelmezett)</span>
+        </div>
+        <div class="mb-2">
+          <label class="form-label form-label-sm mb-1">Tárgy sablon</label>
+          <input type="text" class="form-control form-control-sm font-monospace" id="schedModalSubject"
+                 placeholder="[Factory] {{mode}} riport – {{date}}">
+          <div class="form-text" style="font-size:.7rem">
+            Változók: <code>{{mode}}</code> (Napi/Havi) &nbsp;·&nbsp; <code>{{date}}</code> &nbsp;·&nbsp; <code>{{name}}</code> (ütemezés neve)
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label form-label-sm mb-1">Törzs sablon <span class="fw-normal text-muted">(HTML)</span></label>
+          <textarea class="form-control form-control-sm font-monospace" id="schedModalBody" rows="7"
+                    placeholder="<p>Tisztelt Kollegák!</p>&#10;<p>Mellékeljük a(z) {{date}} napi riportot.</p>&#10;<ul>{{report_list}}</ul>"></textarea>
+          <div class="form-text" style="font-size:.7rem">
+            Plusz változók: <code>{{report_list}}</code> (riportok listája HTML li-kben) &nbsp;·&nbsp; <code>{{generated}}</code> (generálás ideje)
+          </div>
+        </div>
+
+        <div class="mt-2 text-danger" id="schedModalErr" style="font-size:.82rem"></div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Mégse</button>
+        <button type="button" class="btn btn-primary btn-sm" id="schedModalSave">
+          <i class="fa-solid fa-floppy-disk me-1"></i>Mentés
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Ütemezés fogadók modál ══════════════════════════════════════════════ -->
+<div class="modal fade" id="schedRecipientsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:480px">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title"><i class="fa-solid fa-users me-2"></i>Fogadók – <span id="schedRecipientsTitle"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pt-2" style="max-height:55vh; overflow-y:auto">
+        <div id="schedRecipientsList" class="mb-3"></div>
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+          <select class="form-select form-select-sm" id="schedRecipRoleSelect" style="max-width:80px">
+            <option value="to">TO</option><option value="cc">CC</option>
+          </select>
+          <select class="form-select form-select-sm" id="schedRecipTypeSelect" style="max-width:110px">
+            <option value="user">Felhasználó</option><option value="group">Csoport</option>
+          </select>
+          <select class="form-select form-select-sm flex-grow-1" id="schedRecipIdSelect">
+            <option value="">– Válassz –</option>
+          </select>
+          <button class="btn btn-success btn-sm" id="schedRecipAddBtn">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function esc(s){return $("<div>").text(String(s??'')).html();}
+function showMsg(txt,lvl){
+  const m={"error":"alert-danger","success":"alert-success","info":"alert-info","warning":"alert-warning"};
+  const b=document.getElementById("pageMsg");
+  b.className="alert "+(m[lvl]||"alert-info");b.textContent=txt;
+  clearTimeout(b.__t);b.__t=setTimeout(()=>b.classList.add("d-none"),5000);
+}
+async function api(method,url,body){
+  const opts={method,credentials:"same-origin",headers:{"Content-Type":"application/json"}};
+  if(body!=null) opts.body=JSON.stringify(body);
+  const r=await fetch(url,opts);
+  return r.json();
+}
+
+// ── Bartender teszt mód ───────────────────────────────────────────────────────
+function _btTestModeBadge(enabled){
+  const b=document.getElementById("btTestModeBadge");
+  const s=document.getElementById("btTestModeSection");
+  if(!b) return;
+  b.textContent = enabled ? "TESZT MÓD AKTÍV" : "Kikapcsolva";
+  b.className   = "badge " + (enabled ? "bg-warning text-dark" : "bg-secondary");
+  if(s) s.style.border = enabled ? "2px solid #ffc107" : "";
+}
+async function loadBtTestMode(){
+  try{
+    const j=await api("GET","/api/bartender/test_mode");
+    const en=!!(j&&j.enabled);
+    $("#btTestMode").prop("checked",en);
+    _btTestModeBadge(en);
+  }catch(e){ console.warn("test_mode betöltés hiba:",e); }
+}
+$(document).on("change","#btTestMode",async function(){
+  const want=this.checked;
+  try{
+    const j=await api("POST","/api/bartender/test_mode",{enabled:want});
+    if(!j||j.ok===false) throw new Error((j&&j.error)||"Ismeretlen hiba");
+    _btTestModeBadge(!!j.enabled);
+  }catch(e){
+    this.checked=!want;
+    _btTestModeBadge(!want);
+    alert("Nem sikerült átállítani a teszt módot: "+(e.message||e));
+  }
+});
+loadBtTestMode();
+
+// ── Állapotok ─────────────────────────────────────────────────────────────────
+let __users=[], __groups=[], __configs=[];
+let __curGroupId=null, __curConfigId=null, __curConfigKey=null;
+
+// ═══════════════════════════════════════════════════════
+// SMTP TESZT
+// ═══════════════════════════════════════════════════════
+$("#smtpTestBtn").on("click",async function(){
+  const $btn=$(this); $btn.prop("disabled",true);
+  $("#smtpTestResult").text("Kapcsolódás…");
+  try{
+    const j=await api("POST","/api/email/smtp_test");
+    if(j.ok) $("#smtpTestResult").html('<span class="smtp-badge-ok"><i class="fa-solid fa-circle-check me-1"></i>'+esc(j.msg)+'</span>');
+    else      $("#smtpTestResult").html('<span class="smtp-badge-warn"><i class="fa-solid fa-triangle-exclamation me-1"></i>'+esc(j.error)+'</span>');
+  }catch(e){$("#smtpTestResult").text("Hiba: "+e.message);}
+  $btn.prop("disabled",false);
+});
+
+// ═══════════════════════════════════════════════════════
+// FELHASZNÁLÓK
+// ═══════════════════════════════════════════════════════
+async function loadUsers(){
+  const j=await api("GET","/api/email/users");
+  __users=j.items||[];
+  const html=__users.length
+    ?`<table class="em-table"><thead><tr>
+        <th>Név</th><th>E-mail</th><th>Rendszer login</th><th>Állapot</th><th>Létrehozva</th><th></th>
+      </tr></thead><tbody>${__users.map(u=>`
+        <tr>
+          <td>${esc(u.name)}</td>
+          <td class="td-mono">${esc(u.email)}</td>
+          <td class="td-mono" style="color:#888;font-size:.8rem">${esc(u.username||'—')}</td>
+          <td><span class="em-badge ${u.active?'badge-active':'badge-inactive'}">${u.active?'Aktív':'Inaktív'}</span></td>
+          <td style="font-size:.78rem;color:#888">${esc(u.created_at||'')}</td>
+          <td class="td-actions">
+            <button class="btn btn-outline-primary btn-sm btn-edit-user" data-id="${u.id}">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </button>
+            <button class="btn btn-outline-danger btn-sm btn-del-user ms-1" data-id="${u.id}" data-name="${esc(u.name)}">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </td>
+        </tr>`).join('')}</tbody></table>`
+    :'<p class="text-muted" style="font-size:.87rem">Még nincs felhasználó.</p>';
+  $("#userTableWrap").html(html);
+  $("#userStatusBar").text(`${__users.length} felhasználó`);
+}
+
+function openUserModal(u=null){
+  $("#userModalErr").text("");
+  $("#userModalId").val(u?u.id:"");
+  $("#userModalName").val(u?u.name:"");
+  $("#userModalEmail").val(u?u.email:"");
+  $("#userModalUsername").val(u?u.username||"":"");
+  $("#userModalActive").prop("checked",u?!!u.active:true);
+  $("#userModalTitle").text(u?"Felhasználó szerkesztése":"Új felhasználó");
+  bootstrap.Modal.getOrCreateInstance(document.getElementById("userModal")).show();
+}
+
+$("#addUserBtn").on("click",()=>openUserModal());
+$(document).on("click",".btn-edit-user",function(){
+  const u=__users.find(x=>x.id===$(this).data("id"));
+  if(u) openUserModal(u);
+});
+$(document).on("click",".btn-del-user",async function(){
+  if(!confirm(`Törlöd: ${$(this).data("name")}?`)) return;
+  const j=await api("DELETE",`/api/email/users/${$(this).data("id")}`);
+  if(j.ok){showMsg("Törölve.","success");loadUsers();}
+  else showMsg(j.error||"Hiba","error");
+});
+
+$("#userModalSave").on("click",async function(){
+  const id=$("#userModalId").val();
+  const body={
+    name:     $("#userModalName").val().trim(),
+    email:    $("#userModalEmail").val().trim(),
+    username: $("#userModalUsername").val().trim(),
+    active:   $("#userModalActive").is(":checked"),
+  };
+  if(!body.name||!body.email){$("#userModalErr").text("Név és e-mail kötelező.");return;}
+  const j=id
+    ?await api("PUT",`/api/email/users/${id}`,body)
+    :await api("POST","/api/email/users",body);
+  if(j.ok){
+    bootstrap.Modal.getInstance(document.getElementById("userModal"))?.hide();
+    showMsg("Mentve.","success");
+    loadUsers();
+  } else {
+    $("#userModalErr").text(j.error||"Hiba");
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// CSOPORTOK
+// ═══════════════════════════════════════════════════════
+async function loadGroups(){
+  const j=await api("GET","/api/email/groups");
+  __groups=j.items||[];
+  const html=__groups.length
+    ?`<table class="em-table"><thead><tr>
+        <th>Csoport neve</th><th>Leírás</th><th>Tagok</th><th></th>
+      </tr></thead><tbody>${__groups.map(g=>`
+        <tr>
+          <td class="td-mono">${esc(g.name)}</td>
+          <td style="font-size:.85rem;color:#555">${esc(g.description||'—')}</td>
+          <td><span class="em-badge badge-user">${g.member_count} fő</span></td>
+          <td class="td-actions">
+            <button class="btn btn-outline-secondary btn-sm btn-members" data-id="${g.id}" data-name="${esc(g.name)}">
+              <i class="fa-solid fa-users-gear"></i> Tagok
+            </button>
+            <button class="btn btn-outline-primary btn-sm btn-edit-group ms-1" data-id="${g.id}">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </button>
+            <button class="btn btn-outline-danger btn-sm btn-del-group ms-1" data-id="${g.id}" data-name="${esc(g.name)}">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </td>
+        </tr>`).join('')}</tbody></table>`
+    :'<p class="text-muted" style="font-size:.87rem">Még nincs csoport.</p>';
+  $("#groupTableWrap").html(html);
+  $("#groupStatusBar").text(`${__groups.length} csoport`);
+}
+
+function openGroupModal(g=null){
+  $("#groupModalErr").text("");
+  $("#groupModalId").val(g?g.id:"");
+  $("#groupModalName").val(g?g.name:"");
+  $("#groupModalDesc").val(g?g.description||"":"");
+  $("#groupModalTitle").text(g?"Csoport szerkesztése":"Új csoport");
+  bootstrap.Modal.getOrCreateInstance(document.getElementById("groupModal")).show();
+}
+
+$("#addGroupBtn").on("click",()=>openGroupModal());
+$(document).on("click",".btn-edit-group",function(){
+  const g=__groups.find(x=>x.id===$(this).data("id"));
+  if(g) openGroupModal(g);
+});
+$(document).on("click",".btn-del-group",async function(){
+  if(!confirm(`Törlöd: ${$(this).data("name")}?`)) return;
+  const j=await api("DELETE",`/api/email/groups/${$(this).data("id")}`);
+  if(j.ok){showMsg("Törölve.","success");loadGroups();}
+  else showMsg(j.error||"Hiba","error");
+});
+
+$("#groupModalSave").on("click",async function(){
+  const id=$("#groupModalId").val();
+  const body={name:$("#groupModalName").val().trim(),description:$("#groupModalDesc").val().trim()};
+  if(!body.name){$("#groupModalErr").text("Csoport neve kötelező.");return;}
+  const j=id
+    ?await api("PUT",`/api/email/groups/${id}`,body)
+    :await api("POST","/api/email/groups",body);
+  if(j.ok){
+    bootstrap.Modal.getInstance(document.getElementById("groupModal"))?.hide();
+    showMsg("Mentve.","success");loadGroups();
+  } else {
+    $("#groupModalErr").text(j.error||"Hiba");
+  }
+});
+
+// ── Csoport tagok ─────────────────────────────────────────────────────────────
+$(document).on("click",".btn-members",async function(){
+  __curGroupId=$(this).data("id");
+  $("#membersModalTitle").text($(this).data("name"));
+  // Feltölt user select
+  const opts=__users.filter(u=>u.active).map(u=>`<option value="${u.id}">${esc(u.name)} (${esc(u.email)})</option>`).join('');
+  $("#memberAddSelect").html('<option value="">– Felhasználó hozzáadása –</option>'+opts);
+  await loadMembers();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById("membersModal")).show();
+});
+
+async function loadMembers(){
+  const j=await api("GET",`/api/email/groups/${__curGroupId}/members`);
+  const rows=(j.items||[]);
+  $("#membersList").html(rows.length
+    ?rows.map(u=>`
+      <div class="recip-row">
+        <span class="recip-name">${esc(u.name)}</span>
+        <span class="recip-email">${esc(u.email)}</span>
+        <button class="btn btn-outline-danger btn-sm btn-rm-member" data-uid="${u.id}" style="padding:1px 8px;font-size:.75rem">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>`).join('')
+    :'<p class="text-muted mb-0" style="font-size:.85rem">Nincs tag ebben a csoportban.</p>'
+  );
+}
+
+$(document).on("click",".btn-rm-member",async function(){
+  const uid=$(this).data("uid");
+  const j=await api("DELETE",`/api/email/groups/${__curGroupId}/members/${uid}`);
+  if(j.ok) await loadMembers();
+  else showMsg(j.error||"Hiba","error");
+});
+
+$("#memberAddBtn").on("click",async function(){
+  const uid=$("#memberAddSelect").val();
+  if(!uid) return;
+  const j=await api("POST",`/api/email/groups/${__curGroupId}/members`,{user_id:parseInt(uid)});
+  if(j.ok){await loadMembers();loadGroups();}
+  else showMsg(j.error||"Hiba","error");
+});
+
+// ═══════════════════════════════════════════════════════
+// OLDAL KONFIGURÁCIÓK
+// ═══════════════════════════════════════════════════════
+async function loadConfigs(){
+  const j=await api("GET","/api/email/page_configs");
+  __configs=j.items||[];
+  const html=__configs.length
+    ?`<table class="em-table"><thead><tr>
+        <th>Page key</th><th>Megjelenítési név</th><th>Tárgy sablon</th><th>Formátum</th><th>Frissítve</th><th></th>
+      </tr></thead><tbody>${__configs.map(c=>`
+        <tr>
+          <td class="td-mono">${esc(c.page_key)}</td>
+          <td>${esc(c.page_label)}</td>
+          <td style="font-size:.8rem;color:#555;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            ${esc(c.subject_template||'—')}</td>
+          <td><span class="em-badge ${c.is_html?'badge-user':'badge-active'}">${c.is_html?'HTML':'Plain'}</span>
+              ${c.auto_recipient_enabled?'<span class="em-badge ms-1" style="background:#e0f2fe;color:#0369a1"><i class="fa-solid fa-user-check"></i> Auto</span>':''}</td>
+          <td style="font-size:.78rem;color:#888">${esc(c.updated_at||'')}</td>
+          <td class="td-actions">
+            <button class="btn btn-outline-secondary btn-sm btn-recipients"
+                    data-id="${c.id}" data-key="${esc(c.page_key)}">
+              <i class="fa-solid fa-paper-plane"></i> Fogadók
+            </button>
+            <button class="btn btn-outline-primary btn-sm btn-edit-config ms-1" data-id="${c.id}">
+              <i class="fa-solid fa-pen-to-square"></i>
+            </button>
+            <button class="btn btn-outline-danger btn-sm btn-del-config ms-1" data-id="${c.id}" data-label="${esc(c.page_label)}">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </td>
+        </tr>`).join('')}</tbody></table>`
+    :'<p class="text-muted" style="font-size:.87rem">Még nincs konfiguráció.</p>';
+  $("#configTableWrap").html(html);
+  $("#configStatusBar").text(`${__configs.length} konfiguráció`);
+}
+
+function openConfigModal(c=null){
+  $("#configModalErr").text("");
+  $("#configModalId").val(c?c.id:"");
+  $("#configModalKey").val(c?c.page_key:"").prop("readonly",!!c);
+  $("#configModalLabel").val(c?c.page_label:"");
+  $("#configModalSubject").val(c?c.subject_template||"":"");
+  $("#bodyTemplateInput").val(c?c.body_template||"":"");
+  $("#configModalIsHtml").prop("checked",c?!!c.is_html:true);
+  $("#varHintInput").val(c?c.variables_hint||"":"");
+  $("#configModalAutoRecipient").prop("checked",c?!!c.auto_recipient_enabled:false);
+  $("#configModalTitle").text(c?"Konfiguráció szerkesztése":"Új konfiguráció");
+  bootstrap.Modal.getOrCreateInstance(document.getElementById("configModal")).show();
+}
+
+$("#addConfigBtn").on("click",()=>openConfigModal());
+$(document).on("click",".btn-edit-config",function(){
+  const c=__configs.find(x=>x.id===$(this).data("id"));
+  if(c) openConfigModal(c);
+});
+$(document).on("click",".btn-del-config",async function(){
+  if(!confirm(`Törlöd: ${$(this).data("label")}?`)) return;
+  const j=await api("DELETE",`/api/email/page_configs/${$(this).data("id")}`);
+  if(j.ok){showMsg("Törölve.","success");loadConfigs();}
+  else showMsg(j.error||"Hiba","error");
+});
+
+$("#configModalSave").on("click",async function(){
+  const id=$("#configModalId").val();
+  const body={
+    page_key:               $("#configModalKey").val().trim(),
+    page_label:             $("#configModalLabel").val().trim(),
+    subject_template:       $("#configModalSubject").val().trim(),
+    body_template:          $("#bodyTemplateInput").val().trim(),
+    is_html:                $("#configModalIsHtml").is(":checked"),
+    variables_hint:         $("#varHintInput").val().trim(),
+    auto_recipient_enabled: $("#configModalAutoRecipient").is(":checked"),
+  };
+  if(!body.page_key||!body.page_label){$("#configModalErr").text("page_key és megjelenítési név kötelező.");return;}
+  const j=id
+    ?await api("PUT",`/api/email/page_configs/${id}`,body)
+    :await api("POST","/api/email/page_configs",body);
+  if(j.ok){
+    bootstrap.Modal.getInstance(document.getElementById("configModal"))?.hide();
+    showMsg("Mentve.","success");loadConfigs();
+  } else {
+    $("#configModalErr").text(j.error||"Hiba");
+  }
+});
+
+// ── Fogadók kezelése ──────────────────────────────────────────────────────────
+$(document).on("click",".btn-recipients",async function(){
+  __curConfigId=$(this).data("id");
+  __curConfigKey=$(this).data("key");
+  $("#recipientsModalTitle").text(__curConfigKey);
+  await loadRecipients();
+  refreshRecipientTypeSelect();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById("recipientsModal")).show();
+});
+
+async function loadRecipients(){
+  const j=await api("GET",`/api/email/page_configs/${__curConfigId}/recipients`);
+  const rows=j.items||[];
+  const toRows=rows.filter(r=>r.recipient_role!=='cc');
+  const ccRows=rows.filter(r=>r.recipient_role==='cc');
+
+  function renderRow(r){
+    return `<div class="recip-row">
+      <span class="em-badge ${r.recipient_type==='user'?'badge-user':'badge-group'}">${r.recipient_type==='user'?'FH':'CSP'}</span>
+      <span class="recip-name">${esc(r.display_name||'?')}</span>
+      ${r.email?`<span class="recip-email">${esc(r.email)}</span>`:''}
+      <button class="btn btn-outline-danger btn-sm btn-rm-recipient" data-rid="${r.id}" style="padding:1px 8px;font-size:.75rem">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>`;
+  }
+
+  let html = '';
+  html += `<div class="mb-1" style="font-size:.75rem;font-weight:700;color:#0369a1;text-transform:uppercase;letter-spacing:.05em">
+             <i class="fa-solid fa-arrow-right me-1"></i>TO – Címzett</div>`;
+  html += toRows.length
+    ? toRows.map(renderRow).join('')
+    : '<p class="text-muted mb-2" style="font-size:.83rem">Nincs TO fogadó.</p>';
+  html += `<div class="mt-3 mb-1" style="font-size:.75rem;font-weight:700;color:#6c757d;text-transform:uppercase;letter-spacing:.05em">
+             <i class="fa-solid fa-copy me-1"></i>CC – Másolat</div>`;
+  html += ccRows.length
+    ? ccRows.map(renderRow).join('')
+    : '<p class="text-muted mb-0" style="font-size:.83rem">Nincs CC fogadó.</p>';
+
+  $("#recipientsList").html(html);
+}
+
+function refreshRecipientTypeSelect(){
+  const type=$("#recipientTypeSelect").val();
+  let opts='<option value="">– Válassz –</option>';
+  if(type==="user"){
+    opts+=__users.filter(u=>u.active).map(u=>`<option value="${u.id}">${esc(u.name)} (${esc(u.email)})</option>`).join('');
+  } else {
+    opts+=__groups.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('');
+  }
+  $("#recipientIdSelect").html(opts);
+}
+
+$("#recipientTypeSelect").on("change", refreshRecipientTypeSelect);
+
+$(document).on("click",".btn-rm-recipient",async function(){
+  const rid=$(this).data("rid");
+  const j=await api("DELETE",`/api/email/page_configs/${__curConfigId}/recipients/${rid}`);
+  if(j.ok) await loadRecipients();
+  else showMsg(j.error||"Hiba","error");
+});
+
+$("#recipientAddBtn").on("click",async function(){
+  const role=$("#recipientRoleSelect").val()||"to";
+  const rtype=$("#recipientTypeSelect").val();
+  const rid=$("#recipientIdSelect").val();
+  if(!rid) return;
+  const j=await api("POST",`/api/email/page_configs/${__curConfigId}/recipients`,
+    {recipient_type:rtype, recipient_id:parseInt(rid), recipient_role:role});
+  if(j.ok) await loadRecipients();
+  else showMsg(j.error||"Hiba","error");
+});
+
+// ── Teszt küldés ──────────────────────────────────────────────────────────────
+$("#testSendBtn").on("click",async function(){
+  let dyn={};
+  const raw=$("#testDynInput").val().trim();
+  if(raw){
+    try{dyn=JSON.parse(raw);}catch{$("#testSendResult").text("Érvénytelen JSON.");return;}
+  }
+  $("#testSendResult").text("Küldés…");
+  const j=await api("POST","/api/email/send",{page_key:__curConfigKey,dynamic_data:dyn});
+  if(j.ok) $("#testSendResult").html(`<span class="smtp-badge-ok">✓ ${j.queued} cím sorban</span>`);
+  else     $("#testSendResult").html(`<span class="smtp-badge-warn">⚠ ${esc(j.error)}</span>`);
+});
+
+// ═══════════════════════════════════════════════════════
+// KÜLDÉSI NAPLÓ
+// ═══════════════════════════════════════════════════════
+async function loadLog(){
+  const j=await api("GET","/api/email/send_log?limit=100");
+  const rows=j.items||[];
+  const html=rows.length
+    ?`<table class="em-table"><thead><tr>
+        <th>Idő</th><th>Page key</th><th>Tárgy</th><th>Fogadók</th><th>Indította</th><th>Státusz</th>
+      </tr></thead><tbody>${rows.map(r=>`
+        <tr>
+          <td style="font-size:.78rem;white-space:nowrap;color:#555">${esc(r.sent_at)}</td>
+          <td class="td-mono">${esc(r.page_key||'—')}</td>
+          <td style="font-size:.82rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            ${esc(r.subject||'—')}</td>
+          <td class="log-to">${(()=>{
+              const addr=r.to_addresses||{};
+              const to=Array.isArray(addr)?addr:(addr.to||[]);
+              const cc=Array.isArray(addr)?[]:(addr.cc||[]);
+              const toStr=to.join(', ')||'—';
+              const ccBadge=cc.length?` <span class="em-badge" style="background:#e2e3e5;color:#495057;font-size:.68rem">CC: ${cc.length}</span>`:'';
+              return `<span title="${esc(to.join(', ')+(cc.length?' | CC: '+cc.join(', '):''))}">${esc(toStr)}</span>${ccBadge}`;
+            })()}</td>
+          <td style="font-size:.78rem">${esc(r.triggered_by||'—')}</td>
+          <td>
+            <span class="em-badge ${r.status==='ok'?'badge-ok':'badge-error'}">
+              ${r.status==='ok'?'✓ OK':'✗ Hiba'}
+            </span>
+            ${r.error_msg?`<span class="text-danger ms-1" style="font-size:.73rem" title="${esc(r.error_msg)}">
+              <i class="fa-solid fa-circle-info"></i></span>`:''}
+          </td>
+        </tr>`).join('')}</tbody></table>`
+    :'<p class="text-muted" style="font-size:.87rem">Még nincs küldési esemény.</p>';
+  $("#logTableWrap").html(html);
+  $("#logStatusBar").text(`${j.total||0} esemény összesen`);
+}
+
+$("#refreshLogBtn").on("click", loadLog);
+$("#tabLogBtn").on("click", loadLog);
+
+
+// ═══════════════════════════════════════════════════════
+// ÜTEMEZETT RIPORTOK
+// ═══════════════════════════════════════════════════════
+
+let __schedules = [];
+let __currentSchedId = null;
+
+const REPORT_TYPE_LABELS = {
+  users_day:'Napi – Users Progress', users_month:'Havi – Users Progress',
+  wo_day:'Napi – WO Timeline',       wo_month:'Havi – WO Timeline',
+  both_day:'Napi – Mindkettő',       both_month:'Havi – Mindkettő',
+};
+const FREQ_LABELS = { daily:'Naponta', weekly:'Hetente', monthly:'Havonta' };
+const DOW_LABELS  = ['Hétfő','Kedd','Szerda','Csütörtök','Péntek','Szombat','Vasárnap'];
+
+async function loadSchedules(){
+  $("#schedTableWrap").html('<div class="skeleton-row"></div><div class="skeleton-row"></div>');
+  try {
+    const r = await fetch('/api/email/schedules'); const d = await r.json();
+    __schedules = d.items || [];
+    renderSchedulesTable();
+  } catch(e){ $("#schedStatusBar").text("Hiba a betöltésnél."); }
+}
+
+function renderSchedulesTable(){
+  if(!__schedules.length){
+    $("#schedTableWrap").html('<p class="text-muted small">Nincs még ütemezés. Kattints az "Új ütemezés" gombra.</p>');
+    return;
+  }
+  let html = `<table class="em-table"><thead><tr>
+    <th>Név</th><th>Típus</th><th>Frekvencia</th><th>Időpont</th>
+    <th>Állapot</th><th>Utolsó futás</th><th>Utolsó státusz</th><th>Műveletek</th>
+  </tr></thead><tbody>`;
+  for(const s of __schedules){
+    const freqTxt = buildFreqText(s);
+    const activeBadge = s.active
+      ? '<span class="sched-active-badge sched-active-on">Aktív</span>'
+      : '<span class="sched-active-badge sched-active-off">Inaktív</span>';
+    const statusHtml = s.last_status === 'ok'
+      ? '<span class="sched-status-ok"><i class="fa-solid fa-circle-check me-1"></i>OK</span>'
+      : s.last_status === 'error'
+      ? `<span class="sched-status-error" title="${esc(s.last_error||'')}"><i class="fa-solid fa-triangle-exclamation me-1"></i>Hiba</span>`
+      : '<span class="sched-status-never">—</span>';
+    html += `<tr>
+      <td class="fw-semibold">${esc(s.name)}</td>
+      <td><span class="freq-badge">${esc(REPORT_TYPE_LABELS[s.report_type]||s.report_type)}</span></td>
+      <td>${esc(FREQ_LABELS[s.frequency]||s.frequency)}</td>
+      <td>${freqTxt}</td>
+      <td>${activeBadge}</td>
+      <td style="font-size:.8rem;color:#6c757d">${esc(s.last_run_at||'—')}</td>
+      <td>${statusHtml}</td>
+      <td class="td-actions">
+        <button class="btn btn-outline-primary btn-sm btn-sched-recip" data-id="${s.id}" title="Fogadók">
+          <i class="fa-solid fa-users"></i></button>
+        <button class="btn btn-outline-secondary btn-sm btn-sched-run ms-1" data-id="${s.id}" title="Futtatás most">
+          <i class="fa-solid fa-play"></i></button>
+        <button class="btn btn-outline-secondary btn-sm btn-sched-edit ms-1" data-id="${s.id}">
+          <i class="fa-solid fa-pencil"></i></button>
+        <button class="btn btn-outline-danger btn-sm btn-sched-del ms-1" data-id="${s.id}">
+          <i class="fa-solid fa-trash"></i></button>
+      </td></tr>`;
+  }
+  html += '</tbody></table>';
+  $("#schedTableWrap").html(html);
+  $("#schedStatusBar").text(`${__schedules.length} ütemezés`);
+}
+
+function buildFreqText(s){
+  const h = String(s.hour||0).padStart(2,'0');
+  const m = String(s.minute||0).padStart(2,'0');
+  if(s.frequency==='weekly')  return `${DOW_LABELS[s.day_of_week||0]} ${h}:${m}`;
+  if(s.frequency==='monthly') return `${s.day_of_month||1}. nap ${h}:${m}`;
+  return `${h}:${m}`;
+}
+
+// ── Frekvencia select → mezők megjelenítése ───────────────────────────────
+$("#schedModalFreq").on("change", function(){
+  const v = $(this).val();
+  $("#schedModalDowWrap").toggle(v==='weekly');
+  $("#schedModalDomWrap").toggle(v==='monthly');
+});
+
+// ── Új ütemezés ──────────────────────────────────────────────────────────
+$("#addSchedBtn").on("click", function(){
+  $("#schedModalId").val('');
+  $("#schedModalTitle").text('Új ütemezés');
+  $("#schedModalName").val('');
+  $("#schedModalType").val('both_month');
+  $("#schedModalFreq").val('daily').trigger('change');
+  $("#schedModalHour").val(15); $("#schedModalMinute").val(30);
+  $("#schedModalDow").val(0); $("#schedModalDom").val(1);
+  $("#schedModalActive").prop('checked',true);
+  $("#schedModalSubject").val('');
+  $("#schedModalBody").val('');
+  $("#schedModalErr").text('');
+  new bootstrap.Modal(document.getElementById("schedModal")).show();
+});
+
+// ── Szerkesztés ───────────────────────────────────────────────────────────
+$(document).on("click",".btn-sched-edit",function(){
+  const id = +$(this).data("id");
+  const s  = __schedules.find(x=>x.id===id); if(!s) return;
+  $("#schedModalId").val(id);
+  $("#schedModalTitle").text('Ütemezés szerkesztése');
+  $("#schedModalName").val(s.name);
+  $("#schedModalType").val(s.report_type);
+  $("#schedModalFreq").val(s.frequency||'daily').trigger('change');
+  $("#schedModalHour").val(s.hour??15); $("#schedModalMinute").val(s.minute??30);
+  $("#schedModalDow").val(s.day_of_week??0); $("#schedModalDom").val(s.day_of_month??1);
+  $("#schedModalActive").prop('checked', !!s.active);
+  $("#schedModalSubject").val(s.subject_template||'');
+  $("#schedModalBody").val(s.body_template||'');
+  $("#schedModalErr").text('');
+  new bootstrap.Modal(document.getElementById("schedModal")).show();
+});
+
+// ── Mentés ────────────────────────────────────────────────────────────────
+$("#schedModalSave").on("click", async function(){
+  const id   = +$("#schedModalId").val() || null;
+  const name = $("#schedModalName").val().trim();
+  const freq = $("#schedModalFreq").val();
+  if(!name){ $("#schedModalErr").text("A név kötelező!"); return; }
+  const body = {
+    name, report_type: $("#schedModalType").val(),
+    frequency: freq, hour: +$("#schedModalHour").val(), minute: +$("#schedModalMinute").val(),
+    day_of_week:      freq==='weekly'  ? +$("#schedModalDow").val() : null,
+    day_of_month:     freq==='monthly' ? +$("#schedModalDom").val() : null,
+    active:           $("#schedModalActive").is(":checked"),
+    subject_template: $("#schedModalSubject").val().trim() || null,
+    body_template:    $("#schedModalBody").val().trim()    || null,
+  };
+  try {
+    const url = id ? `/api/email/schedules/${id}` : '/api/email/schedules';
+    const r   = await fetch(url,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d   = await r.json();
+    if(!d.ok){ $("#schedModalErr").text(d.error||'Hiba'); return; }
+    bootstrap.Modal.getInstance(document.getElementById("schedModal")).hide();
+    await loadSchedules();
+  } catch(e){ $("#schedModalErr").text("Hálózati hiba."); }
+});
+
+// ── Törlés ────────────────────────────────────────────────────────────────
+$(document).on("click",".btn-sched-del", async function(){
+  const id = +$(this).data("id");
+  const s  = __schedules.find(x=>x.id===id);
+  if(!confirm(`Törlöd a(z) "${s?.name}" ütemezést?`)) return;
+  await fetch(`/api/email/schedules/${id}`,{method:'DELETE'});
+  await loadSchedules();
+});
+
+// ── Azonnali futtatás ─────────────────────────────────────────────────────
+$(document).on("click",".btn-sched-run", async function(){
+  const id  = +$(this).data("id");
+  const s   = __schedules.find(x=>x.id===id);
+  if(!confirm(`Elindítod most a(z) "${s?.name}" riportot?\n\n(Az előző nap / hónap adatait küldi.)`)) return;
+  const r = await fetch(`/api/email/schedules/${id}/run_now`,{method:'POST'});
+  const d = await r.json();
+  showMsg(d.ok ? 'success' : 'danger', d.ok ? `"${s?.name}" elindítva háttérszálban.` : (d.error||'Hiba'));
+  if(d.ok) setTimeout(loadSchedules, 3000);
+});
+
+// ── Fogadók modál ─────────────────────────────────────────────────────────
+$(document).on("click",".btn-sched-recip", async function(){
+  __currentSchedId = +$(this).data("id");
+  const s = __schedules.find(x=>x.id===__currentSchedId);
+  $("#schedRecipientsTitle").text(s?.name||'');
+  await loadSchedRecipients();
+  refreshSchedRecipTypeSelect();
+  new bootstrap.Modal(document.getElementById("schedRecipientsModal")).show();
+});
+
+async function loadSchedRecipients(){
+  const r = await fetch(`/api/email/schedules/${__currentSchedId}/recipients`);
+  const d = await r.json();
+  const items = d.items || [];
+  const toRows = items.filter(x=>x.recipient_role==='to');
+  const ccRows = items.filter(x=>x.recipient_role==='cc');
+  function renderRow(x){
+    const badge = x.recipient_type==='user'
+      ? '<span class="em-badge badge-user">user</span>'
+      : '<span class="em-badge badge-group">group</span>';
+    return `<div class="recip-row">${badge}
+      <span class="recip-name">${esc(x.display_name||'?')}</span>
+      <span class="recip-email">${esc(x.email||'')}</span>
+      <button class="btn btn-outline-danger btn-sm btn-rm-sched-recip" data-id="${x.id}" style="padding:1px 7px;font-size:.75rem">
+        <i class="fa-solid fa-xmark"></i></button></div>`;
+  }
+  let html = '<div class="mb-1" style="font-size:.75rem;font-weight:700;color:#0369a1;text-transform:uppercase">TO – Címzett</div>';
+  html += toRows.length ? toRows.map(renderRow).join('') : '<p class="text-muted mb-2" style="font-size:.83rem">Nincs TO fogadó.</p>';
+  html += '<div class="mt-3 mb-1" style="font-size:.75rem;font-weight:700;color:#6c757d;text-transform:uppercase">CC – Másolat</div>';
+  html += ccRows.length ? ccRows.map(renderRow).join('') : '<p class="text-muted mb-0" style="font-size:.83rem">Nincs CC fogadó.</p>';
+  $("#schedRecipientsList").html(html);
+}
+
+function refreshSchedRecipTypeSelect(){
+  const type = $("#schedRecipTypeSelect").val();
+  let opts = '<option value="">– Válassz –</option>';
+  if(type==='user') opts += __users.filter(u=>u.active).map(u=>`<option value="${u.id}">${esc(u.name)} (${esc(u.email)})</option>`).join('');
+  else              opts += __groups.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('');
+  $("#schedRecipIdSelect").html(opts);
+}
+$("#schedRecipTypeSelect").on("change", refreshSchedRecipTypeSelect);
+
+$(document).on("click",".btn-rm-sched-recip", async function(){
+  const rid = +$(this).data("id");
+  await fetch(`/api/email/schedules/${__currentSchedId}/recipients/${rid}`,{method:'DELETE'});
+  await loadSchedRecipients();
+});
+
+$("#schedRecipAddBtn").on("click", async function(){
+  const type = $("#schedRecipTypeSelect").val();
+  const rid  = +$("#schedRecipIdSelect").val();
+  const role = $("#schedRecipRoleSelect").val();
+  if(!rid) return;
+  await fetch(`/api/email/schedules/${__currentSchedId}/recipients`,{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({recipient_type:type, recipient_id:rid, recipient_role:role})});
+  await loadSchedRecipients();
+});
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+$(function(){
+  loadUsers();
+  loadGroups();
+  loadConfigs();
+
+  // Tab váltáskor lazy-load
+  $('[data-bs-target="#tabUsers"]').on("shown.bs.tab", loadUsers);
+  $('[data-bs-target="#tabGroups"]').on("shown.bs.tab", loadGroups);
+  $('[data-bs-target="#tabConfigs"]').on("shown.bs.tab", loadConfigs);
+  $('[data-bs-target="#tabSchedules"]').on("shown.bs.tab", loadSchedules);
+
+  // Enter → mentés a kis modálokban
+  $("#userModalName,#userModalEmail").on("keydown",e=>{if(e.key==="Enter")$("#userModalSave").click();});
+  $("#groupModalName,#groupModalDesc").on("keydown",e=>{if(e.key==="Enter")$("#groupModalSave").click();});
+});
+</script>
+{% endblock %}

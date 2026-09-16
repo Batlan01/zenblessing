@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bejelentkezés</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    /* ── Mobil finomítás ── */
+    body.login-page {
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 360px;
+      padding: 2rem 1.75rem;
+      box-sizing: border-box;
+    }
+
+    .login-container h2 {
+      font-size: 1.5rem;
+      margin-bottom: .25rem;
+      text-align: left;
+    }
+
+    .login-container h4 {
+      font-size: .85rem;
+      font-weight: 500;
+      color: #6c757d;
+      margin: 0 0 .2rem;
+    }
+
+    .login-container h4.warning-tag {
+      color: #dc3545;
+      font-weight: 700;
+      margin-bottom: 1.25rem;
+    }
+
+    .login-container label {
+      display: block;
+      font-size: .85rem;
+      font-weight: 600;
+      color: #374151;
+      margin-top: 1rem;
+      margin-bottom: .3rem;
+    }
+
+    .login-container input {
+      width: 100%;
+      padding: .6rem .75rem;
+      font-size: 1rem;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      outline: none;
+      box-sizing: border-box;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+
+    .login-container input:focus {
+      border-color: #0d6efd;
+      box-shadow: 0 0 0 3px rgba(13,110,253,.15);
+    }
+
+    .login-container button[type=submit] {
+      width: 100%;
+      margin-top: 1.5rem;
+      padding: .65rem;
+      font-size: 1rem;
+      font-weight: 600;
+      background: #0d6efd;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background .15s ease;
+    }
+
+    .login-container button[type=submit]:hover {
+      background: #0b5ed7;
+    }
+
+    .login-container button[type=submit]:active {
+      background: #0a58ca;
+    }
+
+    /* flash üzenetek */
+    .flash-messages { margin-top: 1rem; }
+    .flash-messages .alert {
+      padding: .5rem .75rem;
+      border-radius: 7px;
+      font-size: .875rem;
+      margin-bottom: .5rem;
+    }
+
+    /* logo + zászlók sor */
+    .login-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+    }
+    .login-header img.logo {
+      height: 52px;
+      width: auto;
+    }
+    .login-flags {
+      display: flex;
+      gap: .4rem;
+      align-items: center;
+    }
+    .login-flags a {
+      display: block;
+      border-radius: 3px;
+      overflow: hidden;
+      opacity: .75;
+      transition: opacity .15s;
+    }
+    .login-flags a:hover { opacity: 1; }
+    .login-flags img {
+      width: 28px;
+      height: 19px;
+      display: block;
+      object-fit: cover;
+    }
+
+    @media (max-width: 400px) {
+      .login-container { padding: 1.5rem 1.25rem; }
+    }
+  </style>
+</head>
+<body class="login-page">
+  <div class="login-container">
+
+    <div class="login-header">
+      <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="logo"/>
+      <div class="login-flags">
+        <a href="{{ url_for('auth.login', lang='hu') }}">
+          <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar"/>
+        </a>
+        <a href="{{ url_for('auth.login', lang='sk') }}">
+          <img src="{{ url_for('static', filename='flags/sk.png') }}" alt="Slovenský"/>
+        </a>
+      </div>
+    </div>
+
+    <h2>Bejelentkezés</h2>
+    <h4>Windows/RDS bejelentkezés</h4>
+    <h4 class="warning-tag">NEM GRMS</h4>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-messages">
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <form method="POST">
+      <label for="username">Felhasználónév</label>
+      <input type="text" id="username" name="username" required autofocus
+             autocomplete="username" inputmode="text" />
+
+      <label for="password">Jelszó</label>
+      <input type="password" id="password" name="password" required
+             autocomplete="current-password" />
+
+      <button type="submit">Bejelentkezés</button>
+    </form>
+
+  </div>
+</body>
+</html>

@@ -1,0 +1,4308 @@
+{% extends 'en/base.html' %}
+
+{% block title %}BarTender editor{% endblock %}
+{% set active = 'bartender' %}
+{% block page_title %}BarTender editor{% endblock %}
+{% block page_header_right %}
+<a class="ms-2" href="{{ url_for('bartender.edit_v1', lang='en') }}">
+    <img src="{{ url_for('static', filename='flags/en.png') }}" alt="English" width="32" height="20">
+  </a>
+  <a href="{{ url_for('bartender.edit_v1', lang='hu') }}">
+    <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar" width="32" height="20">
+  </a>
+  <a class="ms-2" href="{{ url_for('bartender.edit_v1', lang='sk') }}">
+    <img src="{{ url_for('static', filename='flags/sk.png') }}" alt="Slovenský" width="32" height="20">
+  </a>
+  
+{% endblock %}
+
+
+{% block content %}
+{# IDE jöWeek a lap tartalma, de NEM html/head/body! #}
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+<link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet" />
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+
+<!-- a többi HTML tartalom... -->
+
+
+
+<style>
+  .bartender-buttons{margin-top:30px;text-align:center}
+  .bartender-buttons .btn{margin:10px;padding:12px 24px;font-size:18px;font-weight:500;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.1);transition:all .3s ease-in-out}
+  .bartender-buttons .btn:hover{transform:translateY(-2px);opacity:.9}
+  .modal-card{display:none;position:relative;margin:40px auto;background:#fff;padding:25px 30px;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.1);width:90%;max-width:1400px}
+  .modal-card .close{float:right;font-size:28px;font-weight:700;color:#666;cursor:pointer;margin-top:-10px}
+  .modal-card .close:hover{color:#000}
+  .tab-content-box{padding:15px;border:1px solid #dee2e6;border-top:none;border-radius:0 0 8px 8px;background:#fdfdfd}
+  #connectorCanvas{position:relative;border:2px solid #000;padding:20px;overflow:visible}
+  .schematic-page{background:#f8f9fa}
+  .schematic-group{background:#fff}
+  .schematic-box{border:2px solid #333;border-radius:8px;padding:15px;width:140px;text-align:center;position:relative;z-index:1;background:#fff;box-shadow:0 4px 8px rgba(0,0,0,.1)}
+  .from-box{border-color:#0d6efd;background:#e7f1ff}
+  .to-box{border-color:#198754;background:#e2f0e9}
+  .id-box{border-color:#6c757d;background:#e9ecef;font-weight:700}
+  .schematic-line{
+    border-top: 1px dashed #333;
+    margin: 8px 0;
+    opacity: .8;
+  }
+
+
+  /* FROM–TO mód és számlálók */
+  #ftModeToggles { margin-top:.25rem; }
+  .ft-counter { display:inline-flex; align-items:center; gap:.5rem; margin-left:.5rem; }
+  .ft-counter input { width:72px; }
+  .ft-counter[hidden] { display:none; }
+
+  
+  /* FROM–TO blokk elrejtés (csak Summary/Schematic/Preview) */
+  .fromto-block.ft-hidden{ opacity:.55; }
+  .fromto-block .ft-hidden-badge{ display:none; }
+  .fromto-block.ft-hidden .ft-hidden-badge{ display:inline-block !important; }
+
+  /* Stabil sötét háttér a sidebarhoz */
+.sidebar {
+  background: #0b1020;              /* vagy a Te vállalati alapszíned */
+  color: #e2e8f0;
+}
+
+/* Linkek és ikonok örököljenek a nav-link színéből */
+.sidebar .nav-link {
+  color: #e2e8f0;
+}
+.sidebar .nav-link i {
+  color: inherit;
+}
+
+/* Hover/active – maradhat az inline <style>-ban is, de célszerűbb ide tenni: */
+.sidebar .nav-link:hover{
+  background: rgba(255,255,255,.06);
+  color: #fff;
+}
+.sidebar .nav-link.active{
+  background: rgba(var(--bs-primary-rgb), .22);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+}
+.sidebar .nav-link.active i{ color:#fff; }
+
+/* Logout blokk finom határ */
+.sidebar .logout{
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+/* CON szekció a schematicon */
+.schematic-group .con-section{
+  margin: 6px 0 14px 0;
+  padding: 10px 12px;
+  border: 1px solid #eef2f7;
+  background: #fbfcfe;               /* nagyon halvány, nem hivalkodó */
+  border-radius: 10px;
+}
+
+.schematic-group .con-title{
+  display:flex; align-items:center; gap:8px;
+  font-size:.9rem; font-weight:600; color:#6b7280; /* szürkés, ne legyen harsány */
+  margin: 0 0 6px 0;
+}
+
+.schematic-group .con-chips{
+  display:flex; flex-wrap:wrap; gap:6px;
+}
+
+.schematic-group .con-chip{
+  display:inline-block;
+  padding:5px 10px;
+  border-radius:9999px;              /* pill */
+  background:#eef4ff;                /* visszafogott kék */
+  border:1px solid #dbe6ff;
+  font-size:.85rem; font-weight:600;
+  color:#1f3b82;
+  white-space:nowrap;
+}
+.schematic-group .con-chip small{
+  opacity:.8; font-weight:500;       /* a '—' utáni label kicsit halványabb */
+}
+
+/* Szekciók közti ritmus (CON / ID / FROM–TO) */
+.schematic-group .schematic-id-container{ margin-top:10px; }
+.schematic-group .schematic-fromto-container{ margin-top:10px; }
+/* Special labels – vizuális ritmus */
+#specialLabelsContainer .specialLabelRow {
+  background:#fff;
+}
+#specialLabelsContainer .specialLblLinesContainer .form-label {
+  margin-bottom:.25rem;
+}
+/* Summary/Schematic – Special labels */
+.special-section{margin:0 0 16px 0;padding:12px;border:1px solid #eef2f7;background:#fff;border-radius:10px}
+.special-title{font-size:.9rem;font-weight:700;color:#6b7280;margin:0 0 8px 0}
+.special-lines{font-size:.9rem;color:#111827;word-break:break-word;overflow-wrap:anywhere}
+.schematic-box.special-box{border:2px solid #7c3aed;background:#faf5ff}
+.schematic-box.special-box .small{color:#6b21a8}
+#savedPnTbody tr:hover { background: rgba(13,110,253,.08); cursor: pointer; }
+/* Zebra: nagyon halvány váltakozó sorok */
+#openSavedPNModal .table-striped tbody tr:nth-child(odd){
+  background: rgba(0,0,0,.02);
+}
+
+/* Hover: jól látható kékes kiemelés + átmenet */
+#savedPnTbody tr{
+  transition: background-color .15s ease, box-shadow .15s ease;
+}
+#savedPnTbody tr:hover{
+  background: rgba(13,110,253,.14);   /* primary kék halványan */
+  box-shadow: inset 0 0 0 1px rgba(13,110,253,.25);
+  cursor: pointer;
+}
+
+/* Billentyűzet fókusz (ha gombokra tabolsz a sorban) */
+#savedPnTbody tr:focus-within{
+  outline: 2px solid rgba(13,110,253,.35);
+  outline-offset: -2px;
+}
+
+/* plusz elválasztó a felső/bottom line közé */
+.schematic-line-mid{
+  border-top: 1px solid #333;
+  margin: 6px 0;
+  opacity: .6;
+}
+.ft-side-hidden{
+  opacity: .45;
+  filter: grayscale(1);
+}
+.ft-side-hidden .ft-side-body{
+  display: none; /* csak a fejléc marad */
+}
+.ft-hidden-badge{
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.25);
+}
+/* FROM/TO külön rejtés badge */
+.ft-side-hidden-badge{ display:none; }
+.ft-side-hidden .ft-side-hidden-badge{ display:inline-block !important; }
+
+/* ===== SCHEMA: ne törje a sort, inkább szélesedjen + legyen vízszintes scroll ===== */
+.ft-row{
+  flex-wrap: nowrap !important;     /* ne tördelje több sorba a dobozokat */
+  overflow-x: auto;                 /* ha túl széles, legyen scroll */
+  overflow-y: hidden;
+  padding-bottom: 6px;
+  gap: 16px;
+}
+
+.schematic-box{
+  width: fit-content;               /* a tartalomhoz igazodjon */
+  min-width: 140px;                /* maradjon a minimum */
+  max-width: none;
+}
+
+.schematic-box .schematic-text-top,
+.schematic-box .schematic-text-bottom,
+.schematic-box .small.fw-semibold{
+  white-space: nowrap;              /* <<< ez a lényeg: ne törjön sort */
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+}
+
+</style>
+
+
+
+<div class="bartender-buttons">
+  <button class="btn btn-success" id="addButton">➕ Create new project</button>
+  <button class="btn btn-primary" id="editButton">✏️ Edit project</button>
+  <button class="btn btn-info" id="printerButton">🖨️ Printer settings</button>
+  <button class="btn btn-warning" id="openSavedPNButton">📂 Open saved projects</button>
+
+</div>
+
+<div class="modal-card" id="modal">
+  <span class="close" id="closeModal">×</span>
+  <h2 id="pnModalTitle">PN configuration</h2>
+  <div id="lockBanner" class="alert alert-warning d-none mt-3 mb-3" role="alert">
+  <span id="lockBannerText">Lock állapot…</span>
+</div>
+
+<input type="hidden" id="config_id" value="">
+
+
+
+
+  <div class="row mb-3 align-items-end g-2">
+    <div class="col-md-3">
+      <label for="pnInput" class="form-label">PN</label>
+      <input id="pnInput" type="text" class="form-control" style="width:250px;" />
+    </div>
+    <div class="col-md-3">
+      <label for="revInput" class="form-label">REV</label>
+      <input id="revInput" type="text" class="form-control" />
+    </div>
+    <div class="col-md-3">
+      <label for="ecnInput" class="form-label">ECN</label>
+      <input id="ecnInput" type="text" class="form-control" />
+    </div>
+    <div class="col-md-3 d-flex justify-content-end">
+      <button id="checkPNButton" class="btn btn-secondary mt-4">🔍 Check</button>
+    </div>
+    <div class="col-md-3">
+      <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" id="useIdLabels" checked>
+        <label class="form-check-label" for="useIdLabels">ID labels</label>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" id="useFromTo" checked>
+        <label class="form-check-label" for="useFromTo">FROM - TO</label>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" id="useConnectors" checked>
+        <label class="form-check-label" for="useConnectors">Connector settings</label>
+      </div>
+    </div>
+  </div>
+
+  <ul class="nav nav-tabs" id="mainTabSelector">
+    <li class="nav-item"><a class="nav-link active" id="tab-settings" href="#">Settings</a></li>
+    <li class="nav-item"><a class="nav-link" id="tab-schematic" href="#">Schematic</a></li>
+    <li class="nav-item"><a class="nav-link" id="tab-summary" href="#">Summary</a></li>
+  </ul>
+
+  <div id="tabContent-settings" class="tab-content-box mt-3">
+    <ul class="nav nav-tabs mb-3" id="settingsTabSelector"></ul>
+    <div id="settingsTabContent" class="tab-content"></div>
+    <div class="mt-4 text-end">
+      <button class="btn btn-primary" id="saveLabelConfig">💾 Save</button>
+    </div>
+  </div>
+
+  <div id="tabContent-schematic" class="tab-content-box mt-3" style="display:none;">
+    <div id="schematicRoot">Schematic content will appear here…</div>
+  </div>
+
+  <div id="tabContent-summary" class="tab-content-box mt-3" style="display:none;">
+    <div id="summaryContent"></div>
+  </div>
+</div>
+
+<!-- Nyomtató hozzárendelő modal -->
+<div class="modal" id="printerModal" style="display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; overflow:auto; background-color:rgba(0,0,0,.4);">
+  <div style="position:relative; margin:40px auto; background:#fff; padding:25px 30px; border-radius:16px; box-shadow:0 12px 40px rgba(0,0,0,.1); width:90%; max-width:600px;">
+    <span class="close" id="closePrinterModal" style="float:right; font-size:28px; font-weight:700; color:#666; cursor:pointer; margin-top:-10px;">×</span>
+    <h2>Printer assignment</h2>
+
+    <div class="mb-3">
+      <small class="text-muted">Select a printer for each .btw template. Assignments are stored in a separate table.</small>
+    </div>
+
+    <div class="table-responsive" style="max-height:60vh; overflow:auto; border:1px solid #eee; border-radius:8px;">
+      <table class="table table-sm align-middle mb-0 table-hover">
+        <thead class="table-light sticky-top">
+          <tr>
+            <th style="width:60%">Template (.btw)</th>
+            <th style="width:40%">Printer</th>
+          </tr>
+        </thead>
+        <tbody id="btwPrinterTbody"></tbody>
+      </table>
+    </div>
+
+    <div class="text-end mt-4">
+      <button class="btn btn-secondary me-2" id="closePrinterModalBtn">Cancel</button>
+      <button type="button" class="btn btn-primary" id="savePrinterBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Elmentett PN-ek megnyitása modal -->
+<div class="modal" id="openSavedPNModal" style="display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; overflow:auto; background-color:rgba(0,0,0,.4);">
+  <div style="position:relative; margin:40px auto; background:#fff; padding:25px 30px; border-radius:16px; box-shadow:0 12px 40px rgba(0,0,0,.1); width:90%; max-width:900px;">
+    <span class="close" id="closeOpenSavedPNModal" style="float:right; font-size:28px; font-weight:700; color:#666; cursor:pointer; margin-top:-10px;">×</span>
+    <h2>Open saved projects</h2>
+
+    <div class="row g-2 align-items-end mb-3">
+      <div class="col-md-4">
+        <label class="form-label">Search</label>
+        <input type="text" class="form-control" id="savedPnSearch" placeholder="PN / REV / ECN">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Sort</label>
+        <select class="form-select" id="savedPnSort">
+          <option value="updated_desc">Last updated (↓)</option>
+          <option value="updated_asc">Last updated (↑)</option>
+          <option value="pn_asc">PN (A–Z)</option>
+          <option value="pn_desc">PN (Z–A)</option>
+        </select>
+      </div>
+      <div class="col-md-5 text-end">
+        <button class="btn btn-secondary" id="closeOpenSavedPNModalBtn">Cancel</button>
+      </div>
+    </div>
+
+    <div class="table-responsive" style="max-height:60vh; overflow:auto; border:1px solid #eee; border-radius:8px;">
+      <table class="table table-sm align-middle mb-0 table-striped table-hover">
+        <thead class="table-light sticky-top">
+          <tr>
+            <th style="width:25%;">PN</th>
+            <th style="width:15%;">REV</th>
+            <th style="width:15%;">ECN</th>
+            <th style="width:25%;">Last updated</th>
+            <th style="width:20%;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="savedPnTbody">
+          <!-- ide renderelünk majd -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ✅ Already exists modal -->
+<div class="modal fade" id="alreadyExistsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="fa-solid fa-circle-exclamation me-2"></i>
+          Projekt már létezik
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Bezárás"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="mb-2">
+          Már létezik ilyen projekt <b>PN/REV/ECN</b> alapján.
+        </div>
+
+        <div class="small text-muted">
+          Mit szeretnél?
+        </div>
+
+        <div class="mt-3 p-2 rounded bg-light">
+          <div><b>PN:</b> <span id="aemPN"></span></div>
+          <div><b>REV:</b> <span id="aemREV"></span></div>
+          <div><b>ECN:</b> <span id="aemECN"></span></div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" id="aemExitBtn">
+          Kilépés
+        </button>
+        <button type="button" class="btn btn-primary" id="aemOpenBtn">
+          Open for editing
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  let currentMode = 'add';
+  let currentConfig = null;
+
+  let btwFilesCache = [];
+  let btwFilesLastLoaded = 0;
+  const BTW_FILES_CACHE_TTL_MS = 60 * 1000;
+  const formState = { fromToData: {}, ftMode: 'standard' };
+  // --- Speciális etikett sorok dropdown → text helyőrző térkép
+const SPECIAL_PLACEHOLDERS = {
+  'egyedi': null,           // szabadon szerkesztWeekő
+  'WO': '<SCAN_WO>',
+  'PN': '<SCAN_PN>',
+  'Dátum': '<SCAN_DATE>',
+  'Week': '<SCAN_WEEK>'
+};
+
+
+  // kis HTML-escape, hogy a <SCAN_*> szó szerint látszódjon
+const ESC = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;');
+
+// ===== EDIT LOCK (frontend) =====
+let projectConfigId  = null;
+let projectLockToken = null;
+let lockTimer        = null;
+
+
+// ================= LOCK (project edit lock) =================
+const LOCK = {
+  configId: null,
+  token: null,
+  lockedBy: null,
+  isOwner: false,
+  active: false,
+  hbTimer: null,
+  hbEveryMs: 20000,
+  lastErr: null
+};
+
+// ===== Already Exists modal state =====
+let _aem = {
+  instance: null,
+  ctx: null
+};
+
+function showAlreadyExistsModal({ pn, rev, ecn, onOpen, onExit }) {
+  // kitöltés
+  document.getElementById("aemPN").textContent  = pn || "";
+  document.getElementById("aemREV").textContent = rev || "";
+  document.getElementById("aemECN").textContent = ecn || "";
+
+  // instance (bootstrap)
+  const el = document.getElementById("alreadyExistsModal");
+  _aem.instance = bootstrap.Modal.getOrCreateInstance(el, {
+    backdrop: "static",
+    keyboard: false
+  });
+
+  // előző clickek leválasztása (biztosra)
+  const exitBtn = document.getElementById("aemExitBtn");
+  const openBtn = document.getElementById("aemOpenBtn");
+  exitBtn.onclick = null;
+  openBtn.onclick = null;
+
+  exitBtn.onclick = async () => {
+    _aem.instance.hide();
+    try { await (onExit && onExit()); } catch(e) { console.warn(e); }
+  };
+
+  openBtn.onclick = async () => {
+    _aem.instance.hide();
+    try { await (onOpen && onOpen()); } catch(e) { console.warn(e); }
+  };
+
+  _aem.instance.show();
+}
+// ✅ Globális debounce (minden függvény látja)
+function debounce(fn, delay){
+  let t = null;
+  return function(...args){
+    clearTimeout(t);
+    t = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+function setLockBanner({ visible, text, variant = 'warning' }) {
+  const box = document.getElementById('lockBanner');
+  const txt = document.getElementById('lockBannerText');
+  if (!box || !txt) return;
+
+  box.classList.remove('d-none', 'alert-warning', 'alert-danger', 'alert-success', 'alert-info');
+  box.classList.add(`alert-${variant}`);
+
+  if (!visible) {
+    box.classList.add('d-none');
+    return;
+  }
+  txt.textContent = text || '';
+}
+// --- COMPAT: régi hívások miatt (ne dobjon hibát) ---
+function setLockUI({ locked = false, owner = null } = {}) {
+  if (!locked) {
+    setLockBanner({ visible: false });
+    setSaveDisabled(false);
+    return;
+  }
+  setLockBanner({
+    visible: true,
+    variant: 'warning',
+    text: `⚠️ Ezt a projektet most ${owner || 'valaki'} szerkeszti. Save tiltva.`
+  });
+  setSaveDisabled(true);
+}
+
+
+function setSaveDisabled(disabled) {
+  const btn = document.getElementById('saveLabelConfig');
+  if (btn) btn.disabled = !!disabled;
+}
+
+// FONTOS: soha ne dobjon hibát, ha nincs config_id – inkább null
+function getConfigIdSafe(targetEl) {
+  if (targetEl) {
+    const fromData = $(targetEl).data('configId');
+    if (fromData) return String(fromData);
+  }
+  const fromInput = document.getElementById('config_id')?.value?.trim();
+  if (fromInput) return String(fromInput);
+
+  if (window.config_id) return String(window.config_id);
+  if (window.currentConfig && (window.currentConfig.id || window.currentConfig.config_id)) {
+    return String(window.currentConfig.id || window.currentConfig.config_id);
+  }
+  return null;
+}
+function applySideHidden(blockEl, side, hidden){
+  if (!blockEl) return;
+
+  const sideBlock = blockEl.querySelector(side === "from" ? ".ft-from-block" : ".ft-to-block");
+  if (!sideBlock) return;
+
+  sideBlock.classList.toggle("ft-side-hidden", !!hidden);
+
+  const chk = blockEl.querySelector(side === "from" ? ".ft-hide-from" : ".ft-hide-to");
+  if (chk) chk.checked = !!hidden;
+
+  const badge = sideBlock.querySelector(".ft-side-hidden-badge");
+  if (badge) badge.classList.toggle("d-none", !hidden);
+}
+
+// delegált event (dinamikus elemek miatt)
+$(document).on("change", ".ft-hide-from", function(){
+  const blockEl = this.closest(".fromto-block");
+  applySideHidden(blockEl, "from", this.checked);
+});
+
+$(document).on("change", ".ft-hide-to", function(){
+  const blockEl = this.closest(".fromto-block");
+  applySideHidden(blockEl, "to", this.checked);
+});
+
+
+
+
+function applyLockUI() {
+  // ha nincs lock állapot, engedjük a mentést
+  if (!LOCK.configId) {
+    setLockBanner({ visible: false });
+    setSaveDisabled(false);
+    return;
+  }
+
+  // ha lock aktív és NEM mi vagyunk → tiltás + üzenet
+  if (LOCK.active && !LOCK.isOwner) {
+    const who = LOCK.lockedBy || 'valaki más';
+    setLockBanner({
+      visible: true,
+      variant: 'warning',
+      text: `⚠️ Ezt a projektet most ${who} szerkeszti. Amíg nála nyitva van, nem tudsz menteni.`
+    });
+    setSaveDisabled(true);
+    return;
+  }
+
+  // ha mi vagyunk → ok
+  if (LOCK.active && LOCK.isOwner) {
+    setLockBanner({
+      visible: true,
+      variant: 'success',
+      text: `✅ You have editing rights.`
+    });
+    setSaveDisabled(false);
+    return;
+  }
+
+  // ha lock nem aktív (pl. nincs lockolva)
+  setLockBanner({ visible: false });
+  setSaveDisabled(false);
+}
+
+async function acquireProjectLock({ pn, rev, ecn, configId }) {
+  // configId nélkül NEM lockolunk (ez volt a hibád)
+  if (!configId) {
+    LOCK.configId = null;
+    LOCK.token = null;
+    LOCK.active = false;
+    LOCK.isOwner = false;
+    LOCK.lockedBy = null;
+    applyLockUI();
+    return { status: 'skip', reason: 'missing config_id' };
+  }
+
+  LOCK.configId = String(configId);
+  document.getElementById('config_id').value = LOCK.configId;
+
+  try {
+    const resp = await fetch('/api/bartender/lock_project', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        config_id: LOCK.configId,
+        pn, rev, ecn
+      })
+    });
+
+    const d = await resp.json().catch(() => null);
+
+    if (!resp.ok || !d) {
+      // ha a lock endpoint hibázik, NE blokkoljuk a mentést tesztben sem
+      LOCK.active = false;
+      LOCK.isOwner = false;
+      LOCK.lockedBy = null;
+      LOCK.lastErr = `lock_project HTTP ${resp.status}`;
+      setLockBanner({
+        visible: true,
+        variant: 'info',
+        text: 'ℹ️ Lock ellenőrzés nem elérhető. Save engedélyezve.'
+      });
+      setSaveDisabled(false);
+      return { status: 'error', http: resp.status };
+    }
+
+    // rugalmas parsing
+    // elvárt: {status:'success', acquired:true/false, is_owner:true/false, locked_by:'...', lock_token:'...'}
+    LOCK.token = d.lock_token ? String(d.lock_token) : (d.token ? String(d.token) : null);
+    LOCK.lockedBy = d.locked_by || d.lockedBy || null;
+    LOCK.isOwner = !!(d.is_owner ?? d.isOwner ?? d.acquired ?? false);
+    LOCK.active  = !!(d.active ?? true);
+
+    // VÉDÉS: ha a backend visszaadja a hülye "nincs config_id"-t, azt tekintsük NEM locknak
+    // (ez a te jelenlegi tüneted)
+    if ((LOCK.lockedBy || '').toLowerCase().includes('nincs config_id')) {
+      LOCK.active = false;
+      LOCK.isOwner = true; // vagy false, de ne blokkoljon
+      LOCK.lockedBy = null;
+    }
+
+    applyLockUI();
+    if (LOCK.isOwner) startLockHeartbeat();
+    else stopLockHeartbeat();
+
+    return d;
+  } catch (e) {
+    // hálózati hiba esetén se blokkoljunk
+    console.warn('[LOCK] acquire error:', e);
+    LOCK.active = false;
+    LOCK.isOwner = false;
+    LOCK.lockedBy = null;
+    setLockBanner({
+      visible: true,
+      variant: 'info',
+      text: 'ℹ️ Lock ellenőrzés hiba (network). Save engedélyezve.'
+    });
+    setSaveDisabled(false);
+    return { status: 'error', message: String(e) };
+  }
+}
+
+
+function hardResetBartenderModal(){
+  // --- UI: inputok ---
+  $('#pnInput').val('');
+  $('#revInput').val('');
+  $('#ecnInput').val('');
+  $('#config_id').val('');
+
+  // --- UI: checkboxok (alapértékek) ---
+  $('#useIdLabels').prop('checked', true);
+  $('#useFromTo').prop('checked', true);
+  $('#useConnectors').prop('checked', true);
+
+  // --- UI: PN check gomb vissza ---
+  resetCheckButton();
+
+  // --- UI: tab vissza (main tab: settings) ---
+  setTab('settings');
+
+  // --- UI: settings belső tabs teljes wipe ---
+  $('#settingsTabSelector').empty();
+  $('#settingsTabContent').empty();
+
+  // --- UI: konténerek wipe (dinamikus tartalmak) ---
+  $('#labelBlocksContainer').empty();
+  $('#connectorHierarchyContainer').empty();
+  $('#idLabelBlocks').empty();
+  $('#summaryContent').empty();
+  $('#schematicRoot').empty();
+
+  // --- UI: Special / Connector labels konténerek is ---
+  $('#specialLabelsContainer').empty();
+  $('#connectorLabelsContainer').empty();
+
+  // --- Lock banner/UI nullázás ---
+  setLockBanner({ visible:false });
+  setSaveDisabled(false);
+
+  // --- Dataset/flag resetek ---
+  const idCnt = document.getElementById('labelCountInput');
+  if (idCnt){
+    delete idCnt.dataset.initialSet;
+    delete idCnt.dataset.listenerAdded;
+  }
+  const spCnt = document.getElementById('specialLabelCountInput');
+  if (spCnt) delete spCnt.dataset.listenerAdded;
+
+  const conCnt = document.getElementById('connectorLabelCountInput');
+  if (conCnt) delete conCnt.dataset.listenerAdded;
+
+  // --- JS state nullázás ---
+  currentConfig = null;
+  window.currentConfig = null;
+
+  // FROM-TO mód + belső tároló reset
+  formState.ftMode = 'standard';
+  formState.fromToData = {};
+  window.ftMode = 'standard';
+
+  // ✅ PERSISTENS TAB CACHE reset (EZ HIÁNYZOTT)
+  window.__btTabsCache = {
+    connectorSnapshot: [],
+    ftSnapshot: {},
+    idSnapshot: [],
+    idCount: 1,
+    connectorLabelSelSnapshot: [],
+    connectorLabelCount: 1,
+    specialSnapshot: [],
+    specialCount: 1,
+  };
+
+  // --- Lock state reset ---
+  LOCK.configId = null;
+  LOCK.token = null;
+  LOCK.lockedBy = null;
+  LOCK.isOwner = false;
+  LOCK.active = false;
+  stopLockHeartbeat();
+
+  // Ha volt "save" tiltás, oldjuk
+  applyLockUI();
+}
+
+
+async function heartbeatProjectLock() {
+  if (!LOCK.configId || !LOCK.token || !LOCK.isOwner) return;
+
+  try {
+    await fetch('/api/bartender/heartbeat_lock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        config_id: String(LOCK.configId),
+        lock_token: String(LOCK.token)
+      })
+    });
+  } catch (e) {
+    console.warn('[LOCK] heartbeat error:', e);
+    // heartbeat hiba esetén nem tiltunk, csak jelzünk
+    setLockBanner({
+      visible: true,
+      variant: 'info',
+      text: 'ℹ️ Lock heartbeat hiba. Save engedélyezve.'
+    });
+    setSaveDisabled(false);
+  }
+}
+
+function startLockHeartbeat() {
+  stopLockHeartbeat();
+  LOCK.hbTimer = setInterval(heartbeatProjectLock, LOCK.hbEveryMs);
+}
+
+function stopLockHeartbeat() {
+  if (LOCK.hbTimer) clearInterval(LOCK.hbTimer);
+  LOCK.hbTimer = null;
+}
+
+async function releaseProjectLock(opts = {}) {
+  const { useBeacon = false, reason = "close" } = opts;
+
+  stopLockHeartbeat();
+
+  const configId = LOCK.configId;
+  const token    = LOCK.token;
+
+  // UI state nullázás azonnal
+  LOCK.configId = null;
+  LOCK.token = null;
+  LOCK.lockedBy = null;
+  LOCK.active = false;
+  LOCK.isOwner = false;
+  applyLockUI();
+
+  if (!configId || !token) return;
+
+  const payload = JSON.stringify({
+    config_id: String(configId),
+    lock_token: String(token),
+    reason
+  });
+
+  // tab/oldal bezárásra: sendBeacon a legjobb
+  if (useBeacon && navigator.sendBeacon) {
+    try {
+      const blob = new Blob([payload], { type: "application/json" });
+      navigator.sendBeacon("/api/bartender/unlock_project", blob);
+      return;
+    } catch (e) {}
+  }
+
+  // normál bezárás: sima fetch
+  try {
+    await fetch("/api/bartender/unlock_project", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+      keepalive: true,
+      credentials: "same-origin",
+    });
+  } catch (e) {
+    console.warn("[LOCK] release error:", e);
+  }
+}
+
+
+// lap bezárás / refresh esetén próbáljuk elengedni
+window.addEventListener('beforeunload', () => {
+  try {
+    const configId = LOCK.configId;
+    const token = LOCK.token;
+    if (configId && token && navigator.sendBeacon) {
+      const blob = new Blob([JSON.stringify({ config_id: String(configId), lock_token: String(token) })], { type: 'application/json' });
+      navigator.sendBeacon('/api/bartender/unlock_project', blob);
+    }
+  } catch {}
+});
+
+
+
+
+
+
+
+
+
+async function closeProjectModal(reason = "x") {
+  // 1) UI azonnal zár + reset (hogy ne maradjon bent semmi)
+  $("#modal").hide();
+  hardResetBartenderModal();
+
+  // 2) lock elengedés (nem kell megvárni, de lehet await)
+  try {
+    await releaseProjectLock({ useBeacon: false, reason });
+  } catch(e){}
+}
+
+
+
+function applySpecialSelectBehavior(selectEl, inputEl){
+  if(!selectEl || !inputEl) return;
+  const choice = selectEl.value || 'egyedi';
+  const placeholder = SPECIAL_PLACEHOLDERS[choice];
+  if(placeholder){
+    inputEl.value = placeholder;
+    inputEl.readOnly = true;
+  } else {
+    // egyedi
+    if (SPECIAL_PLACEHOLDERS['WO'] === inputEl.value ||
+        SPECIAL_PLACEHOLDERS['PN'] === inputEl.value ||
+        SPECIAL_PLACEHOLDERS['Dátum'] === inputEl.value ||
+        SPECIAL_PLACEHOLDERS['Week'] === inputEl.value){
+      inputEl.value = '';
+    }
+    inputEl.readOnly = false;
+  }
+}
+
+function detectChoiceFromValue(val){
+  if (val === SPECIAL_PLACEHOLDERS['WO'])    return 'WO';
+  if (val === SPECIAL_PLACEHOLDERS['PN'])    return 'PN';
+  if (val === SPECIAL_PLACEHOLDERS['Dátum']) return 'Dátum';
+  if (val === SPECIAL_PLACEHOLDERS['Week'])   return 'Week';
+  return 'egyedi';
+}
+
+// Minden sorhoz (egy row-on belül) végigmegy az összes .specialLblLine mezőn és beállítja a mellette levő selectet
+function refreshSpecialLineSelectors(row){
+  const lines = row.querySelectorAll('.specialLblLine');
+  lines.forEach(inp => {
+    const wrap = inp.closest('.sp-line-wrap');
+    const sel  = wrap?.querySelector('.specialLblChoice');
+    if(!sel) return;
+    sel.value = detectChoiceFromValue(inp.value || '');
+    applySpecialSelectBehavior(sel, inp);
+  });
+}
+
+
+  function ensureSelectValue(selectEl, value){
+  if (!selectEl) return;
+  const v = value ?? '';
+  // Ha már vannak opciók és köztük van a v, állítsuk be azonnal
+  if (selectEl.options && selectEl.options.length > 0) {
+    const has = Array.from(selectEl.options).some(o => o.value === v);
+    if (has) { selectEl.value = v; return; }
+  }
+  // Különben pending-be tesszük, majd az opciók feltöltése után alkalmazzuk
+  selectEl.dataset.pendingValue = v;
+}
+
+function applyPendingSelectValue(selectEl){
+  if (!selectEl) return;
+  const v = selectEl.dataset.pendingValue;
+  if (v === undefined) return;
+  // Ha van ilyen opció, állítsuk be
+  const has = Array.from(selectEl.options || []).some(o => o.value === v);
+  if (has) {
+    selectEl.value = v;
+    delete selectEl.dataset.pendingValue;
+  }
+}
+
+
+  function getBtwFiles(callback) {
+    const now = Date.now();
+    if (btwFilesCache.length && (now - btwFilesLastLoaded) < BTW_FILES_CACHE_TTL_MS) { callback(btwFilesCache); return; }
+    $.get("/api/bartender/get_btw_files", d => {
+      btwFilesCache = d.files || [];
+      btwFilesLastLoaded = Date.now();
+      callback(btwFilesCache);
+    });
+  }
+
+  $(document).ready(function() {
+
+
+    function getQueryProject(){
+  const p = new URLSearchParams(window.location.search);
+  if (p.get("autopen") !== "1") return null;
+
+  return {
+    mode: (p.get("mode") || "edit"),
+    pn:  (p.get("pn")  || "").trim(),
+    rev: (p.get("rev") || "").trim(),
+    ecn: (p.get("ecn") || "").trim(),
+    config_id: (p.get("config_id") || "").trim()
+  };
+}
+
+async function autoOpenFromQuery(){
+  const q = getQueryProject();
+  if (!q) return;
+
+  // modalt nyitunk edit módban
+  await releaseProjectLock({ useBeacon: false, reason: "autoopen" });
+  resetAllFields();
+  currentMode = q.mode === "add" ? "add" : "edit";
+
+  $("#useConnectors").prop("checked", true);
+  $("#pnModalTitle").text(currentMode === "edit" ? "Edit project" : "Create new project");
+  $("#modal").show();
+  setLockUI({ locked:false });
+  renderSettingsTabs();
+
+  // 1) Ha config_id jött, töltsük be az alapján (ha van hozzá endpointod)
+  if (q.config_id) {
+    document.getElementById("config_id").value = q.config_id;
+
+    // Ha VAN ilyen endpointod:
+    // await loadLabelConfigById(q.config_id);
+
+    // Ha NINCS, akkor PN/REV/ECN kell – ha nincs, itt nem tudunk mit betölteni.
+  }
+
+  // 2) Ha PN jött, töltsük be a meglévő loadLabelConfig flow-val
+  if (q.pn) {
+    document.getElementById("pnInput").value  = q.pn;
+    document.getElementById("revInput").value = q.rev;
+    document.getElementById("ecnInput").value = q.ecn;
+
+    // edit módnál kötelező rev+ecn a te logikád szerint:
+    // ha hiányzik, még mindig felnyitja a modalt, csak nem fog betölteni.
+    if (currentMode === "edit" && (!q.rev || !q.ecn)) return;
+
+    // betöltés + lock már benne van a loadLabelConfig()-ban nálad
+    try {
+      await loadLabelConfig(q.pn, q.rev, q.ecn, true);
+
+      // opcionális: ellenőrzés újrahívás (nálad már van)
+      setTimeout(() => { try { onCheckPN(); } catch(e){} }, 120);
+    } catch(e){
+      console.warn("Auto-open loadLabelConfig error:", e);
+    }
+  }
+}
+
+   $("#closeModal").off("click").on("click", function() {
+    closeProjectModal("x");
+  });
+
+  // ESC-re is zárjon + lock elengedés
+  $(document).off("keydown.btmodal").on("keydown.btmodal", async function(e){
+    if (e.key === "Escape" && $("#modal").is(":visible")) {
+      await closeProjectModal("esc");
+    }
+  });
+
+  // amikor add/edit gombbal nyitsz, előző lock elengedése
+  $("#addButton").off("click.bt").on("click.bt", async function() {
+    await releaseProjectLock({ useBeacon: false, reason: "switch_to_add" });
+
+    hardResetBartenderModal();
+
+    currentMode = 'add';
+    $("#pnModalTitle").text("Create new project");
+    $("#modal").show();
+
+    renderSettingsTabs();
+  });
+
+  $("#editButton").off("click.bt").on("click.bt", async function() {
+    await releaseProjectLock({ useBeacon: false, reason: "switch_to_edit" });
+
+    hardResetBartenderModal();
+
+    currentMode = 'edit';
+    $("#pnModalTitle").text("Edit project");
+    $("#modal").show();
+
+    renderSettingsTabs();
+  });
+
+
+    $("#printerButton").click(function(){
+      $("#printerModal").show();
+      loadBtwPrinterUI();
+    });
+    // Save gomb
+$("#saveLabelConfig").off("click.bt").on("click.bt", function(e){
+  e.preventDefault();
+  e.stopPropagation();
+  saveLabelConfig(); // async, de nem muszáj await
+});
+$("#tab-settings").off("click.mainTabs").on("click.mainTabs", function(e){
+  e.preventDefault();
+  setTab("settings");
+});
+
+$("#tab-schematic").off("click.mainTabs").on("click.mainTabs", function(e){
+  e.preventDefault();
+  setTab("schematic");
+  renderSchematic();
+});
+
+$("#tab-summary").off("click.mainTabs").on("click.mainTabs", function(e){
+  e.preventDefault();
+  setTab("summary");
+  renderSummary();
+});
+// ✅ PN ellenőrzés gomb
+$("#checkPNButton").off("click.bt").on("click.bt", function(e){
+  e.preventDefault();
+  e.stopPropagation();
+  onCheckPN();
+});
+
+    // Printer UI
+    function loadBtwPrinterUI(){
+      Promise.all([
+        new Promise(res => getBtwFiles(res)),
+        fetch("/api/bartender/get_printers").then(r=>r.json()),
+        fetch("/api/bartender/get_btw_printers").then(r=>r.json()).catch(()=>({}))
+      ]).then(([files, printersResp, mappingResp])=>{
+        const printers = printersResp?.printers || [];
+        const mapping  = mappingResp?.map || {};
+        renderBtwPrinterTable(files, printers, mapping);
+      }).catch(()=> alert("An error occurred while loading printers or .btw files."));
+    }
+    function renderBtwPrinterTable(files, printers, mapping){
+      const tbody = document.getElementById("btwPrinterTbody");
+      if(!tbody) return;
+      tbody.innerHTML = "";
+      const printerOptionsHtml = ['<option value="">-- Select printer --</option>']
+        .concat(printers.map(p=>`<option value="${p}">${p}</option>`)).join("");
+      const sortedFiles = [...files].sort((a,b)=>a.localeCompare(b, 'hu'));
+      sortedFiles.forEach(file=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${file}</td>
+          <td>
+            <select class="form-select form-select-sm btw-printer-select" data-file="${file}">
+              ${printerOptionsHtml}
+            </select>
+          </td>`;
+        tbody.appendChild(tr);
+        const sel = tr.querySelector('select');
+        if(mapping[file]) sel.value = mapping[file];
+      });
+    }
+    $("#closePrinterModal, #closePrinterModalBtn").click(function(){ $("#printerModal").hide(); });
+    $("#savePrinterBtn").off("click").on("click", function(e){
+  e.preventDefault();
+  e.stopPropagation();
+
+  const rows = Array.from(document.querySelectorAll("#btwPrinterTbody .btw-printer-select"));
+  const assignments = rows
+    .map(sel => ({ file: sel.dataset.file, printer: sel.value }))
+    .filter(x => x.printer && x.file);
+
+  fetch("/api/bartender/save_btw_printers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assignments })
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    if(d.status === "success"){
+      alert("Assignments saved.");
+      $("#printerModal").hide();
+    } else {
+      alert("Error: " + (d.message || "save failed"));
+    }
+  })
+  .catch(()=> alert("An error occurred during saving."));
+});
+
+
+// -----------------------------
+// Debounce + Saved PN logika itt alul, KÜLÖN
+// -----------------------------
+
+
+// (ha kell AbortController-es verzió, maradjon csak EZ az egy loadSavedPNList, ne legyen duplán)
+let savedPnFetchCtl = null;
+
+async function loadSavedPNList(){
+  const q    = ($("#savedPnSearch").val() || '').trim();
+  const sort = $("#savedPnSort").val() || 'updated_desc';
+
+  const url = new URL('/api/bartender/list_saved_pn', window.location.origin);
+  if(q)    url.searchParams.set('q', q);
+  if(sort) url.searchParams.set('sort', sort);
+  url.searchParams.set('limit', '100');
+
+  if (savedPnFetchCtl) savedPnFetchCtl.abort();
+  savedPnFetchCtl = new AbortController();
+
+  setSavedPnLoading(true);
+  const tbody = document.getElementById('savedPnTbody');
+
+  try{
+    const resp = await fetch(url.toString(), { credentials:'same-origin', signal: savedPnFetchCtl.signal });
+    const data = await resp.json();
+    const rows = Array.isArray(data.items) ? data.items : [];
+
+    if(!tbody) return;
+
+    if(!rows.length){
+      tbody.innerHTML = `<tr><td colspan="5" class="text-muted text-center py-3">Nincs találat.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${r.pn || ''}</td>
+        <td>${r.rev || ''}</td>
+        <td>${r.ecn || ''}</td>
+        <td><span class="text-muted">${r.updated || ''}</span></td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-primary"
+                  data-pn="${(r.pn||'')}"
+                  data-rev="${(r.rev||'')}"
+                  data-ecn="${(r.ecn||'')}"
+                  onclick="openSavedPnFromList(this)">Open</button>
+        </td>
+      </tr>
+    `).join('');
+
+  } catch(e){
+    if (e.name !== 'AbortError'){
+      console.warn('list_saved_pn fetch hiba:', e);
+      if (tbody){
+        tbody.innerHTML = `<tr><td colspan="5" class="text-danger text-center py-3">Hiba történt a betöltéskor.</td></tr>`;
+      }
+    }
+  } finally {
+    setSavedPnLoading(false);
+  }
+}
+
+// UI bindek – csak egyszer
+const debouncedSearch = debounce(() => loadSavedPNList(), 250);
+$("#savedPnSearch").on("input", debouncedSearch);
+$("#savedPnSort").on("change", () => loadSavedPNList());
+
+$("#openSavedPNButton").on("click", function(){
+  $("#openSavedPNModal").show();
+  loadSavedPNList();
+});
+$("#closeOpenSavedPNModal, #closeOpenSavedPNModalBtn").on("click", function(){
+  $("#openSavedPNModal").hide();
+});
+
+// sorra kattintás → gomb megnyomása
+$(document).on('click', '#savedPnTbody tr', function(e){
+  if($(e.target).closest('button, a, select').length) return;
+  const btn = this.querySelector('button.btn-primary[data-pn]');
+  if(btn) btn.click();
+});
+
+
+    watchConnectorChanges();
+
+    // Fülváltáskor frissítsük a dinamikus tartalmakat
+    $(document).on('shown.bs.tab', '#settingsTabSelector a[data-bs-toggle="tab"]', function (e) {
+      const href = e.target.getAttribute('href');
+      if (href === '#tab-connector-labels') {
+        // mindig frissítsük a listát a legutóbbi struktúra alapján
+        renderConnectorLabelFields();
+      }
+      if (href === '#tab-fromto') {
+  const saved = saveFromToSelectionsV2();
+  renderLabelBlocks();
+  restoreFromToSelectionsV2(saved);
+}
+
+    });
+
+
+
+
+
+
+
+
+
+
+// „Megnyitás” – egyelőre a meglévő edit flow-t hívjuk, ha akarod
+// „Megnyitás” – elmentett PN lista → edit modal betöltés
+window.openSavedPnFromList = async function(btn){
+  const pn  = btn.getAttribute('data-pn')  || '';
+  const rev = btn.getAttribute('data-rev') || '';
+  const ecn = btn.getAttribute('data-ecn') || '';
+  if(!pn){ alert('Hiányzik a PN.'); return; }
+
+  $("#openSavedPNModal").hide();
+
+  // előző lock elengedése (ha volt)
+  await releaseProjectLock({ useBeacon: false });
+
+  currentMode = 'edit';
+  resetAllFields();
+
+  // ✅ FIX: Open saved projectskor a konnektorok checkbox legyen alapból bepipálva
+  $("#useConnectors").prop("checked", true);
+
+  $("#pnModalTitle").text("Edit project");
+  $("#modal").show();
+  setLockUI({ locked:false });
+  renderSettingsTabs();
+
+  document.getElementById('pnInput').value  = pn;
+  document.getElementById('revInput').value = rev;
+  document.getElementById('ecnInput').value = ecn;
+
+  try {
+    await loadLabelConfig(pn, rev, ecn, true);
+
+    setTimeout(() => { try { onCheckPN(); } catch(e){} }, 120);
+    setTimeout(() => { try { onCheckPN(); } catch(e){} }, 420);
+  } catch (e){
+    console.warn('openSavedPnFromList hiba:', e);
+    alert('Nem sikerült betölteni a konfigurációt: ' + (e?.message || e));
+  }
+};
+
+autoOpenFromQuery();
+
+
+  });
+
+
+
+function setSavedPnLoading(isLoading){
+  const tbody  = document.getElementById('savedPnTbody');
+  const sort   = document.getElementById('savedPnSort');
+  if (sort) sort.disabled = isLoading;
+
+  if (isLoading && tbody){
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" class="text-center py-4">
+          <div class="spinner-border" role="status" aria-label="Betöltés"></div>
+          <div class="mt-2 text-muted">Betöltés…</div>
+        </td>
+      </tr>
+    `;
+  }
+}
+
+
+  function setTab(name){
+    ['settings','schematic','summary'].forEach(id=>{
+      const tab=$("#tab-"+id); const box=$("#tabContent-"+id);
+      if(id===name){ tab.addClass("active"); box.show(); } else { tab.removeClass("active"); box.hide(); }
+    });
+  }
+
+  function resetCheckButton(){
+    const btn=document.getElementById('checkPNButton');
+    btn.classList.remove('btn-success','btn-danger'); btn.classList.add('btn-secondary'); btn.textContent="🔍 Check";
+  }
+
+  function onCheckPN() {
+    const pn  = document.getElementById('pnInput').value.trim();
+    const rev = document.getElementById('revInput').value.trim();
+    const ecn = document.getElementById('ecnInput').value.trim();
+    if (!pn) { alert("Please enter a PN value!"); return; }
+
+    if (currentMode === 'add') {
+      fetch('/api/bartender/check_pn_in_t_dump', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pn })
+      })
+      .then(r => r.json())
+      .then(data => {
+        const b = document.getElementById('checkPNButton');
+        if (data.found) { b.classList.remove('btn-secondary','btn-danger'); b.classList.add('btn-success'); b.textContent = "✔ PN found (t_dump)"; }
+        else { b.classList.remove('btn-secondary','btn-success'); b.classList.add('btn-danger'); b.textContent = "❌ PN not found (t_dump)"; }
+      })
+      .catch(() => alert("Hiba történt az ellenőrzés során."));
+      return;
+    }
+
+    if (!rev || !ecn) { alert("PN, REV and ECN fields are required."); return; }
+    loadLabelConfig(pn, rev, ecn, true);
+  }
+
+  function loadPrinters(){
+    $.get("/api/bartender/get_printers", d=>{
+      if(!d.printers){ alert("Failed to load printers!"); return; }
+      populatePrinterSelect("#printerSelectID", d.printers);
+      populatePrinterSelect("#printerSelectFrom", d.printers);
+      populatePrinterSelect("#printerSelectTo", d.printers);
+    }).fail(()=>alert("Hiba történt a nyomtatók lekérésekor."));
+  }
+  function populatePrinterSelect(selector, printers){
+    const s=$(selector); s.empty().append(`<option value="">-- Select printer --</option>`);
+    printers.forEach(p=> s.append(`<option value="${p}">${p}</option>`));
+  }
+
+  // ---- Tabs csak vázat rajzolnak, adatot nem töltenek! ----
+function renderSettingsTabs(){
+  const container = document.getElementById('settingsTabSelector');
+  const content   = document.getElementById('settingsTabContent');
+  if(!container || !content) return;
+
+  // ---------------------------------------------------------
+  // 0) PERSISTENS CACHE (tab ki/be kapcsolás esetén is megmarad)
+  // ---------------------------------------------------------
+  window.__btTabsCache = window.__btTabsCache || {
+    connectorSnapshot: [],
+    ftSnapshot: {},
+    idSnapshot: [],
+    idCount: 1,
+    connectorLabelSelSnapshot: [],
+    connectorLabelCount: 1,
+    specialSnapshot: [],
+    specialCount: 1,
+  };
+  const cache = window.__btTabsCache;
+
+  // ---------------------------------------------------------
+  // 1) SNAPSHOTOK: amiből tudunk, frissítjük a cache-t
+  // (ha egy tab épp nincs a DOM-ban, akkor nem írjuk felül üresre)
+  // ---------------------------------------------------------
+  try {
+    const cs = (typeof getCurrentConnectorStructure === 'function') ? getCurrentConnectorStructure() : [];
+    if (Array.isArray(cs) && cs.length) cache.connectorSnapshot = cs;
+  } catch(e){}
+
+  try {
+    const ft = (typeof saveFromToSelectionsV2 === 'function') ? saveFromToSelectionsV2() : {};
+    if (ft && Object.keys(ft).length) cache.ftSnapshot = ft;
+  } catch(e){}
+
+  try {
+    const ids = (typeof saveIdLabelSelections === 'function') ? saveIdLabelSelections() : [];
+    if (Array.isArray(ids) && ids.length) cache.idSnapshot = ids;
+  } catch(e){}
+
+  const idCountInputPrev = document.getElementById('labelCountInput');
+  if (idCountInputPrev){
+    const n = parseInt(idCountInputPrev.value || '1', 10);
+    if (!isNaN(n) && n > 0) cache.idCount = n;
+  }
+
+  // Konnektor etikett sorok snapshot
+  try {
+    const rows = [];
+    document.querySelectorAll('#connectorLabelsContainer .connectorLabelRow').forEach(row=>{
+      rows.push({
+        template  : row.querySelector('.connectorLblTemplateSelect')?.value || '',
+        connector : row.querySelector('.connectorLblConnectorSelect')?.value || ''
+      });
+    });
+    if (rows.length) cache.connectorLabelSelSnapshot = rows;
+  } catch(e){}
+
+  const conCnt = document.getElementById('connectorLabelCountInput');
+  if (conCnt){
+    const n = parseInt(conCnt.value || '1', 10);
+    if (!isNaN(n) && n > 0) cache.connectorLabelCount = n;
+  }
+
+  // Special labels snapshot
+  try {
+    const sp = (typeof saveSpecialLabelSelections === 'function') ? saveSpecialLabelSelections() : [];
+    if (Array.isArray(sp) && sp.length) cache.specialSnapshot = sp;
+  } catch(e){}
+
+  const spCnt = document.getElementById('specialLabelCountInput');
+  if (spCnt){
+    const n = parseInt(spCnt.value || '1', 10);
+    if (!isNaN(n) && n > 0) cache.specialCount = n;
+  }
+
+  // ---------------------------------------------------------
+  // 2) Kapcsolók
+  // ---------------------------------------------------------
+  const useId  = !!document.getElementById('useIdLabels')?.checked;
+  const useFT  = !!document.getElementById('useFromTo')?.checked;
+  const useCon = !!document.getElementById('useConnectors')?.checked;
+
+  if (!window.ftMode) window.ftMode = (window.formState?.ftMode || 'standard');
+
+  // ---------------------------------------------------------
+  // 3) Tabs váz (újrarajzolás) – DE: visszatöltés CACHE-ből
+  // ---------------------------------------------------------
+  container.innerHTML = '';
+  content.innerHTML   = '';
+
+  const tabs = [];
+
+  // 1) Connector settings – mindig
+  tabs.push({
+    id:'tab-connector-setup',
+    label:'Connector settings',
+    content: `
+      <div id="connectorHierarchyContainer"></div>
+      <div class="mt-3 text-end">
+        <button class="btn btn-secondary" onclick="addConnectorPage()">➕ Add new page</button>
+      </div>
+    `
+  });
+
+  // 2) FROM–TO – checkboxhoz kötve
+  if(useFT){
+    tabs.push({
+      id:'tab-fromto',
+      label:'FROM - TO',
+      content: `
+        <div class="d-flex align-items-center gap-3 mb-3" id="ftModeToggles">
+          <div class="form-check form-check-inline">
+            <input class="form-check-input ft-mode" type="checkbox" id="ftModeStandard" data-mode="standard">
+            <label class="form-check-label" for="ftModeStandard">Standard</label>
+          </div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input ft-mode" type="checkbox" id="ftModeCustom" data-mode="custom">
+            <label class="form-check-label" for="ftModeCustom">Custom</label>
+          </div>
+        </div>
+        <div id="labelBlocksContainer"></div>
+      `
+    });
+  }
+
+  // 3) Connector labels – checkboxhoz kötve
+  if(useCon){
+    tabs.push({
+      id:'tab-connector-labels',
+      label:'Connector labels',
+      content: `
+        <div class="d-flex align-items-end gap-3 mb-3">
+          <div>
+            <label class="form-label mb-1">Qty</label>
+            <input type="number" min="1" class="form-control" id="connectorLabelCountInput" value="1" style="max-width:120px">
+          </div>
+        </div>
+        <div id="connectorLabelsContainer"></div>
+      `
+    });
+  }
+
+  // 4) ID labels – checkboxhoz kötve
+  // 4) Special labels – mindig
+tabs.push({
+  id:'tab-special-labels',
+  label:'Special labels',
+  content: `
+    <div class="d-flex align-items-end gap-3 mb-3">
+      <div>
+        <label class="form-label mb-1">Qty</label>
+        <input type="number" min="1" class="form-control" id="specialLabelCountInput" value="1" style="max-width:120px">
+      </div>
+    </div>
+    <div id="specialLabelsContainer"></div>
+  `
+});
+
+// 5) ID labels – checkboxhoz kötve (UTOLSÓ)
+if(useId){
+  tabs.push({
+    id:'tab-id-labels',
+    label:'ID labels',
+    content: `
+      <div class="d-flex align-items-end gap-3 mb-3">
+        <div>
+          <label class="form-label mb-1">Qty</label>
+          <input type="number" min="1" class="form-control" id="labelCountInput" value="1" style="max-width:120px">
+        </div>
+      </div>
+      <div id="idLabelBlocks"></div>
+    `
+  });
+}
+
+
+  // NAV + PANE render
+  tabs.forEach((t, idx)=>{
+    const active = idx === 0 ? 'active' : '';
+    const selected = idx === 0 ? 'true' : 'false';
+
+    container.insertAdjacentHTML('beforeend', `
+      <li class="nav-item" role="presentation">
+        <button class="nav-link ${active}" id="${t.id}-tab"
+                data-bs-toggle="tab" data-bs-target="#${t.id}"
+                type="button" role="tab" aria-controls="${t.id}" aria-selected="${selected}">
+          ${t.label}
+        </button>
+      </li>
+    `);
+
+    content.insertAdjacentHTML('beforeend', `
+      <div class="tab-pane fade ${active ? 'show active' : ''}" id="${t.id}" role="tabpanel" aria-labelledby="${t.id}-tab">
+        ${t.content}
+      </div>
+    `);
+  });
+
+  // ---------------------------------------------------------
+  // 4) Visszatöltés a CACHE-ből
+  // ---------------------------------------------------------
+
+  // 4.1 Konnektor hierarchia vissza
+  (function restoreConnectorsFromCache(){
+    const root = document.getElementById('connectorHierarchyContainer');
+    if(!root) return;
+    root.innerHTML = '';
+
+    const snap = Array.isArray(cache.connectorSnapshot) ? cache.connectorSnapshot : [];
+    if (!snap.length) { return; }
+
+    snap.forEach(page=>{
+      addConnectorPage(1);
+      const pagesEls = root.querySelectorAll('.border.bg-light');
+      const pageDiv  = pagesEls[pagesEls.length-1];
+      (page.groups||[]).forEach(group=>{
+        const list = pageDiv.querySelector('.connector-group-list');
+        addConnectorGroup(list, group.group);
+        const groupDiv = list.lastElementChild;
+        const connectorList = groupDiv.querySelector('.connector-list');
+        (group.connectors||[]).forEach(c=>{
+          addConnectorInput(connectorList, c.id, c.value);
+        });
+      });
+    });
+  })();
+
+  // 4.2 FROM–TO vissza (ha létezik)
+  // 4.2 FROM–TO vissza (ha létezik) + ft-mode checkboxok "radio" logika
+if (useFT && typeof renderLabelBlocks === 'function'){
+
+  const standardCb = document.getElementById('ftModeStandard');
+  const customCb   = document.getElementById('ftModeCustom');
+
+  // Init: legyen biztosan értelmes mód
+  const initMode = (window.formState?.ftMode === 'custom' || window.ftMode === 'custom') ? 'custom' : 'standard';
+  window.ftMode = initMode;
+  if (window.formState) window.formState.ftMode = initMode;
+
+  // Állítsuk be a checkboxokat
+  if (standardCb && customCb) {
+    standardCb.checked = (window.ftMode === 'standard');
+    customCb.checked   = (window.ftMode === 'custom');
+
+    const setMode = (mode) => {
+      window.ftMode = mode;
+      if (window.formState) window.formState.ftMode = mode;
+
+      // mindig pontosan 1 legyen bepipálva
+      standardCb.checked = (mode === 'standard');
+      customCb.checked   = (mode === 'custom');
+
+      // módváltás → blokkok újrarajz
+      if (typeof rerenderBlocksForMode === 'function') rerenderBlocksForMode();
+    };
+
+    // Standard change
+    standardCb.addEventListener('change', () => {
+      if (standardCb.checked) {
+        setMode('standard');
+      } else {
+        // ne lehessen mindkettő OFF
+        if (!customCb.checked) standardCb.checked = true;
+      }
+    });
+
+    // Custom change
+    customCb.addEventListener('change', () => {
+      if (customCb.checked) {
+        setMode('custom');
+      } else {
+        // ne lehessen mindkettő OFF
+        if (!standardCb.checked) customCb.checked = true;
+      }
+    });
+  }
+
+  // Render + restore
+  renderLabelBlocks();
+  if (typeof restoreFromToSelectionsV2 === 'function'){
+    restoreFromToSelectionsV2(cache.ftSnapshot || {});
+  }
+}
+
+
+  // 4.3 ID labels vissza
+  if (useId){
+    const cnt = document.getElementById('labelCountInput');
+    if (cnt) cnt.value = String(Math.max(1, cache.idCount || 1));
+
+    if (typeof renderIdLabelFields === 'function'){
+      renderIdLabelFields();
+      if (typeof restoreIdLabelSelections === 'function'){
+        restoreIdLabelSelections(cache.idSnapshot || []);
+      }
+    }
+  }
+
+  // 4.4 Konnektor labels vissza
+// 4.4 Konnektor labels vissza
+if (useCon){
+  const cnt = document.getElementById('connectorLabelCountInput');
+  if (cnt) cnt.value = String(Math.max(1, cache.connectorLabelCount || 1));
+
+  if (typeof renderConnectorLabelFields === 'function'){
+    renderConnectorLabelFields();
+
+    const rows = document.querySelectorAll('#connectorLabelsContainer .connectorLabelRow');
+    (cache.connectorLabelSelSnapshot || []).forEach((cl, i)=>{
+      const row = rows[i]; if(!row) return;
+      const tpl = row.querySelector('.connectorLblTemplateSelect');
+      const con = row.querySelector('.connectorLblConnectorSelect');
+      if (tpl) tpl.value = cl.template || '';
+      if (con) con.value = cl.connector || '';
+    });
+
+    // ✅ DARABSZÁM → újragenerálás (csak egyszer bindoljuk)
+    if (cnt && !cnt.dataset.bound) {
+      cnt.dataset.bound = "1";
+
+      const onCntChange = () => {
+        let n = parseInt(cnt.value || '1', 10);
+        if (!isFinite(n) || n < 1) n = 1;
+        cnt.value = String(n);
+        renderConnectorLabelFields(); // ez megőrzi a korábbi választásokat (save/restore)
+      };
+
+      cnt.addEventListener('input', onCntChange);
+      cnt.addEventListener('change', onCntChange);
+    }
+  }
+}
+
+
+
+  // 4.5 Special labels vissza (mindig)
+  // 4.5 Special labels vissza (mindig)
+{
+  const cnt = document.getElementById('specialLabelCountInput');
+  if (cnt) cnt.value = String(Math.max(1, cache.specialCount || 1));
+
+  if (typeof renderSpecialLabelFields === 'function'){
+
+    // ✅ DARABSZÁM → újragenerálás (csak egyszer bindoljuk)
+    if (cnt && !cnt.dataset.bound) {
+      cnt.dataset.bound = "1";
+
+      const onCntChange = () => {
+        let n = parseInt(cnt.value || '1', 10);
+        if (!isFinite(n) || n < 1) n = 1;
+        cnt.value = String(n);
+
+        // újragenerál + visszatölt
+        renderSpecialLabelFields();
+        if (typeof restoreSpecialLabelSelections === 'function'){
+          restoreSpecialLabelSelections(cache.specialSnapshot || []);
+        }
+      };
+
+      cnt.addEventListener('input', onCntChange);
+      cnt.addEventListener('change', onCntChange);
+    }
+
+    // alap render + restore
+    renderSpecialLabelFields();
+    if (typeof restoreSpecialLabelSelections === 'function'){
+      restoreSpecialLabelSelections(cache.specialSnapshot || []);
+    }
+  }
+}
+
+}
+
+// ===== Special labels – UI =====
+function saveSpecialLabelSelections(){
+  const out = [];
+  document.querySelectorAll('#specialLabelsContainer .specialLabelRow').forEach(row=>{
+    const template = row.querySelector('.specialLblTemplateSelect')?.value?.trim() || '';
+
+    const linesCnt = Math.max(1, Math.min(10, parseInt(row.querySelector('.specialLblLines')?.value || '2', 10)));
+    const lines = [];
+    for (let i=0;i<linesCnt;i++){
+      const v = (row.querySelector(`.specialLblLine[data-line="${i+1}"]`)?.value || '').trim();
+      if (v) lines.push(v);
+    }
+    if (template || lines.length){
+      out.push({ template, lines });
+    }
+  });
+  return out;
+}
+
+
+
+function restoreSpecialLabelSelections(saved){
+  const rows = document.querySelectorAll('#specialLabelsContainer .specialLabelRow');
+  saved?.forEach((rec, i)=>{
+    const row = rows[i]; if(!row) return;
+    const set = (sel, val) => { const el = row.querySelector(sel); if (el) el.value = val; };
+
+    ensureSelectValue(row.querySelector('.specialLblTemplateSelect'), rec.template || '');
+    set('.specialLblLines', String(Math.max(1, Math.min(10, (rec.lines?.length || 2)))));
+
+    // sor inputok újrarajzolása és értékek visszatöltése
+    renderSpecialLabelLines(row);
+    (rec.lines || []).forEach((txt, idx)=>{
+      const inp = row.querySelector(`.specialLblLine[data-line="${idx+1}"]`);
+      if (inp) inp.value = txt || '';
+    });
+
+    // a beírt értékek alapján állítsuk be a lenyílókat is + readOnly-t
+    refreshSpecialLineSelectors(row);
+  });
+}
+
+
+function renderSpecialLabelLines(row){
+  const cnt = Math.max(1, Math.min(10, parseInt(row.querySelector('.specialLblLines')?.value || '2', 10)));
+  const box = row.querySelector('.specialLblLinesContainer');
+  if (!box) return;
+  box.innerHTML = '';
+
+  for (let i=0;i<cnt;i++){
+    const wrap = document.createElement('div');
+    wrap.className = 'mb-2 sp-line-wrap';
+    wrap.innerHTML = `
+      <label class="form-label">#${i+1}. row</label>
+      <div class="input-group">
+        <select class="form-select specialLblChoice" style="max-width: 190px">
+          <option value="egyedi">unique text</option>
+          <option value="WO">WO</option>
+          <option value="PN">PN</option>
+          <option value="Dátum">Date</option>
+          <option value="Week">Week</option>
+        </select>
+        <input type="text" class="form-control specialLblLine" data-line="${i+1}" placeholder="Text in the ${i+1}. row">
+      </div>
+    `;
+    box.appendChild(wrap);
+
+    // esemény: dropdown változás → helyőrző + readOnly
+    const sel  = wrap.querySelector('.specialLblChoice');
+    const inp  = wrap.querySelector('.specialLblLine');
+    sel.addEventListener('change', ()=> applySpecialSelectBehavior(sel, inp));
+  }
+
+  // ha már voltak korábbi értékek visszatöltve, igazítsuk a selecteket hozzájuk
+  refreshSpecialLineSelectors(row);
+}
+
+
+function renderSpecialLabelFields(){
+  const container = document.getElementById('specialLabelsContainer');
+  if(!container) return;
+
+  // korábbi választások megőrzése
+  const saved = saveSpecialLabelSelections();
+
+  container.innerHTML = '';
+  const cntInput = document.getElementById('specialLabelCountInput');
+  const count = Math.max(1, parseInt(cntInput?.value || '1', 10));
+
+  for (let i=0;i<count;i++){
+    const row = document.createElement('div');
+    row.className = 'border rounded p-3 mb-3 specialLabelRow';
+    row.innerHTML = `
+      <div class="row g-3 align-items-end">
+        <div class="col-md-5">
+          <label class="form-label">Label template (.btw)</label>
+          <select class="form-select specialLblTemplateSelect"></select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Number of rows</label>
+          <input type="number" class="form-control specialLblLines" min="1" max="10" value="2">
+        </div>
+        <div class="col-md-3 text-end">
+          <label class="form-label d-block">&nbsp;</label>
+          <button type="button" class="btn btn-outline-danger btn-sm btn-remove-special">🗑️ Delete</button>
+        </div>
+      </div>
+      <div class="mt-3 specialLblLinesContainer"></div>
+    `;
+    container.appendChild(row);
+
+    // .btw sablonok
+    getBtwFiles(files=>{
+      const sel = row.querySelector('.specialLblTemplateSelect');
+      if(!sel) return;
+      sel.innerHTML = '<option value="">-- Select template --</option>';
+      files.forEach(f=>{
+        const opt = document.createElement('option');
+        opt.value = f; opt.textContent = f;
+        sel.appendChild(opt);
+      });
+      applyPendingSelectValue(sel);
+    });
+
+    // sorok inputjai + dropdown
+    renderSpecialLabelLines(row);
+
+    // sorok száma változik → újrarajzol
+    row.querySelector('.specialLblLines')?.addEventListener('input', ()=>{
+  const st = saveSpecialRowState(row);   // <<< mentés
+  renderSpecialLabelLines(row);
+  restoreSpecialRowState(row, st);       // <<< visszatöltés (beírt sorok megmaradnak)
+});
+
+    // törlés gomb
+    row.querySelector('.btn-remove-special')?.addEventListener('click', ()=>{
+      const cont = document.getElementById('specialLabelsContainer');
+      const cnt  = document.getElementById('specialLabelCountInput');
+      if (cont && cont.children.length <= 1) {
+        // ha csak 1 sor van, ürítsük inkább
+        row.querySelector('.specialLblTemplateSelect').value = '';
+        row.querySelector('.specialLblLines').value = '2';
+        renderSpecialLabelLines(row);
+        return;
+      }
+      row.remove();
+      if (cnt) {
+        const cur = parseInt(cnt.value || '1', 10);
+        cnt.value = String(Math.max(1, cur - 1));
+      }
+    });
+  }
+
+  // előző állapot visszatöltése
+  restoreSpecialLabelSelections(saved);
+}
+
+
+// Special labels összegyűjtése (mentéshez)
+function collectSpecialLabels(){
+  // közvetlenül a fenti selektor-gyűjtést használjuk; NINCS qty / rev / ecn
+  return saveSpecialLabelSelections()
+         .filter(x => (x.template || (x.lines && x.lines.length)));
+}
+
+
+
+function applyFTHiddenUI(block, isHidden){
+  if(!block) return;
+  block.classList.toggle('ft-hidden', !!isHidden);
+  const badge = block.querySelector('.ft-hidden-badge');
+  if(badge) badge.style.display = isHidden ? 'inline-block' : 'none';
+}
+
+function saveFromToSelectionsV2(){
+  const out = {};
+  document.querySelectorAll('#labelBlocksContainer .fromto-block').forEach((block, idx) => {
+
+    const readSide = (side) => {
+      const items = [];
+      items.push({
+        template: block.querySelector(`.${side}TemplateSelect`)?.value || '',
+        sel1:     block.querySelector(side==='from' ? '.connectorSelectFrom1' : '.connectorSelectTo1')?.value || '',
+        sel2:     block.querySelector(side==='from' ? '.connectorSelectFrom2' : '.connectorSelectTo2')?.value || '',
+        text1:    block.querySelector(side==='from' ? '.fromText1' : '.toText1')?.value || '',
+        text2:    block.querySelector(side==='from' ? '.fromText2' : '.toText2')?.value || '',
+      });
+
+      block.querySelectorAll(`.${side}TemplateSelect-extra`).forEach((sel,i)=>{
+        const wrap = sel.closest('.mb-3.p-2.border.rounded');
+        items.push({
+          template: sel.value || '',
+          sel1:     wrap.querySelector(side==='from' ? '.connectorSelectFrom1-extra' : '.connectorSelectTo1-extra')?.value || '',
+          sel2:     wrap.querySelector(side==='from' ? '.connectorSelectFrom2-extra' : '.connectorSelectTo2-extra')?.value || '',
+          text1:    wrap.querySelector(side==='from' ? '.fromText1-extra' : '.toText1-extra')?.value || '',
+          text2:    wrap.querySelector(side==='from' ? '.fromText2-extra' : '.toText2-extra')?.value || '',
+        });
+      });
+
+      return items;
+    };
+
+    const fromItems = readSide('from');
+    const toItems   = readSide('to');
+
+    out[idx] = {
+      mode: window.ftMode || formState.ftMode || 'standard',
+
+      // TELJES blokk rejtés (régi)
+      hidden: !!block.querySelector('.ft-hide-toggle')?.checked,
+
+      // ÚJ: oldalankénti rejtés
+      from_hidden: !!block.querySelector('.ft-hide-from')?.checked,
+      to_hidden:   !!block.querySelector('.ft-hide-to')?.checked,
+
+      from_items: fromItems,
+      to_items:   toItems,
+
+      // kompat mezők (első példány)
+      fromTemplate: (fromItems[0]||{}).template || '',
+      fromText1:    (fromItems[0]||{}).text1 || '',
+      fromText2:    (fromItems[0]||{}).text2 || '',
+      toTemplate:   (toItems[0]||{}).template || '',
+      toText1:      (toItems[0]||{}).text1 || '',
+      toText2:      (toItems[0]||{}).text2 || ''
+    };
+  });
+  return out;
+}
+
+
+
+
+function restoreFromToSelectionsV2(saved){
+  if (!saved) return;
+
+  const anyCustom = Object.values(saved).some(x => x && x.mode === 'custom' &&
+    ((x.from_items && x.from_items.length > 1) || (x.to_items && x.to_items.length > 1))
+  );
+
+  // ✅ csak egyszer váltsunk módot – különben végtelen rekurzió lesz
+  if (anyCustom && window.ftMode !== 'custom') {
+    formState.ftMode = 'custom';
+    window.ftMode = 'custom';
+
+    const stdCb = document.getElementById('ftModeStandard');
+    const cusCb = document.getElementById('ftModeCustom');
+    if (cusCb && stdCb) {
+      cusCb.checked = true;
+      stdCb.checked = false;
+    }
+
+    // ez újrarenderel + a végén restore-ol, de ott már window.ftMode === 'custom',
+    // tehát nem fog újra rerenderelni → nincs loop
+    rerenderBlocksForMode();
+    return; // ✅ nagyon fontos
+  }
+
+  // ... a többi része maradhat ugyanaz
+  document.querySelectorAll('#labelBlocksContainer .fromto-block').forEach((block, idx) => {
+    const d = saved[idx]; if(!d) return;
+
+    const hideCb = block.querySelector('.ft-hide-toggle');
+    if(hideCb){
+      hideCb.checked = !!(d.hidden || d.hide || d.is_hidden);
+      applyFTHiddenUI(block, hideCb.checked);
+    }
+
+    applySideHidden(block, "from", !!(d.from_hidden || d.fromHidden || d.from_hide));
+    applySideHidden(block, "to",   !!(d.to_hidden   || d.toHidden   || d.to_hide));
+
+    const applySide = (side, items) => {
+  if (!Array.isArray(items) || items.length === 0) return;
+
+  if ((window.ftMode === 'custom') && items.length > 1) {
+    const cnt = block.querySelector(`.ft-count[data-side="${side}"]`);
+    if (cnt) {
+      cnt.value = String(items.length);
+      renderSideSections(block, side, items.length);
+    }
+  }
+
+  items.forEach((it, i) => {
+    if (i === 0) {
+      const tpl = block.querySelector(`.${side}TemplateSelect`);
+      ensureSelectValue(tpl, it.template || '');
+
+      if (side === 'from') {
+        const el1 = block.querySelector('.connectorSelectFrom1');
+        if (el1) el1.value = it.sel1 || '';
+
+        const el2 = block.querySelector('.connectorSelectFrom2');
+        if (el2) el2.value = it.sel2 || '';
+
+        const t1 = block.querySelector('.fromText1');
+        if (t1) t1.value = it.text1 || '';
+
+        const t2 = block.querySelector('.fromText2');
+        if (t2) t2.value = it.text2 || '';
+      } else {
+        const el1 = block.querySelector('.connectorSelectTo1');
+        if (el1) el1.value = it.sel1 || '';
+
+        const el2 = block.querySelector('.connectorSelectTo2');
+        if (el2) el2.value = it.sel2 || '';
+
+        const t1 = block.querySelector('.toText1');
+        if (t1) t1.value = it.text1 || '';
+
+        const t2 = block.querySelector('.toText2');
+        if (t2) t2.value = it.text2 || '';
+      }
+      return;
+    }
+
+    const k = i - 1;
+    const tpl = block.querySelectorAll(`.${side}TemplateSelect-extra`)[k];
+    ensureSelectValue(tpl, it.template || '');
+
+    if (side === 'from') {
+      const a1 = block.querySelectorAll('.connectorSelectFrom1-extra')[k];
+      if (a1) a1.value = it.sel1 || '';
+
+      const a2 = block.querySelectorAll('.connectorSelectFrom2-extra')[k];
+      if (a2) a2.value = it.sel2 || '';
+
+      const t1 = block.querySelectorAll('.fromText1-extra')[k];
+      if (t1) t1.value = it.text1 || '';
+
+      const t2 = block.querySelectorAll('.fromText2-extra')[k];
+      if (t2) t2.value = it.text2 || '';
+    } else {
+      const a1 = block.querySelectorAll('.connectorSelectTo1-extra')[k];
+      if (a1) a1.value = it.sel1 || '';
+
+      const a2 = block.querySelectorAll('.connectorSelectTo2-extra')[k];
+      if (a2) a2.value = it.sel2 || '';
+
+      const t1 = block.querySelectorAll('.toText1-extra')[k];
+      if (t1) t1.value = it.text1 || '';
+
+      const t2 = block.querySelectorAll('.toText2-extra')[k];
+      if (t2) t2.value = it.text2 || '';
+    }
+  });
+};
+
+    applySide('from', d.from_items || []);
+    applySide('to',   d.to_items   || []);
+  });
+}
+
+
+  function renderIdLabelFields(){
+    const container = document.getElementById('idLabelBlocks');
+    if(!container) return;
+
+    container.innerHTML = '';
+
+    const lblInput = document.getElementById('labelCountInput');
+    let count = parseInt(lblInput?.value, 10) || 1;
+
+    // ID-k a betöltött configból
+    const idLabels = currentConfig?.summary?.flatMap(p => p.id_labels || []) || [];
+
+    // ha edit módban vagyunk és van mentett ID, első körben azzal szinkronizáljuk a darabszámot
+    if (idLabels.length > 0 && currentMode === 'edit' && !lblInput.dataset.initialSet){
+      count = idLabels.length;
+      lblInput.value = count;
+      lblInput.dataset.initialSet = "true";
+    }
+
+    count = parseInt(lblInput.value, 10) || 1;
+
+    const allPages = document.querySelectorAll('#connectorHierarchyContainer .border.bg-light');
+
+    for(let i=0; i<count; i++){
+      const row = document.createElement('div');
+      row.className = 'row g-3 align-items-end mb-3 idLabelBlock';
+      row.innerHTML = `
+        <div class="col-md-3">
+          <label class="form-label">ID label template</label>
+          <select class="form-select idTemplateSelect" style="width: 300px;"></select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Side</label>
+          <select class="form-select connectorPageSelect"></select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Cable</label>
+          <select class="form-select connectorGroupSelect"></select>
+        </div>`;
+      container.appendChild(row);
+
+      const pageSelect  = row.querySelector('.connectorPageSelect');
+      const groupSelect = row.querySelector('.connectorGroupSelect');
+
+      pageSelect.innerHTML = '';
+
+      // ha nincs egy oldal sem, legyen virtuális Side 1 / Cable 1
+      if (allPages.length === 0){
+        const pOpt = document.createElement('option');
+        pOpt.value = '0';
+        pOpt.textContent = 'Side 1';
+        pageSelect.appendChild(pOpt);
+
+        groupSelect.innerHTML = '';
+        const gOpt = document.createElement('option');
+        gOpt.value = '0';
+        gOpt.textContent = 'Cable 1';
+        groupSelect.appendChild(gOpt);
+
+      } else {
+        // létező oldalak feltöltése
+        allPages.forEach((_, idx) => {
+          const opt = document.createElement('option');
+          opt.value = idx;
+          opt.textContent = `Side ${idx+1}`;
+          pageSelect.appendChild(opt);
+        });
+
+        pageSelect.addEventListener('change', () => updateGroupOptions(pageSelect, groupSelect));
+
+        // alapból az első oldal csoportjai
+        pageSelect.value = "0";
+        updateGroupOptions(pageSelect, groupSelect);
+      }
+
+      // .btw sablonok
+      getBtwFiles(files => {
+        const sel = row.querySelector('.idTemplateSelect');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">-- Select template --</option>';
+        files.forEach(f => {
+          const opt = document.createElement('option');
+          opt.value = f;
+          opt.textContent = f;
+          sel.appendChild(opt);
+        });
+
+        applyPendingSelectValue(sel);
+
+        // mentett értékek visszatöltése (ha van)
+        if (idLabels[i]){
+          const label = idLabels[i];
+          if (label.template) sel.value = label.template;
+
+          if (label.page !== undefined){
+            pageSelect.value = String((label.page - 1) >= 0 ? (label.page - 1) : 0);
+
+            if (allPages.length > 0){
+              updateGroupOptions(pageSelect, groupSelect);
+            } else {
+              groupSelect.innerHTML = '';
+              const gOpt = document.createElement('option');
+              gOpt.value = '0';
+              gOpt.textContent = 'Cable 1';
+              groupSelect.appendChild(gOpt);
+            }
+
+            if (label.group !== undefined){
+              groupSelect.value = String((label.group - 1) >= 0 ? (label.group - 1) : 0);
+            }
+          }
+        }
+      });
+    }
+
+    // ✅ FIX: darabszám mező – preserve módban rendereljünk
+    if (!lblInput.dataset.listenerAdded){
+      lblInput.addEventListener('input', renderIdLabelFieldsPreserve);
+      lblInput.addEventListener('change', renderIdLabelFieldsPreserve);
+      lblInput.dataset.listenerAdded = "true";
+    }
+  }
+
+  function addConnectorPage(multiple=1){
+    for(let i=0;i<multiple;i++){
+      const container=document.getElementById('connectorHierarchyContainer');
+      const pageDiv=document.createElement('div');
+      pageDiv.className='border rounded p-3 mb-3 bg-light';
+      pageDiv.style.position='relative';
+
+      const groupList=document.createElement('div'); groupList.className='connector-group-list';
+      const titleRow=document.createElement('div'); titleRow.className='d-flex align-items-center justify-content-between';
+      const leftTitleGroup=document.createElement('div'); leftTitleGroup.className='d-flex align-items-center';
+      const title=document.createElement('h5'); title.className='page-title'; title.textContent='Side ?';
+      leftTitleGroup.appendChild(title);
+
+      const deletePageBtn=document.createElement('button');
+      deletePageBtn.className='btn btn-sm btn-danger'; deletePageBtn.textContent='🗑️';
+      deletePageBtn.onclick=()=>{
+        pageDiv.remove(); renumberPages();
+        if(document.getElementById('useFromTo').checked){ const s = saveFromToSelectionsV2(); renderLabelBlocks(); restoreFromToSelectionsV2(s);
+ }
+        if(document.getElementById('useIdLabels').checked){ renderIdLabelFields(); }
+      };
+
+      titleRow.appendChild(leftTitleGroup); titleRow.appendChild(deletePageBtn);
+
+      const amountGroupDiv=document.createElement('div'); amountGroupDiv.className='mb-2';
+      const amountInput=document.createElement('input'); amountInput.type='number'; amountInput.min=1; amountInput.value=1;
+      amountInput.className='form-control form-control-sm d-inline-block'; amountInput.style.width='60px';
+      const addGroupBtn=document.createElement('button'); addGroupBtn.className='btn btn-sm btn-secondary ms-2'; addGroupBtn.textContent='➕ Cable(s)';
+      addGroupBtn.onclick=()=>{ const c=parseInt(amountInput.value)||1; for(let g=0;g<c;g++){ addConnectorGroup(groupList, groupList.children.length+1); } };
+
+      amountGroupDiv.appendChild(amountInput); amountGroupDiv.appendChild(addGroupBtn);
+      pageDiv.appendChild(titleRow); pageDiv.appendChild(amountGroupDiv); pageDiv.appendChild(groupList);
+      container.appendChild(pageDiv);
+    }
+    renumberPages();
+    if(document.getElementById('useFromTo').checked){ const s = saveFromToSelectionsV2(); renderLabelBlocks(); restoreFromToSelectionsV2(s);
+ }
+    if(document.getElementById('useIdLabels').checked){ renderIdLabelFields(); }
+    watchConnectorChanges();
+  }
+
+  function addConnectorGroup(groupContainer, groupNumber){
+    const groupDiv=document.createElement('div'); groupDiv.className='border p-2 mb-2 bg-white rounded';
+    const groupTitle=document.createElement('h6'); groupTitle.className='text-primary'; groupTitle.textContent=`Cable ${groupNumber}`;
+    const connectorList=document.createElement('div'); connectorList.className='connector-list mb-2';
+
+    const amountInput=document.createElement('input'); amountInput.type='number'; amountInput.min=1; amountInput.value=2;
+    amountInput.className='form-control form-control-sm d-inline-block me-2'; amountInput.style.width='60px';
+    const addConnectorBtn=document.createElement('button'); addConnectorBtn.className='btn btn-sm btn-outline-primary me-2'; addConnectorBtn.textContent='➕ Connector(s)';
+    addConnectorBtn.onclick=()=>{ const c=parseInt(amountInput.value)||1; for(let i=0;i<c;i++){ addConnectorInput(connectorList); } };
+
+    const deleteGroupBtn=document.createElement('button'); deleteGroupBtn.className='btn btn-sm btn-outline-danger'; deleteGroupBtn.textContent='🗑️ Delete cable';
+    deleteGroupBtn.onclick=()=>{
+      groupDiv.remove();
+      if(document.getElementById('useFromTo').checked){ const s = saveFromToSelectionsV2(); renderLabelBlocks(); restoreFromToSelectionsV2(s);
+ }
+      if(document.getElementById('useIdLabels').checked){ renderIdLabelFields(); }
+    };
+
+    groupDiv.appendChild(groupTitle); groupDiv.appendChild(connectorList);
+    groupDiv.appendChild(amountInput); groupDiv.appendChild(addConnectorBtn); groupDiv.appendChild(deleteGroupBtn);
+    groupContainer.appendChild(groupDiv);
+
+    if(document.getElementById('useFromTo').checked){ const s = saveFromToSelectionsV2(); renderLabelBlocks(); restoreFromToSelectionsV2(s);
+ }
+    if(document.getElementById('useIdLabels').checked){ renderIdLabelFields(); }
+  }
+
+  function addConnectorInput(container, idValue='', valValue=''){
+    const inputRow=document.createElement('div'); inputRow.className='d-flex align-items-center mb-2 gap-2';
+    const idLabel=document.createElement('label'); idLabel.textContent="Connector:"; idLabel.style.minWidth='90px';
+    const idInput=document.createElement('input'); idInput.type='text'; idInput.className='form-control me-2 connector-id'; idInput.placeholder='identifier'; idInput.value=idValue;
+    const valLabel=document.createElement('label'); valLabel.textContent="Connector label:"; valLabel.style.minWidth='120px';
+    const valInput=document.createElement('input'); valInput.type='text'; valInput.className='form-control me-2 connector-value'; valInput.placeholder='name'; valInput.value=valValue;
+    const removeBtn=document.createElement('button'); removeBtn.className='btn btn-sm btn-danger'; removeBtn.textContent='🗑️';
+    removeBtn.onclick=()=>inputRow.remove();
+
+    inputRow.appendChild(idLabel); inputRow.appendChild(idInput);
+    inputRow.appendChild(valLabel); inputRow.appendChild(valInput);
+    inputRow.appendChild(removeBtn); container.appendChild(inputRow);
+  }
+
+  function renumberPages(){
+    document.querySelectorAll('#connectorHierarchyContainer .border.bg-light').forEach((pageDiv,idx)=>{
+      const t=pageDiv.querySelector('.page-title'); if(t) t.textContent=`Side ${idx+1}`;
+    });
+  }
+
+  function watchConnectorChanges(){
+  const container = document.getElementById('connectorHierarchyContainer');
+  if(!container) return;
+
+  // 1) Gyerek elemek hozzáadás/törlés -> itt kell a renderLabelBlocks (párok száma változhat)
+  const observer = new MutationObserver(muts=>{
+    let changed=false;
+    muts.forEach(m=>{
+      if(m.type==='childList' && (m.addedNodes.length || m.removedNodes.length)) changed=true;
+    });
+    if(changed){
+      const saved = saveFromToSelectionsV2();
+      renderLabelBlocks();
+      restoreFromToSelectionsV2(saved);
+
+      // connector etikett fül újrarender (ha nyitva van)
+      if(document.getElementById('tab-connector-labels')){
+        renderConnectorLabelFields(); // ez preserve-ol
+      } else {
+        // ha nincs renderelve, attól még frissítjük a selecteket ha léteznek
+        refreshConnectorLabelConnectorOptions();
+      }
+    }
+  });
+  observer.observe(container,{childList:true, subtree:true});
+
+  // 2) INPUT / CHANGE a konnektor ID/label mezőkön -> csak a select opciókat frissítsük (állapotmegőrzéssel)
+  const onInput = debounce(() => {
+    refreshFromToConnectorOptions();
+    refreshConnectorLabelConnectorOptions();
+  }, 120);
+
+  // event delegation: bármelyik connector-id/value változik
+  container.addEventListener('input', (e) => {
+    if (e.target && (e.target.classList.contains('connector-id') || e.target.classList.contains('connector-value'))) {
+      onInput();
+    }
+  });
+  container.addEventListener('change', (e) => {
+    if (e.target && (e.target.classList.contains('connector-id') || e.target.classList.contains('connector-value'))) {
+      onInput();
+    }
+  });
+}
+
+
+  function getCurrentConnectorStructure(){
+    const structure=[];
+    const pageDivs=document.querySelectorAll('#connectorHierarchyContainer .border.bg-light');
+    pageDivs.forEach((pageDiv,pageIndex)=>{
+      const pageObj={ page:pageIndex+1, groups:[] };
+      const groupDivs=pageDiv.querySelectorAll('.connector-group-list > div');
+      groupDivs.forEach((groupDiv,groupIndex)=>{
+        const groupObj={ group:groupIndex+1, connectors:[] };
+        const rows=groupDiv.querySelectorAll('.connector-list .d-flex');
+        rows.forEach(r=>{
+          const id=r.querySelector('.connector-id')?.value.trim()||'';
+          const value=r.querySelector('.connector-value')?.value.trim()||'';
+          if(id) groupObj.connectors.push({ id, value });
+        });
+        pageObj.groups.push(groupObj);
+      });
+      structure.push(pageObj);
+    });
+    return structure;
+  }
+
+  // === FROM–TO blokkok generálása (Custom számláló támogatással) ===
+  function renderLabelBlocks(){
+    const container=document.getElementById('labelBlocksContainer'); 
+    if(!container) return;
+
+    container.innerHTML='';
+    const structure=getCurrentConnectorStructure(); 
+    if(!structure.length) return;
+
+    structure.forEach((page,pageIndex)=>{
+      page.groups.forEach((group,groupIndex)=>{
+        const connectors=group.connectors||[];
+        const pairCount=Math.max(1, connectors.length-1);
+
+        for(let pairIndex=0;pairIndex<pairCount;pairIndex++){
+          const block=document.createElement('div');
+          block.className='row g-4 align-items-start border-bottom pb-3 mb-4 fromto-block';
+          block.dataset.page=pageIndex; 
+          block.dataset.group=groupIndex; 
+          block.dataset.pair=pairIndex;
+
+          const blockKey = `${pageIndex}-${groupIndex}-${pairIndex}`;
+
+          block.innerHTML = `
+            <div class="col-12 mb-2 d-flex align-items-center justify-content-between">
+              <strong>Side ${pageIndex+1} – Cable ${groupIndex+1} – Pair ${pairIndex+1}</strong>
+
+              <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-warning text-dark ft-hidden-badge">HIDDEN</span>
+                <div class="form-check form-switch m-0">
+                  <input class="form-check-input ft-hide-toggle" type="checkbox" id="ftHide_${blockKey}">
+                  <label class="form-check-label small" for="ftHide_${blockKey}">Hide entire block</label>
+                </div>
+              </div>
+            </div>
+
+            <!-- FROM oldal -->
+            <div class="col-md-6">
+              <div class="ft-from-block">
+                <div class="d-flex align-items-center justify-content-between">
+                  <div class="d-flex align-items-center gap-2">
+                    <label class="form-label fw-bold mb-0">FROM template</label>
+
+                    <span class="badge bg-warning text-dark ft-side-hidden-badge d-none">HIDDEN</span>
+
+                    <div class="form-check form-switch m-0">
+                      <input class="form-check-input ft-hide-from" type="checkbox" id="ftHideFrom_${blockKey}">
+                      <label class="form-check-label small" for="ftHideFrom_${blockKey}">Hide</label>
+                    </div>
+                  </div>
+
+                  <div class="ft-counter" hidden>
+                    <span>Qty:</span>
+                    <input type="number" class="form-control form-control-sm ft-count"
+                          data-side="from" data-key="${blockKey}" min="1" value="1">
+                  </div>
+                </div>
+
+                <div class="ft-side-body">
+                  <div class="from-side-container mt-2"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- TO oldal -->
+            <div class="col-md-6">
+              <div class="ft-to-block">
+                <div class="d-flex align-items-center justify-content-between">
+                  <div class="d-flex align-items-center gap-2">
+                    <label class="form-label fw-bold mb-0">TO template</label>
+
+                    <span class="badge bg-warning text-dark ft-side-hidden-badge d-none">HIDDEN</span>
+
+                    <div class="form-check form-switch m-0">
+                      <input class="form-check-input ft-hide-to" type="checkbox" id="ftHideTo_${blockKey}">
+                      <label class="form-check-label small" for="ftHideTo_${blockKey}">Hide</label>
+                    </div>
+                  </div>
+
+                  <div class="ft-counter" hidden>
+                    <span>Qty:</span>
+                    <input type="number" class="form-control form-control-sm ft-count"
+                          data-side="to" data-key="${blockKey}" min="1" value="1">
+                  </div>
+                </div>
+
+                <div class="ft-side-body">
+                  <div class="to-side-container mt-2"></div>
+                </div>
+              </div>
+            </div>
+          `;
+
+          container.appendChild(block);
+
+          // Hide entire block
+          const hideCb = block.querySelector('.ft-hide-toggle');
+          if(hideCb){
+            hideCb.addEventListener('change', ()=> applyFTHiddenUI(block, hideCb.checked));
+            applyFTHiddenUI(block, hideCb.checked);
+          }
+
+          // kezdő tartalom
+          renderSideSections(block, 'from', 1);
+          renderSideSections(block, 'to',   1);
+
+          // számlálók mód szerint
+          block.querySelectorAll('.ft-counter').forEach(c => c.hidden = (window.ftMode !== 'custom'));
+
+          // ✅ FIX: darabszám változás előtt MENTÉS, utána VISSZATÖLTÉS
+          block.querySelectorAll('.ft-count').forEach(inp=>{
+          const onCountChange = debounce(() => {
+            if (window.ftMode !== 'custom') return;
+
+            const side  = inp.dataset.side;
+            const count = Math.max(1, parseInt(inp.value || '1', 10));
+
+            // 1) CSAK ennek a side-nak az állapotát mentsük
+            const sideState = saveBlockSideState(block, side);
+
+            // 2) Újrarajzolás a kívánt darabszámmal
+            renderSideSections(block, side, count);
+
+            // 3) Visszatöltés ugyanarra a side-ra (extra elemek üresek lesznek)
+            restoreBlockSideState(block, side, sideState);
+
+            // 4) Biztos ami biztos: érték maradjon
+            inp.value = String(count);
+          }, 60);
+
+          inp.addEventListener('input', onCountChange);
+          inp.addEventListener('change', onCountChange);
+        });
+
+          // induló állapot: side rejtések OFF
+          applySideHidden(block, "from", false);
+          applySideHidden(block, "to", false);
+        }
+      });
+    });
+  }
+
+function _ftWrapSelector(side){
+  return side === 'from'
+    ? '.from-side-container > .mb-3.p-2.border.rounded'
+    : '.to-side-container > .mb-3.p-2.border.rounded';
+}
+
+
+
+function computeFtSchematicWidth(ctx, lines, opts = {}) {
+  const padX = opts.padX ?? 24;      // bal+jobb padding
+  const minW = opts.minW ?? 600;     // minimum szélesség
+  let maxW = 0;
+
+  for (const line of (lines || [])) {
+    const t = (line ?? '').toString();
+    const w = ctx.measureText(t).width;
+    if (w > maxW) maxW = w;
+  }
+  return Math.max(minW, Math.ceil(maxW + padX * 2));
+}
+
+
+
+function _ftFieldSelectors(side, isFirst){
+  const S = (a,b)=> side==='from' ? a : b;
+
+  return {
+    tpl : isFirst ? `.${side}TemplateSelect` : `.${side}TemplateSelect-extra`,
+    s1  : isFirst ? `.connectorSelect${S('From','To')}1` : `.connectorSelect${S('From','To')}1-extra`,
+    s2  : isFirst ? `.connectorSelect${S('From','To')}2` : `.connectorSelect${S('From','To')}2-extra`,
+    t1  : isFirst ? `.${S('fromText1','toText1')}`      : `.${S('fromText1','toText1')}-extra`,
+    t2  : isFirst ? `.${S('fromText2','toText2')}`      : `.${S('fromText2','toText2')}-extra`,
+  };
+}
+
+function saveBlockSideState(block, side){
+  const wraps = Array.from(block.querySelectorAll(_ftWrapSelector(side)));
+  const items = wraps.map((wrap, i) => {
+    const isFirst = (i === 0);
+    const sel = _ftFieldSelectors(side, isFirst);
+    return {
+      template: wrap.querySelector(sel.tpl)?.value || '',
+      sel1:     wrap.querySelector(sel.s1)?.value || '',
+      sel2:     wrap.querySelector(sel.s2)?.value || '',
+      text1:    wrap.querySelector(sel.t1)?.value || '',
+      text2:    wrap.querySelector(sel.t2)?.value || '',
+    };
+  });
+
+  // mindig legyen legalább 1 elem
+  return items.length ? items : [{ template:'', sel1:'', sel2:'', text1:'', text2:'' }];
+}
+
+function normalizeSideItems(items, count){
+  const out = Array.isArray(items) ? [...items] : [];
+  while(out.length < count){
+    out.push({ template:'', sel1:'', sel2:'', text1:'', text2:'' });
+  }
+  return out.slice(0, count);
+}
+
+function restoreBlockSideState(block, side, items){
+  const wraps = Array.from(block.querySelectorAll(_ftWrapSelector(side)));
+  const norm  = normalizeSideItems(items, wraps.length);
+
+  norm.forEach((it, i) => {
+    const wrap = wraps[i];
+    if(!wrap) return;
+
+    const isFirst = (i === 0);
+    const sel = _ftFieldSelectors(side, isFirst);
+
+    // template select aszinkron opciói miatt pending kompatibilis
+    ensureSelectValue(wrap.querySelector(sel.tpl), it.template || '');
+
+    const s1 = wrap.querySelector(sel.s1); if (s1) s1.value = it.sel1 || '';
+    const s2 = wrap.querySelector(sel.s2); if (s2) s2.value = it.sel2 || '';
+    const t1 = wrap.querySelector(sel.t1); if (t1) t1.value = it.text1 || '';
+    const t2 = wrap.querySelector(sel.t2); if (t2) t2.value = it.text2 || '';
+  });
+}
+
+  // Segéd: egy oldal (from/to) alrészeinek kirajzolása
+  function renderSideSections(block, side, count){
+  const container = block.querySelector(side === 'from' ? '.from-side-container' : '.to-side-container');
+  if(!container) return;
+  container.innerHTML = '';
+
+  const pageIdx  = parseInt(block.dataset.page, 10);
+  const groupIdx = parseInt(block.dataset.group, 10);
+  const connectors = (getCurrentConnectorStructure()?.[pageIdx]?.groups?.[groupIdx]?.connectors) || [];
+
+  for (let i=0; i<count; i++){
+    const isFirst = (i === 0); // az első példány class-nevei maradnak a régiek
+    const wrap = document.createElement('div');
+    wrap.className = 'mb-3 p-2 border rounded';
+
+    wrap.innerHTML = `
+      ${ isFirst
+          ? `<select class="form-select mb-2 ${side}TemplateSelect"></select>`
+          : `<select class="form-select mb-2 ${side}TemplateSelect-extra"></select>`
+        }
+
+      <label class="form-label">${side.toUpperCase()} text – top line</label>
+      <div class="input-group mb-2">
+        ${ isFirst
+            ? `<select class="form-select connectorSelect${side==='from'?'From':'To'}1"></select>`
+            : `<select class="form-select connectorSelect${side==='from'?'From':'To'}1-extra"></select>`
+          }
+        ${ isFirst
+            ? `<input type="text" class="form-control ${side==='from'?'fromText1':'toText1'}" placeholder="top line">`
+            : `<input type="text" class="form-control ${side==='from'?'fromText1':'toText1'}-extra" placeholder="top line">`
+          }
+      </div>
+
+      <label class="form-label">${side.toUpperCase()} text – bottom line</label>
+      <div class="input-group">
+        ${ isFirst
+            ? `<select class="form-select connectorSelect${side==='from'?'From':'To'}2"></select>`
+            : `<select class="form-select connectorSelect${side==='from'?'From':'To'}2-extra"></select>`
+          }
+        ${ isFirst
+            ? `<input type="text" class="form-control ${side==='from'?'fromText2':'toText2'}" placeholder="bottom line">`
+            : `<input type="text" class="form-control ${side==='from'?'fromText2':'toText2'}-extra" placeholder="bottom line">`
+          }
+      </div>
+    `;
+    container.appendChild(wrap);
+
+    // .btw sablonok (aszinkron) – opciók feltöltése után alkalmazzuk a pending value-t
+    getBtwFiles(files=>{
+      const sel = wrap.querySelector(isFirst ? `.${side}TemplateSelect` : `.${side}TemplateSelect-extra`);
+      if(!sel) return;
+      sel.innerHTML = '<option value="">-- Select template --</option>';
+      files.forEach(f=>{
+        const o=document.createElement('option');
+        o.value=f; o.textContent=f;
+        sel.appendChild(o);
+      });
+      applyPendingSelectValue(sel); // <<< fontos
+    });
+
+    // konnektor selectek (lokális listából szinkron)
+    const sels = [
+      wrap.querySelector(isFirst ? `.connectorSelect${side==='from'?'From':'To'}1` : `.connectorSelect${side==='from'?'From':'To'}1-extra`),
+      wrap.querySelector(isFirst ? `.connectorSelect${side==='from'?'From':'To'}2` : `.connectorSelect${side==='from'?'From':'To'}2-extra`),
+    ];
+    sels.forEach(s=>{
+      if(!s) return;
+      s.innerHTML = '<option value="">-- Select connector --</option>';
+      connectors.forEach(c=>{
+        if(!c.id) return;
+        const opt = document.createElement('option');
+        opt.value = c.id; opt.textContent = c.id;
+        s.appendChild(opt);
+      });
+    });
+
+    // auto-fill
+    setupAutoFill(wrap,
+      isFirst ? `.connectorSelect${side==='from'?'From':'To'}1` : `.connectorSelect${side==='from'?'From':'To'}1-extra`,
+      isFirst ? `.${side==='from'?'fromText1':'toText1'}`       : `.${side==='from'?'fromText1':'toText1'}-extra`
+    );
+    setupAutoFill(wrap,
+      isFirst ? `.connectorSelect${side==='from'?'From':'To'}2` : `.connectorSelect${side==='from'?'From':'To'}2-extra`,
+      isFirst ? `.${side==='from'?'fromText2':'toText2'}`       : `.${side==='from'?'fromText2':'toText2'}-extra`
+    );
+
+  }
+}
+
+
+  // Módváltáskor a blokkok újrarajzolása (számláló láthatóság + darabszámok)
+  function rerenderBlocksForMode(){
+    // MENTÉS
+    const saved = saveFromToSelectionsV2();
+
+    formState.ftMode = window.ftMode || formState.ftMode || 'standard';
+
+    document.querySelectorAll('#labelBlocksContainer .fromto-block').forEach(block=>{
+      const counters = block.querySelectorAll('.ft-counter');
+      counters.forEach(c=> c.hidden = (window.ftMode !== 'custom'));
+
+      const fromCount = (window.ftMode === 'custom') ? (+block.querySelector('.ft-count[data-side="from"]')?.value || 1) : 1;
+      const toCount   = (window.ftMode === 'custom') ? (+block.querySelector('.ft-count[data-side="to"]')?.value   || 1) : 1;
+
+      renderSideSections(block, 'from', Math.max(1, fromCount));
+      renderSideSections(block, 'to',   Math.max(1, toCount));
+    });
+
+    // VISSZATÖLTÉS
+    restoreFromToSelectionsV2(saved);
+  }
+
+
+  function getConnectorValueLive(connectorId){
+  if(!connectorId) return '';
+  const structure = getCurrentConnectorStructure();
+  for(const page of (structure || [])){
+    for(const group of (page.groups || [])){
+      for(const c of (group.connectors || [])){
+        if(String(c?.id||'').trim() === String(connectorId).trim()){
+          return (c?.value || '').toString();
+        }
+      }
+    }
+  }
+  return '';
+}
+
+function setupAutoFill(scope, selectSelector, inputSelector){
+  const select = scope.querySelector(selectSelector);
+  const input  = scope.querySelector(inputSelector);
+  if(!select || !input) return;
+
+  // ne duplázza a listenert újrarendernél (dataset helyett biztonságos Set)
+  const key = `autofill_${selectSelector}_${inputSelector}`;
+  if (!select.__autofillKeys) select.__autofillKeys = new Set();
+  if (select.__autofillKeys.has(key)) return;
+  select.__autofillKeys.add(key);
+
+  select.addEventListener('change', ()=>{
+    const id  = select.value || '';
+    const val = getConnectorValueLive(id);
+
+    // ha van label/value, írjuk be (ha üres, ne töröljük a user által írtat)
+    if(val){
+      input.value = val;
+    }
+  });
+}
+
+
+
+  function saveFromToSelections(){
+    const out={};
+    document.querySelectorAll('#labelBlocksContainer .fromto-block').forEach((block, idx) => {
+      out[idx]={
+        fromTemplate:block.querySelector('.fromTemplateSelect')?.value||'',
+        fromText1:block.querySelector('.fromText1')?.value||'',
+        fromText2:block.querySelector('.fromText2')?.value||'',
+        toTemplate:block.querySelector('.toTemplateSelect')?.value||'',
+        toText1:block.querySelector('.toText1')?.value||'',
+        toText2:block.querySelector('.toText2')?.value||'',
+        selectFrom1:block.querySelector('.connectorSelectFrom1')?.value||'',
+        selectFrom2:block.querySelector('.connectorSelectFrom2')?.value||'',
+        selectTo1:block.querySelector('.connectorSelectTo1')?.value||'',
+        selectTo2:block.querySelector('.connectorSelectTo2')?.value||'',
+      };
+    });
+    return out;
+  }
+  function restoreFromToSelections(saved){
+    document.querySelectorAll('#labelBlocksContainer .fromto-block').forEach((block, idx) => {
+
+      const d=saved[idx]; if(!d) return;
+      const set=(sel,v)=>{ const el=block.querySelector(sel); if(el) el.value=v; };
+      set('.fromTemplateSelect', d.fromTemplate);
+      set('.fromText1', d.fromText1); set('.fromText2', d.fromText2);
+      set('.toTemplateSelect', d.toTemplate);
+      set('.toText1', d.toText1); set('.toText2', d.toText2);
+      set('.connectorSelectFrom1', d.selectFrom1);
+      set('.connectorSelectFrom2', d.selectFrom2);
+      set('.connectorSelectTo1', d.selectTo1);
+      set('.connectorSelectTo2', d.selectTo2);
+    });
+  }
+
+// === Segéd: index a struktúrában szereplő konnektorokhoz (ID → {page, group, value})
+function buildConnectorIndex(){
+  const idx = new Map();
+  getCurrentConnectorStructure().forEach(page=>{
+    (page.groups||[]).forEach(group=>{
+      (group.connectors||[]).forEach(c=>{
+        if(!c?.id) return;
+        if(!idx.has(c.id)){
+          idx.set(c.id, { page: page.page, group: group.group, value: c.value || '' });
+        }
+      });
+    });
+  });
+  return idx;
+}
+
+// === Segéd: a "Connector labels" fül pillanatnyi választásai
+function getConnectorLabelsFromUI(){
+  const index = buildConnectorIndex();
+  const out = [];
+  document.querySelectorAll('#connectorLabelsContainer .connectorLabelRow').forEach(row=>{
+    const template  = row.querySelector('.connectorLblTemplateSelect')?.value?.trim() || '';
+    const connector = row.querySelector('.connectorLblConnectorSelect')?.value?.trim() || '';
+    if(!template && !connector) return;
+    const meta = index.get(connector) || {};
+    out.push({
+      template,
+      connector_id: connector,
+      page: meta.page || null,
+      group: meta.group || null,
+      value: meta.value || ''
+    });
+  });
+  return out;
+}
+
+/* ===========================================================
+ * S C H E M A T I C
+ * =========================================================== */
+function renderSummary(){
+  const container = document.getElementById('summaryContent');
+  if(!container) return;
+  container.innerHTML = '';
+
+  /* --- SPECIÁLIS ETIKETTEK (globális szekció a tetején) --- */
+  const specials = (typeof collectSpecialLabels === 'function') ? collectSpecialLabels() : [];
+  (function renderSpecials(){
+    const wrap = document.createElement('div');
+    wrap.className = 'mb-4 p-3 border rounded bg-white';
+    wrap.innerHTML = `<h4 class="mb-3">Special labels</h4>`;
+
+    if (!specials || specials.length === 0){
+      wrap.insertAdjacentHTML('beforeend', `<div class="text-muted">not set</div>`);
+    } else {
+      const rows = specials.map((s, i) => `
+        <tr>
+          <td class="text-muted" style="width:80px">${i+1}</td>
+          <td style="word-break:break-word;overflow-wrap:anywhere">${s.template || '-'}</td>
+          <td>
+            ${
+              (s.lines && s.lines.length)
+                ? s.lines.map((ln,k)=>`<div>${k+1}. ${ESC(ln)}</div>`).join('')
+                : '<span class="text-muted">–</span>'
+            }
+          </td>
+        </tr>
+      `).join('');
+
+      wrap.insertAdjacentHTML('beforeend', `
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead class="table-dark">
+              <tr><th style="width:80px">#</th><th>TEMPLATE</th><th>ROWS</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `);
+    }
+    container.appendChild(wrap);
+  })();
+
+  /* --- EREDETI LOGIKA ALÁ --- */
+  const structure = getCurrentConnectorStructure();
+  const ftSnap    = saveFromToSelectionsV2();
+  const connLbls  = collectConnectorLabels();
+
+  // ID lista (globális), de később oldalonként/ kábelenként szűrjük
+  const idRows = Array.from(document.querySelectorAll('#idLabelBlocks .idLabelBlock')).map((row,i)=>( {
+    idx: i+1,
+    template: row.querySelector('.idTemplateSelect')?.value?.trim() || '',
+    page: (row.querySelector('.connectorPageSelect')?.selectedIndex || 0) + 1,
+    group: (row.querySelector('.connectorGroupSelect')?.selectedIndex || 0) + 1,
+  }));
+
+  let pairIdxGlobal = 0;
+
+  structure.forEach((page, pIdx) => {
+    const pageWrap = document.createElement('div');
+    pageWrap.className = 'mb-5 p-3 border rounded bg-white';
+    pageWrap.innerHTML = `<h4 class="mb-3">Side ${pIdx+1}</h4>`;
+    container.appendChild(pageWrap);
+
+    (page.groups||[]).forEach((group, gIdx) => {
+      const groupWrap = document.createElement('div');
+      groupWrap.className = 'mb-4 p-2 border rounded';
+      groupWrap.innerHTML = `<h5 class="mb-2">Cable ${group.group}</h5>`;
+      pageWrap.appendChild(groupWrap);
+
+      // ---- CON ----
+      groupWrap.insertAdjacentHTML('beforeend', `<div class="text-muted small mb-1">CON</div>`);
+      const consHere = connLbls.filter(c => c.page === (pIdx+1) && c.group === group.group && c.connector_id);
+
+      if(consHere.length === 0){
+        groupWrap.insertAdjacentHTML('beforeend', `<div class="text-muted mb-3">not set</div>`);
+      } else {
+        const line = document.createElement('div');
+        line.className = 'mb-3';
+        consHere.forEach(c => {
+          const chip = document.createElement('span');
+          chip.className = 'badge text-bg-light me-2 mb-1';
+          chip.innerHTML = `CON: ${ESC(c.connector_id)}${c.value ? ' — ' + ESC(c.value) : ''}`;
+          line.appendChild(chip);
+        });
+        groupWrap.appendChild(line);
+      }
+
+      // ---- ID ----
+      groupWrap.insertAdjacentHTML('beforeend', `<div class="text-muted small mb-1">ID</div>`);
+      const idsHere = idRows.filter(x => x.page === (pIdx+1) && x.group === group.group);
+      const anyIdTpl = idsHere.some(x => x.template);
+
+      if(!anyIdTpl){
+        groupWrap.insertAdjacentHTML('beforeend', `<div class="text-muted mb-3">not set</div>`);
+      } else {
+        const rowsHtml = idsHere.map(x => `
+          <tr>
+            <td class="text-muted">${x.idx}</td>
+            <td style="word-break: break-word; overflow-wrap: anywhere;">${x.template || '-'}</td>
+          </tr>
+        `).join('');
+        groupWrap.insertAdjacentHTML('beforeend', `
+          <div class="table-responsive mb-3">
+            <table class="table table-sm align-middle">
+              <thead class="table-dark">
+                <tr><th style="width:80px">#</th><th>TEMPLATE</th></tr>
+              </thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </div>
+        `);
+      }
+
+      // ---- FROM–TO ----
+      groupWrap.insertAdjacentHTML('beforeend', `<div class="text-muted small mb-1">FROM–TO</div>`);
+
+      const pairCount = Math.max(1, (group.connectors?.length || 0) - 1);
+
+      // >>> FIX: hasAnyFT vegye figyelembe a from_hidden / to_hidden állapotot
+      const hasAnyFT = (() => {
+        for(let i=0;i<pairCount;i++){
+          const snap = ftSnap[pairIdxGlobal + i] || {};
+          if(snap.hidden) continue;
+
+          const filled = (arr) =>
+            (arr || []).some(it => (it.template || it.text1 || it.text2 || '').toString().trim());
+
+          const fromOk = !snap.from_hidden && (
+            [snap.fromTemplate, snap.fromText1, snap.fromText2].some(v => (v||'').toString().trim()) ||
+            filled(snap.from_items)
+          );
+
+          const toOk = !snap.to_hidden && (
+            [snap.toTemplate, snap.toText1, snap.toText2].some(v => (v||'').toString().trim()) ||
+            filled(snap.to_items)
+          );
+
+          if (fromOk || toOk) return true;
+        }
+        return false;
+      })();
+
+      if(!hasAnyFT){
+        groupWrap.insertAdjacentHTML('beforeend', `<div class="text-muted mb-3">not set</div>`);
+        pairIdxGlobal += pairCount;
+        return;
+      }
+
+      const bodyRows = [];
+      for(let i=0;i<pairCount;i++){
+        const snap = ftSnap[pairIdxGlobal++] || {};
+        if(snap.hidden) continue;
+
+        // ha mindkettő oldal HIDDEN: ne rendereljük ezt a sort
+        if (snap.from_hidden && snap.to_hidden) continue;
+
+        const mode = (snap.mode||'standard').toLowerCase();
+
+        // >>> FIX: renderSide kezelje a HIDDEN oldalt
+        const renderSide = (side) => {
+          const sideHidden = (side === 'from') ? !!snap.from_hidden : !!snap.to_hidden;
+          if (sideHidden){
+            return `<div class="text-muted small"><span class="badge bg-warning text-dark">HIDDEN</span></div>`;
+          }
+
+          const items = (side === 'from') ? (snap.from_items || []) : (snap.to_items || []);
+          const prim  = (side === 'from')
+            ? { tpl: snap.fromTemplate, t1: snap.fromText1, t2: snap.fromText2 }
+            : { tpl: snap.toTemplate,   t1: snap.toText1,   t2: snap.toText2   };
+
+          const list = (mode === 'custom' && items.length)
+            ? items
+            : [{ template: prim.tpl, text1: prim.t1, text2: prim.t2 }];
+
+          return list.map((it, k) => `
+            <div class="small mb-1" style="word-break: break-word; overflow-wrap: anywhere;">
+              ${list.length>1 ? `<span class="badge rounded-pill text-bg-secondary me-1">#${k+1}</span>`:''}
+              <span class="badge text-bg-light me-1">${it.template || '-'}</span>
+              <span class="text-muted">"${ESC(it.text1||'-')}" / "${ESC(it.text2||'-')}"</span>
+            </div>
+          `).join('');
+        };
+
+        bodyRows.push(`
+          <tr>
+            <td>${mode==='custom' ? '<span class="badge text-bg-info">custom</span>' : '<span class="badge text-bg-secondary">standard</span>'}</td>
+            <td>${renderSide('from')}</td>
+            <td>${renderSide('to')}</td>
+          </tr>
+        `);
+      }
+
+      if(!bodyRows.length){
+        groupWrap.insertAdjacentHTML('beforeend', `<div class="text-muted mb-3">not set</div>`);
+        return;
+      }
+
+      groupWrap.insertAdjacentHTML('beforeend', `
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead class="table-dark">
+              <tr><th style="width:120px">MODE</th><th>FROM</th><th>TO</th></tr>
+            </thead>
+            <tbody>${bodyRows.join('')}</tbody>
+          </table>
+        </div>
+      `);
+    });
+  });
+}
+
+
+function renderSchematic(){
+  const container = document.getElementById('tabContent-schematic');
+  if(!container) return;
+  container.innerHTML = '';
+
+  const structure = getCurrentConnectorStructure();
+  const ftSnap    = saveFromToSelectionsV2();
+  const connLbls  = collectConnectorLabels();
+
+  // --- SPECIÁLIS ETIKETTEK (globális blokk a tetején) ---
+  const specials = (typeof collectSpecialLabels === 'function') ? collectSpecialLabels() : [];
+  (function renderSpecials(){
+    const wrap = document.createElement('div');
+    wrap.className = 'mb-4 p-3 border rounded bg-white';
+    wrap.innerHTML = `<h4 class="mb-3">Special labels</h4>`;
+
+    if (!specials || specials.length === 0){
+      wrap.insertAdjacentHTML('beforeend', `<div class="text-muted">not set</div>`);
+    } else {
+      const rows = specials.map((s, i) => `
+        <tr>
+          <td class="text-muted" style="width:80px">${i+1}</td>
+          <td style="word-break:break-word;overflow-wrap:anywhere">${s.template || '-'}</td>
+          <td>
+            ${
+              (s.lines && s.lines.length)
+                ? s.lines.map((ln,k)=>`<div>${k+1}. ${ESC(ln)}</div>`).join('')
+                : '<span class="text-muted">–</span>'
+            }
+          </td>
+        </tr>
+      `).join('');
+
+      wrap.insertAdjacentHTML('beforeend', `
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead class="table-dark">
+              <tr><th style="width:80px">#</th><th>TEMPLATE</th><th>ROWS</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `);
+    }
+    container.appendChild(wrap);
+  })();
+
+  // --- OLDALAK / KÁBELEK ---
+  let pairIdxGlobal = 0;
+
+  structure.forEach((page, pIdx)=>{
+    const pageWrap = document.createElement('div');
+    pageWrap.className = 'mb-4 p-3 border rounded bg-white';
+    pageWrap.innerHTML = `<h4 class="mb-3">Side ${pIdx+1}</h4>`;
+    container.appendChild(pageWrap);
+
+    (page.groups || []).forEach((group)=>{
+      const groupWrap = document.createElement('div');
+      groupWrap.className = 'mb-3';
+      groupWrap.innerHTML = `<div class="fw-bold mb-2">Cable ${group.group}</div>`;
+      pageWrap.appendChild(groupWrap);
+
+      // ---- KONNEKTOROK (chip) ----
+      const consHere = (group.connectors || []).filter(c=>c.id);
+      if(consHere.length === 0){
+        groupWrap.insertAdjacentHTML('beforeend', `<div class="text-muted mb-3">not set</div>`);
+      } else {
+        const line = document.createElement('div');
+        line.className = 'mb-3';
+        consHere.forEach(c => {
+          const chip = document.createElement('span');
+          chip.className = 'badge text-bg-light me-2 mb-1';
+          chip.innerHTML = `CON: ${ESC(c.id)}${c.value ? ' — ' + ESC(c.value) : ''}`;
+          line.appendChild(chip);
+        });
+        groupWrap.appendChild(line);
+      }
+
+      // ---- ID (dobozok / not set) ----
+      const idTitle = document.createElement('div');
+      idTitle.className = 'text-muted small mb-1';
+      idTitle.textContent = 'ID';
+      groupWrap.appendChild(idTitle);
+
+      // ha nálad van id render, hagyd úgy, itt most nem bántjuk
+      groupWrap.insertAdjacentHTML('beforeend', `<div class="text-muted mb-3">(ID render unchanged)</div>`);
+
+      // ---- FROM–TO ----
+      const ftTitle = document.createElement('div');
+      ftTitle.className = 'text-muted small mb-1';
+      ftTitle.textContent = 'FROM–TO';
+      groupWrap.appendChild(ftTitle);
+
+      const pairCount = Math.max(1, (group.connectors?.length || 0) - 1);
+
+      const hasAnyFT = (() => {
+        let has = false;
+        for (let i=0; i<pairCount; i++){
+          const snap = ftSnap[pairIdxGlobal + i] || {};
+          if(snap.hidden) continue;
+
+          const filled = (arr) =>
+            (arr || []).some(it => (it.template || it.text1 || it.text2 || '').toString().trim());
+
+          const fromOk = !snap.from_hidden && (
+            [snap.fromTemplate, snap.fromText1, snap.fromText2].some(v => (v||'').toString().trim()) ||
+            filled(snap.from_items)
+          );
+
+          const toOk = !snap.to_hidden && (
+            [snap.toTemplate, snap.toText1, snap.toText2].some(v => (v||'').toString().trim()) ||
+            filled(snap.to_items)
+          );
+
+          if (fromOk || toOk) { has = true; break; }
+        }
+        return has;
+      })();
+
+      if(!hasAnyFT){
+        groupWrap.insertAdjacentHTML('beforeend', `<div class="text-muted">not set</div>`);
+        pairIdxGlobal += pairCount;
+        return;
+      }
+
+      const ftRow = document.createElement('div');
+      ftRow.className = 'd-flex gap-3 ft-row';
+      groupWrap.appendChild(ftRow);
+
+      // helper: item -> "A - B" (ha nincs, fallback)
+      const badgeForItem = (it, fallbackTop, fallbackBot) => {
+        const a = (it?.sel1 || '').trim();
+        const b = (it?.sel2 || '').trim();
+        if(a || b) return `${ESC(a || '—')} - ${ESC(b || '—')}`;
+        return `${ESC(fallbackTop || '—')} - ${ESC(fallbackBot || '—')}`;
+      };
+
+      for(let i=0; i<pairCount; i++){
+        const snap = ftSnap[pairIdxGlobal++] || {};
+        if(snap.hidden) continue;
+
+        // ha mindkettő oldal HIDDEN: ugorjuk
+        if (snap.from_hidden && snap.to_hidden) continue;
+
+        const mode = (snap.mode||'standard').toLowerCase();
+
+        // a fizikai konnektor-pár a group sorrend alapján
+        const topConnId = (group.connectors?.[i]?.id || '').trim();
+        const botConnId = (group.connectors?.[i+1]?.id || '').trim();
+
+        // FROM: A-B, TO: B-A (reverse)
+        const fromFallbackTop = topConnId;
+        const fromFallbackBot = botConnId;
+        const toFallbackTop   = botConnId;
+        const toFallbackBot   = topConnId;
+
+        const buildSide = (side) => {
+          const sideHidden = (side === 'from') ? !!snap.from_hidden : !!snap.to_hidden;
+          if (sideHidden) return [];
+
+          const prim = (side === 'from')
+            ? { tpl: snap.fromTemplate, t1: snap.fromText1, t2: snap.fromText2 }
+            : { tpl: snap.toTemplate,   t1: snap.toText1,   t2: snap.toText2   };
+
+          const items = (side === 'from') ? (snap.from_items || []) : (snap.to_items || []);
+          const list  = (mode === 'custom' && items.length)
+            ? items
+            : [{ template: prim.tpl, text1: prim.t1, text2: prim.t2, sel1:'', sel2:'' }];
+
+          const fbTop = (side === 'from') ? fromFallbackTop : toFallbackTop;
+          const fbBot = (side === 'from') ? fromFallbackBot : toFallbackBot;
+
+          return list.map((it, k) => {
+            const box = document.createElement('div');
+            box.className = `schematic-box ${side === 'from' ? 'from-box' : 'to-box'}`;
+
+            const connBadgeText = badgeForItem(it, fbTop, fbBot);
+
+            box.innerHTML = `
+              <div class="d-flex align-items-center justify-content-between mb-1">
+                <span class="badge ${mode==='custom'?'text-bg-info':'text-bg-secondary'}">${mode}</span>
+                <span class="badge text-bg-light border">${connBadgeText}</span>
+              </div>
+
+              <div class="small text-muted mb-1">${side.toUpperCase()} #${k+1}</div>
+              <div class="small fw-semibold mb-1" style="word-break: break-word; overflow-wrap: anywhere;">${it.template || '-'}</div>
+              <div class="schematic-line"></div>
+              <div class="schematic-text-top">${ESC(it.text1 || '-')}</div>
+              <div class="schematic-line-mid"></div>
+              <div class="schematic-text-bottom">${ESC(it.text2 || '-')}</div>
+            `;
+            return box;
+          });
+        };
+
+        const pairWrap = document.createElement('div');
+        pairWrap.style.display = 'flex';
+        pairWrap.style.flexDirection = 'column';
+        pairWrap.style.gap = '8px';
+
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.gap = '16px';
+
+        buildSide('from').forEach(el=>row.appendChild(el));
+        buildSide('to').forEach(el=>row.appendChild(el));
+
+        pairWrap.appendChild(row);
+        ftRow.appendChild(pairWrap);
+      }
+    });
+  });
+}
+
+
+
+
+
+
+  // ---------- Betöltés ----------
+  async function loadLabelConfig(pn, rev, ecn, updateCheckBtn=false){
+  try{
+    const resp = await fetch('/api/bartender/load_label_config', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ pn, rev, ecn })
+    });
+
+    if(!resp.ok){
+      const t = await resp.text().catch(()=> '');
+      throw new Error(t || `HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    if(data.status !== 'success') throw new Error(data.message || 'A konfiguráció nem található.');
+
+    if(updateCheckBtn){
+      const b=document.getElementById('checkPNButton');
+      b.classList.remove('btn-secondary','btn-danger');
+      b.classList.add('btn-success');
+      b.textContent='✔ PN loaded';
+    }
+
+    currentConfig = data.data || {};
+    window.currentConfig = currentConfig;
+
+    document.getElementById('pnInput').value  = pn;
+    document.getElementById('revInput').value = currentConfig.rev || '';
+    document.getElementById('ecnInput').value = currentConfig.ecn || '';
+
+    initSettingsAfterLoad(currentConfig);
+
+    // ---- LOCK: config_id biztosítása + lock felvétele ----
+    const cfgId = currentConfig.id || currentConfig.config_id || getConfigIdSafe();
+    let finalId = cfgId;
+
+    // ha a backend nem adta vissza, akkor kérjük le (van resolveConfigId függvényed)
+    if(!finalId && typeof resolveConfigId === 'function'){
+      finalId = await resolveConfigId(pn, currentConfig.rev || rev, currentConfig.ecn || ecn);
+    }
+
+    // lock csak itt, MIUTÁN már van config_id
+    await acquireProjectLock({
+      pn,
+      rev: (currentConfig.rev || rev),
+      ecn: (currentConfig.ecn || ecn),
+      configId: finalId
+    });
+
+    return currentConfig;
+
+  } catch(err){
+    if(updateCheckBtn){
+      const b=document.getElementById('checkPNButton');
+      b.classList.remove('btn-secondary','btn-success');
+      b.classList.add('btn-danger');
+      b.textContent='❌ PN not found (label data)';
+    }
+
+    // lockot se blokkoljuk
+    LOCK.active = false; LOCK.isOwner = false; LOCK.lockedBy = null;
+    applyLockUI();
+
+    alert(`Hiba a PN betöltése közben: ${err.message||err}`);
+    throw err;
+  }
+}
+
+
+function initSettingsAfterLoad(config){
+  console.log('[BT] initSettingsAfterLoad incoming config:', config);
+
+  // --- kompatibilitás: legyen mindig summary tömb ---
+  config = config || {};
+  if (!Array.isArray(config.pages) && Array.isArray(config.summary)) config.pages = config.summary;
+  if (!Array.isArray(config.summary) && Array.isArray(config.pages)) config.summary = config.pages;
+
+  const summary = Array.isArray(config.summary) ? config.summary : [];
+
+  const hasIdLabels   = summary.some(p => Array.isArray(p.id_labels) && p.id_labels.length);
+  const hasConnectors = summary.some(p => Array.isArray(p.groups)    && p.groups.length);
+
+  // mindhárom jelölőnégyzet legyen bekapcsolva betöltéskor
+  ['useIdLabels','useFromTo','useConnectors'].forEach(id => {
+  $("#" + id).off("change.btSettingsTabs").on("change.btSettingsTabs", function(){
+
+    // ✅ nálad ez a helyes
+    const wasActiveHref = $("#settingsTabSelector .nav-link.active").attr("href");
+
+    renderSettingsTabs();
+
+    // ha a korábbi aktív tab még létezik, maradjunk ott
+    if (wasActiveHref && $(wasActiveHref).length) {
+      const link = $(`#settingsTabSelector .nav-link[href="${wasActiveHref}"]`);
+      if (link.length) new bootstrap.Tab(link[0]).show();
+    }
+  });
+});
+
+  // tabs váz
+  renderSettingsTabs();
+
+  // --- KONNEKTOR HIERARCHIA (Side / Cable / Konnektorok) visszatöltése ---
+  if (hasConnectors){
+    const root = document.getElementById('connectorHierarchyContainer');
+    if (root) root.innerHTML = '';
+
+    summary.forEach(page=>{
+      addConnectorPage(1); // új oldal
+      const pagesEls = root ? root.querySelectorAll('.border.bg-light') : [];
+      const pageDiv = pagesEls[pagesEls.length-1];
+
+      (page.groups||[]).forEach(group=>{
+        const list = pageDiv.querySelector('.connector-group-list');
+        addConnectorGroup(list, group.group); // új kábel
+        const groupDiv = list.lastElementChild;
+        const connectorList = groupDiv.querySelector('.connector-list');
+
+        (group.connectors||[]).forEach(c => {
+          addConnectorInput(connectorList, c.id, c.value);
+        });
+      });
+    });
+  }
+
+  // FROM–TO blokkok kirajzolása az aktuális struktúrából
+  renderLabelBlocks();
+
+  // csak az ID jelenjen meg a FROM–TO konnektor-selectben
+  (function relabelOptionsOnlyId(){
+    const structure = getCurrentConnectorStructure();
+    document.querySelectorAll('#labelBlocksContainer .fromto-block').forEach(block => {
+      const pageIdx  = parseInt(block.dataset.page, 10);
+      const groupIdx = parseInt(block.dataset.group, 10);
+      const connectors = structure?.[pageIdx]?.groups?.[groupIdx]?.connectors || [];
+      const byId = new Map(connectors.map(c => [c.id, c]));
+
+      ['.connectorSelectFrom1','.connectorSelectFrom2',
+       '.connectorSelectTo1','.connectorSelectTo2']
+      .forEach(sel => {
+        const s = block.querySelector(sel);
+        if(!s) return;
+        Array.from(s.options).forEach(opt=>{
+          const id = opt.value;
+          if(!id) return;
+          if(byId.has(id)){
+            opt.textContent = id; // csak ID jelenjen meg
+          }
+        });
+      });
+    });
+  })();
+
+  // FROM–TO párok visszatöltése (standard/custom + extra példányok)
+  (function fillPairs(){
+    const blocks    = document.querySelectorAll('#labelBlocksContainer .fromto-block');
+    const structure = getCurrentConnectorStructure();
+    let idx = 0;
+
+    (summary || []).forEach(page=>{
+      (page.groups || []).forEach(group=>{
+        (group.pairs || []).forEach(pair=>{
+          const b = blocks[idx++];
+          if(!b) return;
+
+          // rejtés állapot (pair.hidden) visszaállítása
+          const hideCb = b.querySelector('.ft-hide-toggle');
+
+          // FROM/TO oldal rejtés visszaállítása (külön)
+          applySideHidden(b, "from", !!(pair.from_hidden || pair.from?.hidden));
+          applySideHidden(b, "to",   !!(pair.to_hidden   || pair.to?.hidden));
+
+          if(hideCb){
+            hideCb.checked = !!(pair.hidden || pair.hide || pair.is_hidden);
+            applyFTHiddenUI(b, hideCb.checked);
+          }
+
+          const fin = x => Array.isArray(x) ? x : [];
+          const fromItems = fin(pair.from_items?.length ? pair.from_items : [{
+            template: pair.from?.template || '',
+            sel1:     pair.from?.sel1     || '',
+            sel2:     pair.from?.sel2     || '',
+            text1:    pair.from?.text1    || '',
+            text2:    pair.from?.text2    || ''
+          }]);
+          const toItems = fin(pair.to_items?.length ? pair.to_items : [{
+            template: pair.to?.template || '',
+            sel1:     pair.to?.sel1     || '',
+            sel2:     pair.to?.sel2     || '',
+            text1:    pair.to?.text1    || '',
+            text2:    pair.to?.text2    || ''
+          }]);
+
+          const needCustom =
+            (fromItems.length > 1) ||
+            (toItems.length > 1)   ||
+            (String(pair.mode||'').toLowerCase() === 'custom');
+
+          if (needCustom){
+            formState.ftMode = 'custom';
+            window.ftMode    = 'custom';
+            const stdCb = document.getElementById('ftModeStandard');
+            const cusCb = document.getElementById('ftModeCustom');
+            if (cusCb && stdCb){ cusCb.checked = true; stdCb.checked = false; }
+
+            const fCnt = b.querySelector('.ft-count[data-side="from"]');
+            const tCnt = b.querySelector('.ft-count[data-side="to"]');
+            if (fCnt){ fCnt.value = String(Math.max(1, fromItems.length)); }
+            if (tCnt){ tCnt.value = String(Math.max(1, toItems.length)); }
+
+            rerenderBlocksForMode();
+          }
+
+          const pageIdx  = parseInt(b.dataset.page, 10);
+          const groupIdx = parseInt(b.dataset.group, 10);
+          const connectors = structure?.[pageIdx]?.groups?.[groupIdx]?.connectors || [];
+
+          const applyPrimary = (side, item) => {
+            const tpl = b.querySelector(`.${side}TemplateSelect`);
+            ensureSelectValue(tpl, item.template || '');
+
+            if (side === 'from'){
+              const s1 = b.querySelector('.connectorSelectFrom1');
+              const s2 = b.querySelector('.connectorSelectFrom2');
+              const t1 = b.querySelector('.fromText1');
+              const t2 = b.querySelector('.fromText2');
+
+              if (s1) s1.value = item.sel1 || '';
+              if (s2) s2.value = item.sel2 || '';
+              if (t1) t1.value = item.text1 || '';
+              if (t2) t2.value = item.text2 || '';
+
+              if (!item.sel1) guessSelectByText(s1, connectors, item.text1);
+              if (!item.sel2) guessSelectByText(s2, connectors, item.text2);
+            } else {
+              const s1 = b.querySelector('.connectorSelectTo1');
+              const s2 = b.querySelector('.connectorSelectTo2');
+              const t1 = b.querySelector('.toText1');
+              const t2 = b.querySelector('.toText2');
+
+              if (s1) s1.value = item.sel1 || '';
+              if (s2) s2.value = item.sel2 || '';
+              if (t1) t1.value = item.text1 || '';
+              if (t2) t2.value = item.text2 || '';
+
+              if (!item.sel1) guessSelectByText(s1, connectors, item.text1);
+              if (!item.sel2) guessSelectByText(s2, connectors, item.text2);
+            }
+          };
+
+          applyPrimary('from', fromItems[0] || {});
+          applyPrimary('to',   toItems[0]   || {});
+
+          const applyExtra = (side, items) => {
+            items.slice(1).forEach((it, i) => {
+              const tpl = b.querySelectorAll(`.${side}TemplateSelect-extra`)[i];
+              ensureSelectValue(tpl, it.template || '');
+
+              if (side === 'from'){
+                const s1e = b.querySelectorAll('.connectorSelectFrom1-extra')[i];
+                const s2e = b.querySelectorAll('.connectorSelectFrom2-extra')[i];
+                const t1e = b.querySelectorAll('.fromText1-extra')[i];
+                const t2e = b.querySelectorAll('.fromText2-extra')[i];
+
+                if (s1e) s1e.value = it.sel1 || '';
+                if (s2e) s2e.value = it.sel2 || '';
+                if (t1e) t1e.value = it.text1 || '';
+                if (t2e) t2e.value = it.text2 || '';
+
+                if (!it.sel1) guessSelectByText(s1e, connectors, it.text1);
+                if (!it.sel2) guessSelectByText(s2e, connectors, it.text2);
+              } else {
+                const s1e = b.querySelectorAll('.connectorSelectTo1-extra')[i];
+                const s2e = b.querySelectorAll('.connectorSelectTo2-extra')[i];
+                const t1e = b.querySelectorAll('.toText1-extra')[i];
+                const t2e = b.querySelectorAll('.toText2-extra')[i];
+
+                if (s1e) s1e.value = it.sel1 || '';
+                if (s2e) s2e.value = it.sel2 || '';
+                if (t1e) t1e.value = it.text1 || '';
+                if (t2e) t2e.value = it.text2 || '';
+
+                if (!it.sel1) guessSelectByText(s1e, connectors, it.text1);
+                if (!it.sel2) guessSelectByText(s2e, connectors, it.text2);
+              }
+            });
+          };
+
+          applyExtra('from', fromItems);
+          applyExtra('to',   toItems);
+        });
+
+        // ha a struktúra több párt “vár”, mint ami a summary-ban volt, idx-t léptetjük
+        const structPairs = Math.max(1, (group.connectors || []).length - 1);
+        idx += Math.max(0, structPairs - (group.pairs || []).length);
+      });
+    });
+  })();
+
+  // --- ID labels visszatöltése ---
+  if (hasIdLabels) {
+    renderIdLabelFields(); // currentConfig.summary-ből dolgozik (nálad így van megírva)
+  }
+
+  // --- Special labels visszatöltése ---
+  (function restoreSpecial(){
+    const arr = Array.isArray(config.special_labels) ? config.special_labels : [];
+    if (!arr.length) return;
+    const cnt = document.getElementById('specialLabelCountInput');
+    if (!cnt) return;
+    cnt.value = String(arr.length);
+    renderSpecialLabelFields();
+    restoreSpecialLabelSelections(arr);
+  })();
+
+  // --- Konnektor labels visszatöltése ---
+  (function restoreConnectorLabels(){
+    const arr = Array.isArray(config.connector_labels) ? config.connector_labels : [];
+    if (!arr.length) return;
+    const cnt = document.getElementById('connectorLabelCountInput');
+    if (!cnt) return;
+
+    cnt.value = String(arr.length);
+    renderConnectorLabelFields();
+
+    const rows = document.querySelectorAll('#connectorLabelsContainer .connectorLabelRow');
+    arr.forEach((cl, i) => {
+      const row = rows[i]; if (!row) return;
+      const set = (sel, val) => { const el = row.querySelector(sel); if (el) el.value = (val ?? ''); };
+      set('.connectorLblTemplateSelect',  cl.template      || '');
+      set('.connectorLblConnectorSelect', cl.connector_id  || '');
+    });
+  })();
+}
+
+function refreshFromToConnectorOptions(){
+  const blocks = document.querySelectorAll('#labelBlocksContainer .fromto-block');
+  if(!blocks.length) return;
+
+  const structure = getCurrentConnectorStructure();
+
+  blocks.forEach(block => {
+    const pageIdx  = parseInt(block.dataset.page, 10);
+    const groupIdx = parseInt(block.dataset.group, 10);
+    const connectors = (structure?.[pageIdx]?.groups?.[groupIdx]?.connectors) || [];
+
+    // összes konnektor select a blokkban (standard + extra)
+    const selects = block.querySelectorAll(`
+      .connectorSelectFrom1, .connectorSelectFrom2, .connectorSelectTo1, .connectorSelectTo2,
+      .connectorSelectFrom1-extra, .connectorSelectFrom2-extra, .connectorSelectTo1-extra, .connectorSelectTo2-extra
+    `);
+
+    selects.forEach(sel => {
+      if(!sel) return;
+      const prev = sel.value || '';
+
+      sel.innerHTML = '<option value="">-- Select connector --</option>';
+      connectors.forEach(c => {
+        if(!c.id) return;
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.id;
+        sel.appendChild(opt);
+      });
+
+      // visszaállítjuk a korábbi választást, ha még létezik
+      if (prev && Array.from(sel.options).some(o => o.value === prev)) {
+        sel.value = prev;
+      } else {
+        sel.value = '';
+      }
+    });
+  });
+}
+function refreshConnectorLabelConnectorOptions(){
+  const container = document.getElementById('connectorLabelsContainer');
+  if(!container) return;
+
+  const connectors = getAllConnectorsList(); // már létező helper nálad
+
+  container.querySelectorAll('.connectorLblConnectorSelect').forEach(sel => {
+    const prev = sel.value || '';
+    sel.innerHTML = '<option value="">-- Select connector --</option>';
+    connectors.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = `${c.id}${c.value ? ' - ' + c.value : ''}`;
+      sel.appendChild(opt);
+    });
+
+    if (prev && Array.from(sel.options).some(o => o.value === prev)) sel.value = prev;
+    else sel.value = '';
+  });
+}
+
+  // ---------- Save ----------
+  // ---------- Save ----------
+async function saveLabelConfig() {
+  try {
+    const pn  = document.getElementById('pnInput')?.value.trim();
+    const rev = document.getElementById('revInput')?.value.trim();
+    const ecn = document.getElementById('ecnInput')?.value.trim();
+    if (!pn || !rev || !ecn) { alert("PN, REV, ECN kötelező!"); return; }
+
+    // ---- LOCK guard ----
+    if (LOCK.configId && LOCK.active && !LOCK.isOwner) {
+      const who = LOCK.lockedBy || 'valaki más';
+      alert(`Ezt a projektet most ${who} szerkeszti. Save nem engedélyezett.`);
+      return;
+    }
+
+    // EDIT módban csak lockkal engedjük a mentést
+    if (currentMode === 'edit') {
+      if (!LOCK.configId || !LOCK.token || !LOCK.active || !LOCK.isOwner) {
+        const who = LOCK.lockedBy || 'valaki más';
+        alert(`Save tiltva: nincs saját lock. (Lock: ${who})`);
+        return;
+      }
+    }
+
+    const structure = getCurrentConnectorStructure();
+
+    // ID labelek
+    const idLabels = [];
+    document.querySelectorAll('#idLabelBlocks .idLabelBlock').forEach((block, i) => {
+      const template = block.querySelector('.idTemplateSelect')?.value || '';
+      const page     = (parseInt(block.querySelector('.connectorPageSelect')?.value || '0', 10) + 1);
+      const group    = (parseInt(block.querySelector('.connectorGroupSelect')?.value || '0', 10) + 1);
+      idLabels.push({ id_index: i + 1, template, page, group });
+    });
+
+    // FROM–TO snapshot
+    const savedFT = saveFromToSelectionsV2();
+
+    // Sideak (pages)
+    const pages = [];
+    let blockIndex = 0;
+
+    if (structure.length > 0) {
+      structure.forEach((page, pageIndex) => {
+        const pageObj = {
+          page: pageIndex + 1,
+          groups: [],
+          id_labels: idLabels.filter(l => l.page === pageIndex + 1)
+        };
+
+        (page.groups || []).forEach((group, groupIndex) => {
+          const groupObj = { group: groupIndex + 1, connectors: group.connectors || [], pairs: [] };
+          const pairCount = Math.max(1, (group.connectors || []).length - 1);
+
+          for (let i = 0; i < pairCount; i++) {
+            const snap = savedFT[blockIndex] || {};
+
+            const f0 = (Array.isArray(snap.from_items) && snap.from_items.length) ? snap.from_items[0] : {};
+            const t0 = (Array.isArray(snap.to_items)   && snap.to_items.length)   ? snap.to_items[0]   : {};
+
+            const fromPrimary = {
+              template: (f0.template ?? snap.fromTemplate ?? '') || '',
+              sel1:     (f0.sel1     ?? '') || '',
+              sel2:     (f0.sel2     ?? '') || '',
+              text1:    (f0.text1    ?? snap.fromText1 ?? '') || '',
+              text2:    (f0.text2    ?? snap.fromText2 ?? '') || ''
+            };
+
+            const toPrimary = {
+              template: (t0.template ?? snap.toTemplate ?? '') || '',
+              sel1:     (t0.sel1     ?? '') || '',
+              sel2:     (t0.sel2     ?? '') || '',
+              text1:    (t0.text1    ?? snap.toText1 ?? '') || '',
+              text2:    (t0.text2    ?? snap.toText2 ?? '') || ''
+            };
+
+            const pair = {
+              from: fromPrimary,
+              to:   toPrimary,
+              mode: (snap.mode || formState.ftMode || 'standard'),
+
+              from_items: Array.isArray(snap.from_items) && snap.from_items.length ? snap.from_items : [fromPrimary],
+              to_items:   Array.isArray(snap.to_items)   && snap.to_items.length   ? snap.to_items   : [toPrimary],
+
+              hidden: !!(snap.hidden || snap.hide || snap.is_hidden),
+              from_hidden: !!(snap.from_hidden),
+              to_hidden:   !!(snap.to_hidden),
+            };
+
+            const nonEmpty = (obj) => Object.values(obj || {}).some(v => (v || '').toString().trim());
+            const hasSideHide = !!pair.from_hidden || !!pair.to_hidden;
+
+            if (
+              pair.hidden || hasSideHide ||
+              nonEmpty(fromPrimary) || nonEmpty(toPrimary) ||
+              (pair.from_items?.length > 1) || (pair.to_items?.length > 1)
+            ) {
+              groupObj.pairs.push(pair);
+            }
+
+            blockIndex++;
+          }
+
+          pageObj.groups.push(groupObj);
+        });
+
+        pages.push(pageObj);
+      });
+
+    } else if (idLabels.length > 0) {
+      // fallback pages
+      const byPage = new Map();
+      idLabels.forEach(l => {
+        const p = l.page && l.page > 0 ? l.page : 1;
+        const g = l.group && l.group > 0 ? l.group : 1;
+        if (!byPage.has(p)) byPage.set(p, new Map());
+        const byGroup = byPage.get(p);
+        if (!byGroup.has(g)) byGroup.set(g, []);
+        byGroup.get(g).push(l);
+      });
+
+      for (const [p, byGroup] of byPage.entries()) {
+        const groupsArr = [];
+        for (const [g] of byGroup.entries()) groupsArr.push({ group: g, connectors: [], pairs: [] });
+        const idOnPage = idLabels.filter(l => (l.page && l.page > 0 ? l.page : 1) === p);
+        pages.push({ page: p, groups: groupsArr.sort((a, b) => a.group - b.group), id_labels: idOnPage });
+      }
+      pages.sort((a, b) => a.page - b.page);
+    }
+
+    const connectorLabels = collectConnectorLabels();
+    const specialLabels   = collectSpecialLabels();
+
+    const body = {
+      pn, rev, ecn,
+      id_template: (idLabels[0]?.template || ''),
+      pages,
+      connector_labels: connectorLabels,
+      special_labels: specialLabels,
+
+      // ✅ új: mód jelzése (add / edit)
+      mode: currentMode,
+
+      // lock adatok
+      config_id: LOCK.configId || '',
+      lock_token: LOCK.token || ''
+    };
+
+    console.groupCollapsed('[BT] POST /api/bartender/save_label_config');
+    console.log('→ Request body:', body);
+
+    const resp = await fetch('/api/bartender/save_label_config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    // 409/423 kezelése
+    if (resp.status === 409 || resp.status === 423) {
+      const dx = await resp.json().catch(() => ({}));
+      console.warn("[BT] save blocked:", dx);
+      console.groupEnd();
+
+      if (dx.code === "already_exists") {
+        showAlreadyExistsModal({
+          pn, rev, ecn,
+          onExit: async () => closeProjectModal("already_exists_exit"),
+          onOpen: async () => {
+            try {
+              currentMode = "edit";
+              $("#pnModalTitle").text("Edit project");
+              await loadLabelConfig(pn, rev, ecn, true);
+              setTab("settings");
+            } catch (e) {
+              console.warn("Projekt megnyitása sikertelen:", e);
+              alert("Nem sikerült megnyitni a projektet. Lehet, hogy valaki más szerkeszti.");
+            }
+          }
+        });
+        return;
+      }
+
+      setLockUI({ locked: true, owner: dx.owner || dx.locked_by || "ismeretlen" });
+      alert(`Save tiltva: ezt a projektet most ${(dx.owner || dx.locked_by || "valaki")} szerkeszti.`);
+      return;
+    }
+
+    let d = null;
+    try { d = await resp.json(); } catch (e) { d = null; }
+
+    console.log('← HTTP status:', resp.status, resp.statusText);
+    console.log('← Response JSON:', d);
+    console.groupEnd();
+
+    if (!(d && d.status === 'success')) {
+      throw new Error(d?.message || 'Unknown error while saving configuration.');
+    }
+
+    // ha add módban most keletkezett id, elmentjük (opcionális)
+    const newId = String(d.id ?? d.config_id ?? '');
+    if (newId && !projectConfigId) projectConfigId = newId;
+
+    // speciális labels külön mentése (maradhat)
+    const configId = String(d.id ?? d.config_id ?? window.config_id ?? projectConfigId ?? '');
+    if (configId) {
+      window.config_id = configId;
+      try {
+        const specRes = await saveSpecialLabelsToTable(configId, pn, rev, ecn);
+        console.info('[BT] special_labels result:', specRes);
+      } catch (e) {
+        console.warn('[BT] Special labels mentése nem sikerült külön táblába:', e);
+      }
+    }
+
+    alert('Saved successfully!');
+
+  } catch (err) {
+    console.error('[BT] Savei hiba:', err);
+    alert('Error while saving: ' + (err?.message || err));
+  }
+}
+
+/* ===========================================================
+ *  U I  S T A T E  H E L P E R S
+ * =========================================================== */
+
+// ---------- ID LABEL state ----------
+function saveIdLabelSelections(){
+  const out = [];
+  document.querySelectorAll('#idLabelBlocks .idLabelBlock').forEach((row) => {
+    out.push({
+      template: row.querySelector('.idTemplateSelect')?.value || '',
+      pageIdx:  row.querySelector('.connectorPageSelect')?.value || '0',
+      groupIdx: row.querySelector('.connectorGroupSelect')?.value || '0',
+    });
+  });
+  return out;
+}
+
+function restoreIdLabelSelections(saved){
+  if (!Array.isArray(saved) || !saved.length) return;
+  const rows = document.querySelectorAll('#idLabelBlocks .idLabelBlock');
+  rows.forEach((row, i) => {
+    const s = saved[i]; if(!s) return;
+
+    const tpl = row.querySelector('.idTemplateSelect');
+    ensureSelectValue(tpl, s.template || ''); // <<< pending value kompatibilis
+
+    const pageSel  = row.querySelector('.connectorPageSelect');
+    const groupSel = row.querySelector('.connectorGroupSelect');
+
+    if (pageSel){
+      pageSel.value = String(s.pageIdx ?? '0');
+      // group opciók újraépítése, majd group visszatöltés
+      if (groupSel) updateGroupOptions(pageSel, groupSel);
+    }
+    if (groupSel){
+      groupSel.value = String(s.groupIdx ?? '0');
+    }
+  });
+}
+
+// ID render wrapper, ami MEGŐRZI a UI-t
+function renderIdLabelFieldsPreserve(){
+  const saved = saveIdLabelSelections();
+  renderIdLabelFields();
+  restoreIdLabelSelections(saved);
+}
+
+
+// ---------- SPECIAL LABEL row-level state ----------
+function saveSpecialRowState(row){
+  if(!row) return null;
+  const template = row.querySelector('.specialLblTemplateSelect')?.value?.trim() || '';
+  const lines = [];
+  row.querySelectorAll('.specialLblLine').forEach(inp => {
+    lines.push((inp.value || '').trim());
+  });
+  const linesCnt = Math.max(1, Math.min(10, parseInt(row.querySelector('.specialLblLines')?.value || '2', 10)));
+  return { template, lines, linesCnt };
+}
+
+function restoreSpecialRowState(row, st){
+  if(!row || !st) return;
+
+  ensureSelectValue(row.querySelector('.specialLblTemplateSelect'), st.template || '');
+
+  // sorok száma beállítás
+  const cntInp = row.querySelector('.specialLblLines');
+  if(cntInp) cntInp.value = String(Math.max(1, Math.min(10, st.linesCnt || (st.lines?.length || 2))));
+
+  // inputok újrarender
+  renderSpecialLabelLines(row);
+
+  // értékek vissza
+  (st.lines || []).forEach((txt, idx) => {
+    const inp = row.querySelector(`.specialLblLine[data-line="${idx+1}"]`);
+    if (inp) inp.value = txt || '';
+  });
+
+  refreshSpecialLineSelectors(row);
+}
+
+
+async function resolveConfigId(pn, rev, ecn) {
+  // 1) DOM
+  const fromDom = document.getElementById('config_id')?.value?.trim();
+  if (fromDom) { window.config_id = fromDom; return fromDom; }
+
+  // 2) window cache
+  if (window.config_id) return String(window.config_id);
+
+  // 3) kérjük a backendtől (get_or_create)
+  const resp = await fetch('/api/bartender/get_or_create_config', {   // <— állítsd a sajátodra
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pn, rev, ecn })
+  });
+  if (!resp.ok) throw new Error('get_or_create_config HTTP hiba: ' + resp.status);
+  const d = await resp.json();
+  if (!d?.id) throw new Error('get_or_create_config nem adott vissza id-t');
+  window.config_id = String(d.id);
+  return window.config_id;
+}
+
+
+  // ---------- Egyéb segédek ----------
+  function updateGroupOptions(pageSelect, groupSelect){
+    const idx=parseInt(pageSelect.value);
+    const pages=document.querySelectorAll('#connectorHierarchyContainer .border.bg-light');
+    groupSelect.innerHTML='';
+
+    if(!pages.length){
+      // --- ÚJ: ha nincs oldal, legyen "virtuális" Cable 1 ---
+      const opt=document.createElement('option');
+      opt.value='0'; opt.textContent='Cable 1';
+      groupSelect.appendChild(opt);
+      return;
+    }
+
+    if(idx>=0 && idx<pages.length){
+      const groups=pages[idx].querySelectorAll('.connector-group-list > div');
+      if(groups.length === 0){
+        // ha az oldalon sincs egy kábel sem, akkor is legyen legalább 1
+        const opt=document.createElement('option');
+        opt.value='0'; opt.textContent='Cable 1';
+        groupSelect.appendChild(opt);
+        return;
+      }
+      groups.forEach((_,gi)=>{
+        const opt=document.createElement('option');
+        opt.value=gi; opt.textContent=`Cable ${gi+1}`;
+        groupSelect.appendChild(opt);
+      });
+    }
+  }
+
+// Összeszedjük a Special labels aktuális UI-állapotát (template + lines)
+function getSpecialsForDisplay(){
+  // a collectSpecialLabels() már létezik és a sorokat adja vissza
+  // formátum: [{ template, lines:[...text...] }, ...]
+  const arr = (collectSpecialLabels() || []).map((x, i) => ({
+    idx: i + 1,
+    template: (x.template || '').trim(),
+    lines: Array.isArray(x.lines) ? x.lines.filter(s => (s||'').trim()).map(s => s.trim()) : []
+  }));
+  // üres teljesen? akkor []-t adj vissza
+  return arr.filter(r => r.template || (r.lines && r.lines.length));
+}
+
+  function resetAllFields(){
+    ['pnInput','revInput','ecnInput'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+    ['.idTemplateSelect','.fromTemplateSelect','.toTemplateSelect'].forEach(sel=>{ document.querySelectorAll(sel).forEach(s=> s.selectedIndex=0); });
+    const wipe=id=>{ const el=document.getElementById(id); if(el) el.innerHTML=''; };
+    wipe('labelBlocksContainer'); wipe('connectorHierarchyContainer'); wipe('idLabelBlocks'); wipe('summaryContent');
+    document.getElementById('useIdLabels').checked=true;
+    document.getElementById('useFromTo').checked=true;
+    document.getElementById('useConnectors').checked=false;
+    currentConfig=null;
+  }
+
+  function guessSelectByText(selectEl, connectors, text){
+    if(!selectEl || !Array.isArray(connectors)) return;
+    const t = (text || '').trim();
+    if(!t) return;
+    const hit = connectors.find(c =>
+      ((c.value || '').trim() === t) || ((c.id || '').trim() === t)
+    );
+    if(hit){ selectEl.value = hit.id; }
+  }
+  // Összegyűjti a konnektorokat a struktúrából (Side/Cable azonosítással)
+function getAllConnectorsList(){
+  const out = [];
+  const structure = getCurrentConnectorStructure();
+  structure.forEach((page, pIdx) => {
+    (page.groups || []).forEach((group, gIdx) => {
+      (group.connectors || []).forEach(c => {
+        if(!c?.id) return;
+        out.push({
+          id: c.id,
+          value: c.value || '',
+          page: pIdx + 1,
+          group: gIdx + 1
+        });
+      });
+    });
+  });
+  const seen = new Set();
+  return out.filter(x => (seen.has(x.id) ? false : (seen.add(x.id), true)));
+}
+
+// A Connector labels fül sorainak ideiglenes mentése (hogy újrarendernél megőrizzük)
+function saveConnectorLabelSelections(){
+  const out = [];
+  document.querySelectorAll('#connectorLabelsContainer .connectorLabelRow').forEach(row => {
+    out.push({
+      template: row.querySelector('.connectorLblTemplateSelect')?.value || '',
+      connector: row.querySelector('.connectorLblConnectorSelect')?.value || ''
+    });
+  });
+  return out;
+}
+
+function restoreConnectorLabelSelections(saved){
+  const rows = document.querySelectorAll('#connectorLabelsContainer .connectorLabelRow');
+  rows.forEach((row, i) => {
+    const s = saved?.[i]; if(!s) return;
+
+    // template select: pending value kompatibilis
+    const tplSel = row.querySelector('.connectorLblTemplateSelect');
+    ensureSelectValue(tplSel, s.template || '');
+
+    // connector select: itt opciók azonnal vannak, sima value ok
+    const conSel = row.querySelector('.connectorLblConnectorSelect');
+    if (conSel) conSel.value = s.connector || '';
+  });
+}
+
+// Kirajzolja a Connector labels fül sorait
+function renderConnectorLabelFields(){
+  const container = document.getElementById('connectorLabelsContainer');
+  if(!container) return;
+
+  // korábbi választások megőrzése
+  const saved = saveConnectorLabelSelections();
+
+  container.innerHTML = '';
+  const cntInput = document.getElementById('connectorLabelCountInput');
+  const count = Math.max(1, parseInt(cntInput?.value || '1', 10));
+
+  const connectors = getAllConnectorsList();
+
+  for(let i=0;i<count;i++){
+    const row = document.createElement('div');
+    row.className = 'row g-3 align-items-end mb-3 connectorLabelRow';
+    row.innerHTML = `
+      <div class="col-md-5">
+        <label class="form-label">Label template (.btw)</label>
+        <select class="form-select connectorLblTemplateSelect"></select>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label">Connector identifier - connector label</label>
+        <select class="form-select connectorLblConnectorSelect"></select>
+      </div>
+      <div class="col-md-2 text-end">
+        <label class="form-label d-block">&nbsp;</label>
+        <button type="button" class="btn btn-outline-danger w-100 btn-sm btn-remove-connector-label">🗑️ Delete</button>
+      </div>
+    `;
+    container.appendChild(row);
+
+    // .btw sablonok betöltése (async) + pending value
+    getBtwFiles(files => {
+      const sel = row.querySelector('.connectorLblTemplateSelect');
+      if(!sel) return;
+      sel.innerHTML = '<option value="">-- Select template --</option>';
+      files.forEach(f=>{
+        const opt = document.createElement('option');
+        opt.value = f; opt.textContent = f;
+        sel.appendChild(opt);
+      });
+      applyPendingSelectValue(sel); // <<< FIX
+    });
+
+    // konnektor lista (ID – érték)
+    (() => {
+      const sel = row.querySelector('.connectorLblConnectorSelect');
+      if(!sel) return;
+      sel.innerHTML = '<option value="">-- Select connector --</option>';
+      connectors.forEach(c=>{
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = `${c.id}${c.value ? ' - ' + c.value : ''}`;
+        sel.appendChild(opt);
+      });
+    })();
+
+    // sor törlése
+    row.querySelector('.btn-remove-connector-label').addEventListener('click', () => {
+      const container = document.getElementById('connectorLabelsContainer');
+      const clInput   = document.getElementById('connectorLabelCountInput');
+
+      if (container && container.children.length <= 1) {
+        row.querySelector('.connectorLblTemplateSelect').value = '';
+        row.querySelector('.connectorLblConnectorSelect').value = '';
+        return;
+      }
+      row.remove();
+      if (clInput) {
+        const cur = parseInt(clInput.value || '1', 10);
+        clInput.value = String(Math.max(1, cur - 1));
+      }
+    });
+  }
+
+  // kiválasztások visszaállítása (template pending + connector value)
+  restoreConnectorLabelSelections(saved);
+}
+
+
+// --- KONNEKTOR ETIKETTEK ÖSSZZESZEDÉSE ---
+function collectConnectorLabels(){
+  // index: connector_id → {page, group, value}
+  const index = new Map();
+  getCurrentConnectorStructure().forEach(page=>{
+    (page.groups||[]).forEach(group=>{
+      (group.connectors||[]).forEach(c=>{
+        if(!c?.id) return;
+        if(!index.has(c.id)){
+          index.set(c.id, { page: page.page, group: group.group, value: c.value || '' });
+        }
+      });
+    });
+  });
+
+  const out = [];
+  document.querySelectorAll('#connectorLabelsContainer .connectorLabelRow').forEach(row=>{
+    const template  = row.querySelector('.connectorLblTemplateSelect')?.value?.trim() || '';
+    const connector = row.querySelector('.connectorLblConnectorSelect')?.value?.trim() || '';
+    if(!template && !connector) return; // teljesen üres sor kihagyása
+    const meta = index.get(connector) || {};
+    out.push({
+      template,
+      connector_id: connector,
+      page: meta.page || null,
+      group: meta.group || null,
+      value: meta.value || ''
+    });
+  });
+  return out;
+}
+
+function conChip(item){
+  const right = item.value ? ` <small>— ${item.value}</small>` : '';
+  const tpl   = item.template ? ` <small class="text-muted">(${item.template})</small>` : '';
+  return `<span class="con-chip">${item.id}${right}${tpl}</span>`;
+}
+
+function conSection(items){
+  const chips = (items||[]).map(conChip).join('');
+  return `
+    <div class="con-section">
+      <div class="con-title">CON</div>
+      <div class="con-chips">${chips || '<span class="text-muted">–</span>'}</div>
+    </div>
+  `;
+}
+
+
+// BEOLVASÁS A KONNEKTOR ETIKETT FÜLBŐL (aktuális UI állapot)
+function readConnectorLabelRows(){
+  const rows = Array.from(document.querySelectorAll('#connectorLabelsContainer .connectorLabelRow'));
+  return rows.map(row => ({
+    template:  row.querySelector('.connectorLblTemplateSelect')?.value?.trim() || '',
+    connector: row.querySelector('.connectorLblConnectorSelect')?.value?.trim() || ''
+  })).filter(x => x.template || x.connector);
+}
+
+// Index építés: connector_id -> {template}
+function buildConnectorLabelIndex(){
+  const idx = new Map();
+  (readConnectorLabelRows() || []).forEach(r => {
+    if (r.connector) idx.set(r.connector, { template: r.template || '' });
+  });
+  return idx;
+}
+
+// --- SPEC LABELS helper: ideiglenes no-op, hogy ne legyen 404 ---
+// --- SPEC LABELS mentése külön táblába: /api/bartender/save_special_labels ---
+async function saveSpecialLabelsToTable(configId, pn, rev, ecn) {
+  const items = collectSpecialLabels(); // már létező gyűjtőd
+  if (!items || !items.length) return { status: 'skip', reason: 'no items' };
+
+  const resp = await fetch('/api/bartender/save_special_labels', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config_id: String(configId), pn, rev, ecn, items })
+  });
+
+  const data = await resp.json().catch(() => null);
+  if (!resp.ok || data?.status !== 'success') {
+    throw new Error(data?.message || 'save_special_labels failed');
+  }
+  return data;
+}
+
+
+
+// Visszaadja egy adott (Side pIdx+1, Cable group.group) CON listáját
+// Forrás 1: "Connector labels" – ha van találat ID alapján
+// Forrás 2 (fallback): a csoport connectorjai
+function getGroupConItems(group){
+  const labelIdx = buildConnectorLabelIndex();      // connector_id -> {template}
+  const items = [];
+
+  (group.connectors || []).forEach(c => {
+    if(!c?.id) return;
+    const lab = labelIdx.get(c.id);
+    items.push({
+      id: c.id,
+      value: c.value || '',             // KONNEKTOR LABEL (name) a hierarchiából
+      template: lab?.template || ''     // .btw sablon a "Connector labels" fülből
+    });
+  });
+
+  return items;
+}
+function getConfigId(targetEl) {
+  if (targetEl) {
+    const fromData = $(targetEl).data('configId');
+    if (fromData) return String(fromData);
+  }
+  const fromInput = $('#config_id').val();
+  if (fromInput) return String(fromInput);
+  if (window.config_id) return String(window.config_id);
+  if (window.currentConfig && window.currentConfig.id) return String(window.currentConfig.id);
+  throw new Error('[BT] Missing config_id (none of data-config-id, #config_id, window.config_id, currentConfig.id found).');
+}
+
+window.addEventListener("beforeunload", () => {
+  releaseProjectLock({ useBeacon: true, reason: "beforeunload" });
+});
+
+
+
+</script>
+{% endblock %}
+

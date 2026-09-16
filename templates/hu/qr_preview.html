@@ -1,0 +1,48 @@
+{% extends 'hu/base.html' %}
+{% block content %}
+<div class="container py-4">
+  <h2 class="mb-3">Előnézet – beszúrandó sorok (DB írás nélkül)</h2>
+  <p class="text-muted">Ezeket a sorokat küldenénk a <code>workorders</code> táblába.</p>
+
+  {% if rows and rows|length > 0 %}
+  <div class="table-responsive">
+    <table class="table table-sm table-striped table-hover align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>WO</th><th>PN</th><th>QTY</th><th>MLT_STATUS</th>
+          <th>TIME_FIQC</th><th>TIME_TEST</th><th>TIME_PROD</th><th>TIME_WCUT</th>
+          <th>ECN</th><th>REV</th><th>CELL</th><th>GROUP</th>
+          <th>START_DATE</th><th>DUE_DATE</th><th>MASTER_PN</th><th>HIERARCHY</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.WO }}</td>
+          <td>{{ r.PN }}</td>
+          <td>{{ r.QTY }}</td>
+          <td>{{ r.MLT_STATUS }}</td>
+          <td>{{ r.TIME_FIQC }}</td>
+          <td>{{ r.TIME_TEST }}</td>
+          <td>{{ r.TIME_PROD }}</td>
+          <td>{{ r.TIME_WCUT }}</td>
+          <td>{{ r.ECN }}</td>
+          <td>{{ r.REV }}</td>
+          <td>{{ r.CLL }}</td>
+          <td>{{ r.GRP }}</td>
+          <td>{{ r.START_DATE }}</td>
+          <td>{{ r.DUE_DATE }}</td>
+          <td>{{ r.MASTER_PN }}</td>
+          <td class="text-wrap" style="max-width: 360px">{{ r.HIERARCHY }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="alert alert-info">Nincs megjeleníthető sor.</div>
+  {% endif %}
+
+  <a href="{{ url_for('qr_injector.form', lang=lang) }}" class="btn btn-secondary mt-3">Vissza az űrlaphoz</a>
+</div>
+{% endblock %}

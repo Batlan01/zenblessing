@@ -1,0 +1,765 @@
+{% extends lang ~ '/base.html' %}
+{% set active = 'search' %}
+{% block title %}Fájlkereső{% endblock %}
+{% block page_title %}{% endblock %}
+
+{% block page_header_right %}{% endblock %}
+
+{% block extra_head %}
+<style>
+/* ── Fő változók ── */
+.fs {
+  --accent:     #1d4ed8;
+  --accent-2:   #3b82f6;
+  --accent-bg:  #eff6ff;
+  --border:     #e2e8f0;
+  --muted:      #64748b;
+  --muted-2:    #94a3b8;
+  --surface:    #ffffff;
+  --surface-2:  #f8fafc;
+  --text:       #0f172a;
+  --text-2:     #334155;
+  --ok:         #16a34a;
+  --warn:       #d97706;
+  --danger:     #dc2626;
+  --row-hover:  #f0f7ff;
+  --radius:     10px;
+  --shadow:     0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --shadow-md:  0 4px 16px rgba(0,0,0,.08), 0 2px 4px rgba(0,0,0,.04);
+}
+
+/* ── Layout override: teljes szélességű keresőoldal ── */
+.fs { display:flex; flex-direction:column; height:calc(100vh - 80px); overflow:hidden; margin:-12px -20px 0; }
+
+/* ── Fejléc sáv ── */
+.fs-head {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 24px 12px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fs-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fs-title {
+  font-size: .8rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.fs-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .78rem;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 4px 12px;
+}
+
+.fs-badge-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--muted-2);
+  transition: background .3s;
+}
+.fs-badge-dot.ok { background: var(--ok); box-shadow: 0 0 0 2px rgba(22,163,74,.2); }
+.fs-badge-dot.idx { background: var(--accent-2); animation: fs-pulse 1.2s ease-in-out infinite; }
+@keyframes fs-pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* ── Keresősáv ── */
+.fs-search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fs-inp-wrap {
+  flex: 1;
+  position: relative;
+}
+
+.fs-inp-icon {
+  position: absolute;
+  left: 14px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted-2);
+  font-size: .95rem;
+  pointer-events: none;
+  transition: color .15s;
+}
+
+.fs-inp {
+  width: 100%;
+  height: 42px;
+  padding: 0 38px 0 40px;
+  font-size: .95rem;
+  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  outline: none;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.fs-inp:focus {
+  background: var(--surface);
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+}
+.fs-inp:focus + .fs-inp-icon { color: var(--accent-2); }
+.fs-inp::placeholder { color: var(--muted-2); }
+
+.fs-clear {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  border: none; background: none; color: var(--muted-2); cursor: pointer;
+  padding: 4px; border-radius: 6px; display: none; font-size: .85rem;
+  transition: color .12s, background .12s;
+}
+.fs-clear:hover { color: var(--text); background: var(--border); }
+.fs-clear.on { display: flex; align-items: center; justify-content: center; }
+
+/* ── Filter chips ── */
+.fs-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.fs-chip {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 11px;
+  border-radius: 20px;
+  font-size: .8rem;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all .12s;
+  white-space: nowrap;
+  user-select: none;
+}
+.fs-chip:hover { border-color: var(--accent-2); color: var(--accent); }
+.fs-chip.on {
+  background: var(--accent-bg);
+  border-color: var(--accent-2);
+  color: var(--accent);
+  font-weight: 600;
+}
+.fs-chip i { font-size: .75rem; }
+
+.fs-divider { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+
+.fs-sel {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: .8rem;
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  outline: none;
+  transition: border-color .12s;
+}
+.fs-sel:hover, .fs-sel:focus { border-color: var(--accent-2); }
+
+.fs-meta {
+  margin-left: auto;
+  font-size: .78rem;
+  color: var(--muted-2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Index progress ── */
+.fs-idx {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .76rem;
+  color: var(--muted);
+  padding: 5px 12px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+  display: none;
+}
+.fs-idx.on { display: flex; }
+.fs-idx i { color: var(--accent-2); }
+
+/* ── Eredmények területe ── */
+.fs-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Scrollbar stílus */
+.fs-body::-webkit-scrollbar { width: 6px; }
+.fs-body::-webkit-scrollbar-track { background: transparent; }
+.fs-body::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 3px; }
+.fs-body::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+
+/* ── Empty/state képernyők ── */
+.fs-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 280px;
+  gap: 12px;
+  color: var(--muted-2);
+  text-align: center;
+  padding: 40px 24px;
+}
+
+.fs-empty-icon {
+  width: 64px; height: 64px;
+  border-radius: 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.6rem;
+  color: var(--muted-2);
+  margin-bottom: 4px;
+}
+
+.fs-empty-title { font-size: .95rem; font-weight: 600; color: var(--text-2); }
+.fs-empty-sub { font-size: .82rem; color: var(--muted-2); max-width: 280px; line-height: 1.5; }
+
+/* ── Találatok tábla ── */
+.fs-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.fs-table colgroup col:nth-child(1) { width: 52px; }
+.fs-table colgroup col:nth-child(2) { width: 34%; }
+.fs-table colgroup col:nth-child(3) { } /* flex */
+.fs-table colgroup col:nth-child(4) { width: 82px; }
+.fs-table colgroup col:nth-child(5) { width: 96px; }
+
+.fs-table thead {
+  position: sticky; top: 0;
+  background: var(--surface);
+  z-index: 10;
+  border-bottom: 1.5px solid var(--border);
+}
+
+.fs-table thead th {
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  padding: 9px 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: color .12s;
+}
+.fs-table thead th:hover { color: var(--accent); }
+.fs-table thead th.asc .sort-arr::after  { content: ' ↑'; color: var(--accent); }
+.fs-table thead th.desc .sort-arr::after { content: ' ↓'; color: var(--accent); }
+.fs-table thead th .sort-arr { color: var(--muted-2); font-size: .7rem; opacity: .5; }
+.fs-table thead th.asc .sort-arr,
+.fs-table thead th.desc .sort-arr { opacity: 1; }
+
+.fs-table tbody tr {
+  border-bottom: 1px solid #f1f5f9;
+  transition: background .07s;
+}
+.fs-table tbody tr:hover { background: var(--row-hover); }
+.fs-table tbody tr:hover .fs-act { opacity: 1; }
+
+.fs-table tbody td {
+  padding: 8px 12px;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Típus badge ── */
+.fs-ext {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .66rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  border-radius: 5px;
+  min-width: 34px;
+  line-height: 1.2;
+}
+
+.fs-dir-icon {
+  width: 28px; height: 28px;
+  border-radius: 7px;
+  background: #fef3c7;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #92400e;
+  font-size: .82rem;
+}
+
+/* ── Fájlnév cella ── */
+.fs-name {
+  font-size: .88rem;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+.fs-name mark { background: #fde68a; border-radius: 2px; padding: 1px 2px; font-weight: inherit; }
+
+.fs-dir-badge {
+  display: inline-block;
+  font-size: .63rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #fef3c7;
+  color: #92400e;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* ── Útvonal cella ── */
+.fs-path {
+  font-size: .78rem;
+  color: var(--muted-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'Consolas', 'SF Mono', monospace;
+  display: block;
+}
+
+/* ── Méret cella ── */
+.fs-size {
+  font-size: .8rem;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Akció ── */
+.fs-act { opacity: 0; transition: opacity .1s; }
+
+.fs-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: .75rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color .1s, color .1s, background .1s;
+}
+.fs-copy:hover {
+  border-color: var(--accent-2);
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+/* ── Toast ── */
+.fs-toast {
+  position: fixed;
+  bottom: 20px; right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #0f172a;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: .84rem;
+  font-weight: 500;
+  z-index: 9999;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity .18s, transform .18s;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0,0,0,.25);
+}
+.fs-toast.on { opacity: 1; transform: translateY(0); }
+.fs-toast i { color: #34d399; }
+
+/* ── Eredmény darabszám footer ── */
+.fs-foot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 24px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  font-size: .76rem;
+  color: var(--muted-2);
+}
+
+.fs-foot-count { font-variant-numeric: tabular-nums; }
+.fs-foot-hint { font-style: italic; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fs" id="fs">
+
+  <!-- Toast -->
+  <div class="fs-toast" id="fsToast"><i class="fa-solid fa-check"></i>Útvonal másolva</div>
+
+  <!-- ── Fejléc: cím + kereső + filterek ── -->
+  <div class="fs-head">
+    <div class="fs-title-row">
+      <div class="fs-title">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        Fájlkereső
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="fs-badge">
+          <span class="fs-badge-dot" id="idxDot"></span>
+          <span id="idxBadgeCount">{{ stats.total|default(0)|int }}</span> bejegyzés
+        </span>
+        <a href="/{{ lang }}/search/admin" class="btn btn-sm btn-outline-secondary" style="height:30px;display:inline-flex;align-items:center;gap:5px;font-size:.78rem;padding:0 10px">
+          <i class="fa-solid fa-gear"></i>Beállítások
+        </a>
+      </div>
+    </div>
+
+    <div class="fs-search-row">
+      <div class="fs-inp-wrap">
+        <input id="fsInp" class="fs-inp"
+               placeholder="Fájlnév vagy mappanév… pl. WO-1234, jelentés 2024"
+               autocomplete="off" spellcheck="false">
+        <i class="fa-solid fa-magnifying-glass fs-inp-icon" id="fsInpIcon"></i>
+        <button class="fs-clear" id="fsClear" onclick="clearQ()" title="Törlés">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+    </div>
+
+    <div class="fs-filters">
+      <button class="fs-chip on" id="tbAll"  onclick="setType('')">
+        <i class="fa-solid fa-layer-group"></i>Minden
+      </button>
+      <button class="fs-chip" id="tbFile" onclick="setType('file')">
+        <i class="fa-solid fa-file-lines"></i>Fájlok
+      </button>
+      <button class="fs-chip" id="tbDir"  onclick="setType('dir')">
+        <i class="fa-solid fa-folder"></i>Mappák
+      </button>
+
+      <div class="fs-divider"></div>
+
+      <select id="fsExt" class="fs-sel">
+        <option value="">Minden típus</option>
+      </select>
+      <select id="fsDrive" class="fs-sel">
+        <option value="">Minden meghajtó</option>
+      </select>
+
+      <span id="fsMeta" class="fs-meta"></span>
+    </div>
+
+    <!-- Indexelés jelző csík -->
+    <div class="fs-idx" id="fsIdx">
+      <i class="fa-solid fa-circle-notch fa-spin"></i>
+      <span id="fsIdxMsg">Indexelés folyamatban…</span>
+    </div>
+  </div>
+
+  <!-- ── Találatok ── -->
+  <div class="fs-body" id="fsBody">
+    <div class="fs-empty" id="fsEmpty">
+      <div class="fs-empty-icon"><i class="fa-solid fa-magnifying-glass"></i></div>
+      <div class="fs-empty-title">Kezdj el gépelni</div>
+      <div class="fs-empty-sub">106 ezer+ fájl és mappa között keresel — min. 2 karakter szükséges</div>
+    </div>
+
+    <table class="fs-table d-none" id="fsTable">
+      <colgroup><col><col><col><col><col></colgroup>
+      <thead>
+        <tr>
+          <th></th>
+          <th data-col="name">Név <span class="sort-arr"></span></th>
+          <th data-col="path">Útvonal <span class="sort-arr"></span></th>
+          <th data-col="size" style="text-align:right">Méret <span class="sort-arr"></span></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="fsTbody"></tbody>
+    </table>
+  </div>
+
+  <!-- ── Footer ── -->
+  <div class="fs-foot" id="fsFoot" style="display:none">
+    <span class="fs-foot-count" id="fsFootCount"></span>
+    <span class="fs-foot-hint" id="fsFootHint"></span>
+  </div>
+
+</div>
+
+<script>
+const URL_SEARCH  = '/{{ lang }}/search/api';
+const URL_STATUS  = '/{{ lang }}/search/status';
+const URL_FILTERS = '/{{ lang }}/search/filters';
+
+/* ── Ext szín térkép ── */
+const EXT_CLR = {
+  pdf:  ['#fef2f2','#dc2626'], xlsx: ['#f0fdf4','#15803d'], xls:  ['#f0fdf4','#15803d'],
+  docx: ['#eff6ff','#1d4ed8'], doc:  ['#eff6ff','#1d4ed8'], pptx: ['#fff7ed','#c2410c'],
+  ppt:  ['#fff7ed','#c2410c'], dwg:  ['#f5f3ff','#6d28d9'], dxf:  ['#f5f3ff','#6d28d9'],
+  stp:  ['#ecfeff','#0e7490'], step: ['#ecfeff','#0e7490'], iges: ['#ecfeff','#0e7490'],
+  zip:  ['#fafaf9','#57534e'], rar:  ['#fafaf9','#57534e'], '7z': ['#fafaf9','#57534e'],
+  py:   ['#fefce8','#a16207'], js:   ['#fefce8','#a16207'], ts:   ['#eff6ff','#1d4ed8'],
+  txt:  ['#f8fafc','#475569'], csv:  ['#f0fdf4','#166534'], json: ['#fefce8','#92400e'],
+  xml:  ['#fff7ed','#9a3412'], sql:  ['#fdf4ff','#86198f'],
+  png:  ['#fdf4ff','#9d174d'], jpg:  ['#fdf4ff','#9d174d'], jpeg: ['#fdf4ff','#9d174d'],
+  gif:  ['#fdf4ff','#9d174d'], svg:  ['#fdf4ff','#be185d'],
+  mp4:  ['#fef2f2','#b91c1c'], avi:  ['#fef2f2','#b91c1c'], mkv:  ['#fef2f2','#b91c1c'],
+  exe:  ['#f1f5f9','#334155'], msi:  ['#f1f5f9','#334155'],
+};
+
+function extStyle(e) {
+  const [bg, fg] = EXT_CLR[e] || ['#f1f5f9','#475569'];
+  return `background:${bg};color:${fg}`;
+}
+
+function fmtSize(b) {
+  if (!b) return '—';
+  const u = ['B','KB','MB','GB']; let i=0, v=+b;
+  while(v>=1024 && i<3){ v/=1024; i++; }
+  return v.toFixed(i?1:0)+' '+u[i];
+}
+
+function fmtDir(p) {
+  const s = p.includes('\\')?'\\':'/';
+  const parts = p.split(s); parts.pop();
+  return parts.join(s) || p;
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+
+function hl(txt, q) {
+  if(!q || q.length<2) return esc(txt);
+  let s = esc(txt);
+  for(const w of q.trim().split(/\s+/).filter(w=>w.length>=2))
+    s = s.replace(new RegExp(escRe(esc(w)),'gi'), m=>`<mark>${m}</mark>`);
+  return s;
+}
+
+/* ── Állapot ── */
+let _tmr=null, _q='', _type='', _results=[], _col='name', _asc=true;
+
+function setType(t) {
+  _type = t;
+  ['tbAll','tbFile','tbDir'].forEach(id=>document.getElementById(id).classList.remove('on'));
+  document.getElementById(t===''?'tbAll':t==='file'?'tbFile':'tbDir').classList.add('on');
+  document.getElementById('fsExt').style.display = (t==='dir') ? 'none' : '';
+  if(_q.length >= 2) doSearch();
+}
+
+function sched() { clearTimeout(_tmr); _tmr=setTimeout(doSearch, 150); }
+
+async function doSearch() {
+  const q     = document.getElementById('fsInp').value.trim();
+  const ext   = document.getElementById('fsExt').value;
+  const drive = document.getElementById('fsDrive').value;
+  document.getElementById('fsClear').classList.toggle('on', q.length>0);
+  _q = q;
+  if(q.length < 2) { showState('idle'); return; }
+  showState('loading');
+  try{
+    const p = new URLSearchParams({q, limit:200});
+    if(ext)   p.set('ext',  ext);
+    if(drive) p.set('drive',drive);
+    if(_type) p.set('type', _type);
+    const d = await (await fetch(URL_SEARCH+'?'+p)).json();
+    if(!d.ok) { showState('error', d.msg||'Hiba'); return; }
+    _results = d.results||[];
+    render();
+  }catch(e){ showState('error','Hálózati hiba'); }
+}
+
+function render() {
+  if(!_results.length) { showState('empty'); return; }
+
+  const sorted = [..._results].sort((a,b)=>{
+    let va=a[_col]??'', vb=b[_col]??'';
+    if(_col==='size'){ va=+va; vb=+vb; }
+    else { va=String(va).toLowerCase(); vb=String(vb).toLowerCase(); }
+    return (va<vb?-1:va>vb?1:0)*(_asc?1:-1);
+  });
+
+  document.getElementById('fsTbody').innerHTML = sorted.map(f=>{
+    const isDir = !!f.is_dir;
+    const ext   = esc(f.ext||'');
+    const dir   = esc(fmtDir(f.path||''));
+    const iconCell = isDir
+      ? `<div class="fs-dir-icon"><i class="fa-solid fa-folder"></i></div>`
+      : `<span class="fs-ext" style="${extStyle(ext)}">${ext||'—'}</span>`;
+    const dirBadge = isDir ? `<span class="fs-dir-badge">mappa</span>` : '';
+    return `<tr>
+      <td style="text-align:center">${iconCell}</td>
+      <td>
+        <span class="fs-name" title="${esc(f.name)}">${hl(f.name,_q)}${dirBadge}</span>
+      </td>
+      <td><span class="fs-path" title="${esc(f.path)}">${dir}</span></td>
+      <td class="fs-size">${isDir?'':fmtSize(f.size)}</td>
+      <td class="fs-act" data-path="${esc(f.path)}">
+        <button class="fs-copy"><i class="fa-regular fa-copy"></i>Másolás</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // event delegation
+  document.getElementById('fsTbody').querySelectorAll('td[data-path]').forEach(td=>{
+    td.querySelector('.fs-copy').addEventListener('click', ()=>copyPath(td.dataset.path));
+  });
+
+  document.getElementById('fsEmpty').style.display = 'none';
+  document.getElementById('fsTable').classList.remove('d-none');
+
+  // footer
+  const cnt   = _results.length;
+  const foot  = document.getElementById('fsFoot');
+  const footC = document.getElementById('fsFootCount');
+  const footH = document.getElementById('fsFootHint');
+  foot.style.display = '';
+  footC.textContent = cnt===200 ? '200+ találat' : `${cnt} találat`;
+  footH.textContent = cnt===200 ? 'Pontosítsd a keresést a pontosabb eredményekért' : '';
+  document.getElementById('fsMeta').textContent = cnt===200 ? '200+ találat' : `${cnt} találat`;
+}
+
+function showState(type, msg='') {
+  document.getElementById('fsTable').classList.add('d-none');
+  document.getElementById('fsMeta').textContent = '';
+  document.getElementById('fsFoot').style.display = 'none';
+  const empty = document.getElementById('fsEmpty');
+  empty.style.display = '';
+
+  const cfg = {
+    idle:    { icon:'fa-magnifying-glass',       title:'Kezdj el gépelni',   sub:'Fájlokat és mappákat egyaránt megtalálsz — min. 2 karakter' },
+    loading: { icon:'fa-circle-notch fa-spin',   title:'Keresés…',           sub:'' },
+    empty:   { icon:'fa-face-meh-blank',         title:'Nincs találat',      sub:`Nem található: "${esc(_q)}" — próbálj más kulcsszót` },
+    error:   { icon:'fa-circle-exclamation',     title:'Hiba',               sub: esc(msg) },
+  };
+  const c = cfg[type] || cfg.idle;
+  empty.innerHTML = `
+    <div class="fs-empty-icon"><i class="fa-solid ${c.icon}"></i></div>
+    <div class="fs-empty-title">${c.title}</div>
+    ${c.sub ? `<div class="fs-empty-sub">${c.sub}</div>` : ''}`;
+}
+
+/* ── Rendezés ── */
+document.querySelectorAll('.fs-table thead th[data-col]').forEach(th=>{
+  th.addEventListener('click',()=>{
+    const col = th.dataset.col;
+    if(_col===col) _asc=!_asc; else { _col=col; _asc=true; }
+    document.querySelectorAll('.fs-table thead th').forEach(t=>{ t.classList.remove('asc','desc'); });
+    th.classList.add(_asc?'asc':'desc');
+    if(_results.length) render();
+  });
+});
+
+/* ── Másolás ── */
+async function copyPath(p) {
+  try{ await navigator.clipboard.writeText(p); showToast(); }catch(e){}
+}
+function showToast() {
+  const t = document.getElementById('fsToast');
+  t.classList.add('on');
+  setTimeout(()=>t.classList.remove('on'), 2000);
+}
+function clearQ() {
+  document.getElementById('fsInp').value = '';
+  document.getElementById('fsClear').classList.remove('on');
+  showState('idle');
+  document.getElementById('fsMeta').textContent = '';
+  _results = [];
+}
+
+/* ── Szűrők betöltése ── */
+async function loadFilters() {
+  try{
+    const d = await (await fetch(URL_FILTERS)).json();
+    if(!d.ok) return;
+    const esel = document.getElementById('fsExt');
+    d.exts.forEach(e=>{ const o=document.createElement('option'); o.value=e; o.textContent='.'+e; esel.appendChild(o); });
+    const dsel = document.getElementById('fsDrive');
+    d.drives.forEach(dr=>{ const o=document.createElement('option'); o.value=dr; o.textContent=dr; dsel.appendChild(o); });
+  }catch(e){}
+}
+
+/* ── Index státusz poll ── */
+function pollStatus() {
+  fetch(URL_STATUS).then(r=>r.json()).then(d=>{
+    const dot   = document.getElementById('idxDot');
+    const cnt   = document.getElementById('idxBadgeCount');
+    const idx   = document.getElementById('fsIdx');
+    const idxM  = document.getElementById('fsIdxMsg');
+
+    if(d.is_running){
+      dot.className = 'fs-badge-dot idx';
+      idx.classList.add('on');
+      const m = (d.progress||'').match(/([\d,]+)\s*fájl/);
+      idxM.textContent = m ? `${m[1]} fájl indexelve…` : (d.progress||'Indexelés…');
+      if(m && cnt) cnt.textContent = parseInt(m[1].replace(/,/g,'')) + ' ↻';
+      setTimeout(pollStatus, 1500);
+    } else {
+      dot.className = 'fs-badge-dot' + (d.total ? ' ok' : '');
+      idx.classList.remove('on');
+      if(d.total && cnt) cnt.textContent = Number(d.total).toLocaleString('hu');
+    }
+  }).catch(()=>{});
+}
+
+/* ── Init ── */
+window.addEventListener('load',()=>{
+  loadFilters();
+  pollStatus();
+  const inp = document.getElementById('fsInp');
+  inp.focus();
+  inp.addEventListener('input', sched);
+  document.getElementById('fsExt').addEventListener('change',   doSearch);
+  document.getElementById('fsDrive').addEventListener('change', doSearch);
+});
+</script>
+{% endblock %}

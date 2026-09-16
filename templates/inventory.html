@@ -1,0 +1,68 @@
+{% extends lang ~ '/base.html' %}
+{% block title %}Domain Deploy – Leltár{% endblock %}
+{% block page_title %}Domain Deploy – Szoftverleltár{% endblock %}
+
+{% block content %}
+<div class="container-fluid my-3">
+  <div class="card mb-3"><div class="card-body">
+    <form class="row g-2 align-items-end" method="get">
+      <div class="col-12 col-md-4">
+        <label class="form-label small">Program keresése (mely gépeken van fent)</label>
+        <input name="q" class="form-control form-control-sm" value="{{ q or '' }}" placeholder="pl. Firefox">
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label small">… vagy egy gép leltára</label>
+        <select name="host" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">— válassz gépet —</option>
+          {% for m in machines %}<option value="{{ m.hostname }}" {{ 'selected' if host==m.hostname else '' }}>{{ m.hostname }} ({{ m.inv_count }})</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-2">
+        <button class="btn btn-primary btn-sm w-100">Keresés</button>
+      </div>
+    </form>
+  </div></div>
+
+  {% if host %}
+    <div class="card"><div class="card-header">Leltár: <strong>{{ host }}</strong> ({{ items|length }} tétel)</div>
+    <div class="table-responsive"><table class="table table-sm table-striped mb-0">
+      <thead><tr><th>Név</th><th>Verzió</th><th>Kiadó</th></tr></thead>
+      <tbody>
+        {% for it in items %}
+        <tr><td>{{ it.name }}</td><td class="small">{{ it.version }}</td><td class="small text-muted">{{ it.publisher }}</td></tr>
+        {% else %}
+        <tr><td colspan="3" class="text-center text-muted py-3">Nincs leltár (a gép még nem jelentkezett be).</td></tr>
+        {% endfor %}
+      </tbody>
+    </table></div></div>
+
+  {% elif q %}
+    <div class="card"><div class="card-header">Találatok erre: „{{ q }}" ({{ results|length }})</div>
+    <div class="table-responsive"><table class="table table-sm table-striped mb-0">
+      <thead><tr><th>Gép</th><th>Program</th><th>Verzió</th><th>Kiadó</th></tr></thead>
+      <tbody>
+        {% for r in results %}
+        <tr><td><a href="{{ url_for('deploy.inventory_page', lang=lang, host=r.hostname) }}">{{ r.hostname }}</a></td>
+            <td>{{ r.name }}</td><td class="small">{{ r.version }}</td><td class="small text-muted">{{ r.publisher }}</td></tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center text-muted py-3">Nincs találat.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table></div></div>
+
+  {% else %}
+    <div class="card"><div class="card-header">Leggyakrabban telepített programok</div>
+    <div class="table-responsive"><table class="table table-sm table-striped mb-0">
+      <thead><tr><th>Program</th><th>Gépek száma</th></tr></thead>
+      <tbody>
+        {% for t in top %}
+        <tr><td><a href="{{ url_for('deploy.inventory_page', lang=lang, q=t.name) }}">{{ t.name }}</a></td>
+            <td><span class="badge bg-info text-dark">{{ t.machines }}</span></td></tr>
+        {% else %}
+        <tr><td colspan="2" class="text-center text-muted py-3">Még nincs leltár.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table></div></div>
+  {% endif %}
+</div>
+{% endblock %}

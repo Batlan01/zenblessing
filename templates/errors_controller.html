@@ -1,0 +1,161 @@
+{% extends (lang ~ '/base.html') %}
+{% set active = 'errors' %}
+
+{% block title %}{% if lang == 'sk' %}Chyby zariadení{% else %}Eszköz hibák{% endif %}{% endblock %}
+{% block page_title %}{% if lang == 'sk' %}Chyby zariadení{% else %}Eszköz hibák{% endif %}{% endblock %}
+
+{% block extra_head %}
+<style>
+.err-page .toolbar{ display:flex; gap:12px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
+.err-page .toolbar input{ max-width:320px; }
+.err-page table{ font-size:.92rem; }
+.err-page td.err-msg{ max-width:480px; white-space:pre-wrap; word-break:break-word; }
+.err-page .badge-open{ background:#dc3545; }
+.err-page .badge-prog{ background:#fd7e14; }
+.err-page .badge-closed{ background:#198754; }
+.err-page .actions{ display:flex; gap:6px; align-items:center; flex-wrap:nowrap; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="err-page">
+  <div class="toolbar">
+    <input id="errSearch" class="form-control form-control-sm"
+           placeholder="{% if lang == 'sk' %}Hľadať…{% else %}Keresés…{% endif %}">
+    <button id="errRefreshBtn" class="btn btn-outline-primary btn-sm">
+      <i class="fa-solid fa-rotate me-1"></i>{% if lang == 'sk' %}Obnoviť{% else %}Frissítés{% endif %}
+    </button>
+    <span id="errStatus" class="text-muted small ms-auto"></span>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered table-hover align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>ID</th>
+          <th>{% if lang == 'sk' %}Zariadenie{% else %}Eszköz{% endif %}</th>
+          <th>IP</th>
+          <th>{% if lang == 'sk' %}Chyba{% else %}Hiba{% endif %}</th>
+          <th>{% if lang == 'sk' %}Nahlásené{% else %}Bejelentve{% endif %}</th>
+          <th>{% if lang == 'sk' %}Vyriešené{% else %}Megoldva{% endif %}</th>
+          <th>{% if lang == 'sk' %}Stav{% else %}Státusz{% endif %}</th>
+          <th>{% if lang == 'sk' %}Akcie{% else %}Műveletek{% endif %}</th>
+        </tr>
+      </thead>
+      <tbody id="errBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function(){
+  const T = {
+    resolve:  {{ ("'Vyriešiť'"  if lang == 'sk' else "'Megoldva'") | safe }},
+    del:      {{ ("'Vymazať'"   if lang == 'sk' else "'Törlés'") | safe }},
+    delAsk:   {{ ("'Naozaj vymazať túto chybu?'" if lang == 'sk' else "'Biztosan törlöd ezt a hibát?'") | safe }},
+    runCmd:   {{ ("'Spustiť'"   if lang == 'sk' else "'Futtatás'") | safe }},
+    loadErr:  {{ ("'Chyba pri načítaní.'" if lang == 'sk' else "'Hiba a betöltéskor.'") | safe }},
+    rows:     {{ ("'záznamov'"  if lang == 'sk' else "'bejegyzés'") | safe }}
+  };
+
+  const body = document.getElementById('errBody');
+  const statusEl = document.getElementById('errStatus');
+  const searchEl = document.getElementById('errSearch');
+  let refreshTimer = null;
+
+  function esc(s){
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
+  }
+
+  function statusBadge(st){
+    const s = String(st || '');
+    const cls = s === 'Closed' ? 'badge-closed' : (s === 'In Progress' ? 'badge-prog' : 'badge-open');
+    return '<span class="badge ' + cls + '">' + esc(s || 'Open') + '</span>';
+  }
+
+  async function loadData(){
+    try{
+      const r = await fetch('/errors/api/data', {credentials:'same-origin', cache:'no-store'});
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      body.innerHTML = '';
+      data.forEach(function(row){
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + esc(row.ID) + '</td>' +
+          '<td>' + esc(row['Device Name']) + '</td>' +
+          '<td>' + esc(row['Device IP']) + '</td>' +
+          '<td class="err-msg">' + esc(row.Error) + '</td>' +
+          '<td>' + esc(row['Error Raised Date']) + '</td>' +
+          '<td>' + esc(row['Error Solved Date'] || '—') + '</td>' +
+          '<td>' + statusBadge(row['Error Status']) + '</td>' +
+          '<td><div class="actions">' +
+            '<button class="btn btn-success btn-sm" data-act="resolve" data-id="' + esc(row.ID) + '">' + T.resolve + '</button>' +
+            '<button class="btn btn-outline-danger btn-sm" data-act="delete" data-id="' + esc(row.ID) + '">' + T.del + '</button>' +
+            '<select class="form-select form-select-sm" style="width:auto" data-cmdsel>' +
+              '<option value="Restart">Restart</option><option value="Update">Update</option>' +
+            '</select>' +
+            '<button class="btn btn-outline-secondary btn-sm" data-act="run" data-ip="' + esc(row['Device IP']) + '">' + T.runCmd + '</button>' +
+          '</div></td>';
+        body.appendChild(tr);
+      });
+      statusEl.textContent = data.length + ' ' + T.rows;
+      applyFilter();
+    }catch(e){
+      statusEl.textContent = T.loadErr;
+    }
+  }
+
+  async function postJSON(url, payload){
+    const r = await fetch(url, {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    return r.ok;
+  }
+
+  body.addEventListener('click', async function(ev){
+    const btn = ev.target.closest('button[data-act]');
+    if (!btn) return;
+    const act = btn.dataset.act;
+    if (act === 'resolve'){
+      if (await postJSON('/errors/api/resolve', {id: Number(btn.dataset.id)})) loadData();
+    } else if (act === 'delete'){
+      if (!window.confirm(T.delAsk)) return;
+      if (await postJSON('/errors/api/delete', {id: Number(btn.dataset.id)})) loadData();
+    } else if (act === 'run'){
+      const sel = btn.parentElement.querySelector('[data-cmdsel]');
+      const cmd = sel ? sel.value : 'Restart';
+      await postJSON('/api/run_command', {ip: btn.dataset.ip, command: cmd});
+    }
+  });
+
+  function applyFilter(){
+    const f = (searchEl.value || '').toLowerCase();
+    Array.from(body.rows).forEach(function(tr){
+      tr.style.display = !f || tr.innerText.toLowerCase().includes(f) ? '' : 'none';
+    });
+  }
+
+  searchEl.addEventListener('input', function(){
+    applyFilter();
+    // keresés közben ne frissítsünk a felhasználó alól
+    clearInterval(refreshTimer);
+    if (!searchEl.value) startAutoRefresh();
+  });
+
+  document.getElementById('errRefreshBtn').addEventListener('click', loadData);
+
+  function startAutoRefresh(){
+    clearInterval(refreshTimer);
+    refreshTimer = setInterval(loadData, 10000);
+  }
+
+  loadData();
+  startAutoRefresh();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}{% endblock %}</title>
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" crossorigin="anonymous"/>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}"/>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+
+  {% block extra_head %}{% endblock %}
+
+<style>
+/* ── Eredeti stílusok – egy pixel sem változott ── */
+.sidebar .nav-link{
+  border-radius: .75rem;
+  padding: .6rem .75rem;
+  color: #e2e8f0;
+  transition: background-color .15s ease, color .15s ease;
+}
+.sidebar .nav-link:hover{ background: rgba(255,255,255,.06); color: #fff; }
+.sidebar .nav-link.active{
+  background: rgba(var(--bs-primary-rgb), .22);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+}
+.sidebar .nav-link.active i{ color: #fff; }
+.sidebar .nav-link:active{ background: rgba(var(--bs-primary-rgb), .32); }
+.offcanvas-mobile .nav-link.active{ background: rgba(var(--bs-primary-rgb), .22); color: #0f172a; }
+.sidebar{
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #0b1020;
+  color: #e2e8f0;
+}
+.sidebar > div:first-child{
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  min-height: 0;
+  padding-bottom: .5rem;
+}
+.sidebar .logout{
+  margin-top: auto;
+  padding: .5rem 0;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+.sidebar > div:first-child::-webkit-scrollbar{ width: 8px; }
+.sidebar > div:first-child::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.2); border-radius: 8px; }
+.sidebar > div:first-child:hover::-webkit-scrollbar-thumb{ background: rgba(255,255,255,.35); }
+.sidebar .nav-link{ color: #e2e8f0; }
+.sidebar .nav-link i{ color: inherit; }
+.sidebar .logout{ border-top: 1px solid rgba(255,255,255,.08); }
+
+/* ── Mobil <768px ── */
+@media (max-width: 767.98px) {
+
+  /* body ne legyen flex mobilon – különben a sidebar helyet foglal */
+  body { display: block !important; }
+
+  /* Topbar */
+  .mobile-topbar{
+    position: sticky; top: 0; z-index: 1040;
+    background: #0b1020;
+    display: flex !important;
+    align-items: center;
+    padding: 0 .875rem;
+    height: 48px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.4);
+    border-bottom: 1px solid rgba(255,255,255,.1);
+  }
+  .mobile-topbar .topbar-hamburger{
+    display: flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,.18);
+    border-radius: 7px;
+    background: rgba(255,255,255,.07);
+    color: #e2e8f0;
+    font-size: .95rem;
+    cursor: pointer;
+    transition: background .15s ease;
+  }
+  .mobile-topbar .topbar-hamburger:hover{ background: rgba(255,255,255,.14); }
+  .mobile-topbar .topbar-logo-wrap{
+    flex: 1; display: flex; align-items: center; justify-content: center;
+  }
+  .mobile-topbar .topbar-logo{ height: 26px; width: auto; object-fit: contain; }
+  .mobile-topbar .topbar-spacer{ width: 36px; flex-shrink: 0; }
+
+  /* content: teljes szélesség */
+  .content{
+    max-width: 100% !important;
+    padding: 1rem !important;
+  }
+
+  /* Sidebar: teljesen rejtve alapból (kivéve flex-flow-ból is) */
+  .sidebar{
+    display: none !important;
+    position: fixed !important;
+    top: 0; left: 0;
+    height: 100dvh !important;
+    width: 280px !important;
+    z-index: 1050;
+    overflow: hidden;
+    flex-direction: column;
+  }
+  .sidebar.sidebar-open{
+    display: flex !important;
+  }
+
+  /* Backdrop */
+  .sidebar-backdrop{
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.55);
+    z-index: 1049;
+  }
+  .sidebar-backdrop.sidebar-open{ display: block; }
+}
+
+/* ── Csoportos navigáció (IT nézet) ── */
+.nav-group-label {
+  font-size: .68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: rgba(255,255,255,.3);
+  padding: .55rem .75rem .1rem;
+  margin-top: .2rem;
+  user-select: none;
+}
+.nav-group-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  border-radius: .75rem;
+  padding: .5rem .75rem;
+  color: #e2e8f0;
+  font-size: .88rem;
+  gap: .55rem;
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
+}
+.nav-group-toggle:hover { background: rgba(255,255,255,.06); color: #fff; }
+.nav-group-toggle.group-open { color: #fff; }
+.nav-group-toggle i.fa-fw { font-size: .9rem; opacity: .75; }
+.nav-group-toggle .grp-chevron {
+  margin-left: auto;
+  font-size: .65rem;
+  opacity: .45;
+  transition: transform .2s ease, opacity .2s;
+  flex-shrink: 0;
+}
+.nav-group-toggle.group-open .grp-chevron { transform: rotate(180deg); opacity: .7; }
+.nav-sub {
+  margin: 2px 0 4px .55rem;
+  padding-left: .6rem;
+  border-left: 2px solid rgba(255,255,255,.09);
+}
+.nav-sub .nav-link {
+  padding: .45rem .65rem;
+  font-size: .84rem;
+}
+</style>
+</head>
+
+<body>
+
+  {% set current_lang = session.get('lang','hu') %}
+  {% set user = user|default(None) %}
+
+  <!-- Backdrop (mobil drawer mögé) -->
+  <div class="sidebar-backdrop d-md-none" id="sidebarBackdrop"></div>
+
+  <!-- Mobil topbar – csak telefonon látszik -->
+  <nav class="mobile-topbar d-md-none">
+    <button class="topbar-hamburger border-0" id="sidebarToggle" aria-label="Menü">
+      <i class="fas fa-bars"></i>
+    </button>
+    <div class="topbar-logo-wrap">
+      <img src="{{ url_for('static', filename='images/logo-white.png') }}" alt="Logo" class="topbar-logo"/>
+    </div>
+    <div class="topbar-spacer"></div>
+  </nav>
+
+  <!-- Sidebar – desktop: sticky inline, mobil: hidden drawer -->
+  <aside class="sidebar" id="sidebar">
+    <div>
+      <img src="{{ url_for('static', filename='images/logo-white.png') }}" alt="Logo" class="sidebar-logo"/>
+
+      {% if user %}
+      <div class="user-info mt-2 mb-3">
+        <div class="user-name">{{ user.display_name }}</div>
+        <div class="user-title dim">{{ user.job_title }}</div>
+        <hr class="sidebar-divider"/>
+      </div>
+      {% endif %}
+
+      {# ── Csoportos IT nézet ── #}
+      {% if user and user.job_title == 'IT' %}
+
+      {# Aktív csoport előre kiszámítása az auto-expand-hoz #}
+      {% set grp_rpi    = active in ('vnc', 'devices', 'tables', 'scan') %}
+      {% set grp_tl     = active in ('teamleaders', 'wo_progress', 'users_progress', 'tl_settings') %}
+      {% set grp_bt     = active in ('bartender_edit', 'bartender_preview', 'bartender_gallery', 'bartender_reports', 'bartender_project_report') %}
+      {% set grp_qr     = active in ('qr_injector', 'qr_logs') %}
+
+      <ul class="nav flex-column gap-1">
+
+        {# ── Önálló elemek ── #}
+        {% if user and can_view('database') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='dbv' %}active{% endif %}" href="{{ url_for('db_viewer.page', lang=current_lang) }}">
+            <i class="fa-solid fa-database fa-fw"></i><span>Adatbázis</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {# ── Email admin – önálló ── #}
+        {% if user and can_view('email_admin') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='email_admin' else '' }}" href="{{ url_for('email_module.admin_page', lang=current_lang) }}">
+            <i class="fa-solid fa-envelope-open-text fa-fw"></i><span>Email modul</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('notifications') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='notifications' else '' }}" href="{{ url_for('notifications.notification_admin_page', lang=current_lang) }}">
+            <i class="fa-solid fa-bell fa-fw"></i><span>Értesítések</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('search') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='search' else '' }}" href="/{{ current_lang }}/search/">
+            <i class="fa-solid fa-magnifying-glass fa-fw"></i><span>Fájlkereső</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('errors') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='errors' %}active{% endif %}" href="/errors/controller">
+            <i class="fa-solid fa-triangle-exclamation fa-fw"></i><span>Hibák</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('hr') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='hr' else '' }}" href="{{ url_for('human_resources.hr_home', lang=current_lang) }}">
+            <i class="fa-solid fa-users-gear fa-fw"></i><span>HR</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('ad_users') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='ad_users' else '' }}" href="{{ url_for('ad_users.ad_users_home', lang=current_lang) }}">
+            <i class="fa-solid fa-address-book fa-fw"></i><span>AD felhasználók</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {# ── Raspberry csoport ── #}
+        {% if user and (can_view('vnc') or can_view('devices') or can_view('tables') or can_view('table_creator') or can_view('scan')) %}
+        <li class="nav-item">
+          <button class="nav-group-toggle {% if grp_rpi %}group-open{% endif %}"
+                  data-bs-toggle="collapse" data-bs-target="#navGrpRpi"
+                  aria-expanded="{{ 'true' if grp_rpi else 'false' }}">
+            <i class="fa-solid fa-microchip fa-fw"></i>
+            <span>Raspberry</span>
+            <i class="fa-solid fa-chevron-down grp-chevron"></i>
+          </button>
+          <div class="collapse {% if grp_rpi %}show{% endif %}" id="navGrpRpi">
+            <ul class="nav flex-column nav-sub gap-1 mt-1">
+              {% if can_view('vnc') %}
+              <li class="nav-item">
+                <a class="nav-link {% if active=='vnc' %}active{% endif %}" href="{{ url_for('vnc.dashboard', lang=current_lang) }}">
+                  <i class="fa-solid fa-display fa-fw"></i><span>VNC</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if can_view('devices') %}
+              <li class="nav-item">
+                <a class="nav-link {% if active=='devices' %}active{% endif %}" href="/{{ current_lang }}/">
+                  <i class="fa-solid fa-server fa-fw"></i><span>Eszközök</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if can_view('programs') %}
+              <li class="nav-item">
+                <a class="nav-link {% if active=='programs' %}active{% endif %}"  href="{{ url_for('main.programs_page', lang=current_lang) }}">
+                  <i class="fa-solid fa-server fa-fw"></i><span>Weboldal kezelése</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if can_view('tables') or can_view('table_creator') %}
+              <li class="nav-item">
+                <a class="nav-link {{ 'active' if active=='tables' else '' }}" href="{{ url_for('tables.tables_page', lang=current_lang) }}">
+                  <i class="fa-solid fa-table fa-fw"></i><span>Table Creator</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if can_view('scan') %}
+              <li class="nav-item">
+                <a class="nav-link {{ 'active' if active=='scan' else '' }}" href="{{ url_for('scan.scan_page', lang=current_lang) }}">
+                  <i class="fa-solid fa-qrcode fa-fw"></i><span>QR Scan</span>
+                </a>
+              </li>
+              {% endif %}
+            </ul>
+          </div>
+        </li>
+        {% endif %}
+
+        {# ── Raspberry – Team leadereknek ── #}
+        {% if user and (can_view('teamleaders') or can_view('wo_progress') or can_view('users_progress') or can_view('tl_settings')) %}
+        <li class="nav-item">
+          <button class="nav-group-toggle {% if grp_tl %}group-open{% endif %}"
+                  data-bs-toggle="collapse" data-bs-target="#navGrpTL"
+                  aria-expanded="{{ 'true' if grp_tl else 'false' }}">
+            <i class="fa-solid fa-users fa-fw"></i>
+            <span>Raspberry – TL</span>
+            <i class="fa-solid fa-chevron-down grp-chevron"></i>
+          </button>
+          <div class="collapse {% if grp_tl %}show{% endif %}" id="navGrpTL">
+            <ul class="nav flex-column nav-sub gap-1 mt-1">
+              {% if can_view('teamleaders') %}
+              <li class="nav-item">
+                <a class="nav-link {% if active=='teamleaders' %}active{% endif %}" href="{{ url_for('teamleaders.teamleaders', lang=current_lang) }}">
+                  <i class="fa-solid fa-user-gear fa-fw"></i><span>TeamLeader oldal</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if can_view('wo_progress') %}
+              <li class="nav-item">
+                <a class="nav-link {% if active=='wo_progress' %}active{% endif %}" href="/{{ current_lang }}/wo_progress">
+                  <i class="fa-solid fa-diagram-project fa-fw"></i><span>WO haladás</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if can_view('users_progress') %}
+              <li class="nav-item">
+                <a class="nav-link {% if active=='users_progress' %}active{% endif %}" href="/{{ current_lang }}/users_progress">
+                  <i class="fa-solid fa-user-clock fa-fw"></i><span>Felhasználói haladás</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if can_view('tl_settings') %}
+              <li class="nav-item">
+                <a class="nav-link {% if active=='tl_settings' %}active{% endif %}" href="{{ url_for('tl_settings.page', lang=current_lang) }}">
+                  <i class="fa-solid fa-sliders fa-fw"></i><span>Egyéb beállítások</span>
+                </a>
+              </li>
+              {% endif %}
+            </ul>
+          </div>
+        </li>
+        {% endif %}
+
+        {# ── BarTender csoport ── #}
+        {% if user and (can_view('bartender_edit') or can_view('bartender_preview') or can_view('bartender_gallery') or can_view('bartender_reports') or can_view('bartender_project_report')) %}
+        <li class="nav-item">
+          <button class="nav-group-toggle {% if grp_bt %}group-open{% endif %}"
+                  data-bs-toggle="collapse" data-bs-target="#navGrpBT"
+                  aria-expanded="{{ 'true' if grp_bt else 'false' }}">
+            <i class="fa-solid fa-print fa-fw"></i>
+            <span>BarTender</span>
+            <i class="fa-solid fa-chevron-down grp-chevron"></i>
+          </button>
+          <div class="collapse {% if grp_bt %}show{% endif %}" id="navGrpBT">
+            <ul class="nav flex-column nav-sub gap-1 mt-1">
+              {% if can_view('bartender_edit') %}
+              <li class="nav-item">
+                <a class="nav-link {{ 'active' if active=='bartender_edit' else '' }}" href="{{ url_for('bartender.edit_v1', lang=current_lang) }}">
+                  <i class="fa-solid fa-pen-to-square fa-fw"></i><span>Szerkesztő</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if can_view('bartender_preview') %}
+              <li class="nav-item">
+                <a class="nav-link {{ 'active' if active=='bartender_preview' else '' }}" href="{{ url_for('bartender.preview_page', lang=current_lang) }}">
+                  <i class="fa-regular fa-image fa-fw"></i><span>Nyomtatás</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if can_view('bartender_gallery') %}
+              <li class="nav-item">
+                <a class="nav-link {{ 'active' if active=='bartender_gallery' else '' }}" href="{{ url_for('qc_bartender.gallery_page', lang=current_lang) }}">
+                  <i class="fa-solid fa-layer-group fa-fw"></i><span>[QC] Template Kontrol</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if can_view('bartender_reports') %}
+              <li class="nav-item">
+                <a class="nav-link {{ 'active' if active=='bartender_reports' else '' }}" href="{{ url_for('bartender.reports_page', lang=current_lang) }}">
+                  <i class="fa-solid fa-chart-column fa-fw"></i><span>Nyomtatási riportok</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if can_view('bartender_project_report') %}
+              <li class="nav-item">
+                <a class="nav-link {{ 'active' if active=='bartender_project_report' else '' }}" href="{{ url_for('bartender_project_report.page', lang=current_lang) }}">
+                  <i class="fa-solid fa-diagram-project fa-fw"></i><span>Projekt riportok</span>
+                </a>
+              </li>
+              {% endif %}
+            </ul>
+          </div>
+        </li>
+        {% endif %}
+
+        {# ── QR csoport ── #}
+        {% if user and (can_view('qr_injector') or can_view('qr_logs')) %}
+        <li class="nav-item">
+          <button class="nav-group-toggle {% if grp_qr %}group-open{% endif %}"
+                  data-bs-toggle="collapse" data-bs-target="#navGrpQR"
+                  aria-expanded="{{ 'true' if grp_qr else 'false' }}">
+            <i class="fa-solid fa-qrcode fa-fw"></i>
+            <span>QR</span>
+            <i class="fa-solid fa-chevron-down grp-chevron"></i>
+          </button>
+          <div class="collapse {% if grp_qr %}show{% endif %}" id="navGrpQR">
+            <ul class="nav flex-column nav-sub gap-1 mt-1">
+              {% if can_view('qr_injector') %}
+              <li class="nav-item">
+                <a class="nav-link {{ 'active' if active=='qr_injector' else '' }}" href="{{ url_for('qr_injector.form', lang=current_lang) }}">
+                  <i class="fa-solid fa-syringe fa-fw"></i><span>QR Injector</span>
+                </a>
+              </li>
+              {% endif %}
+              {% if can_view('qr_logs') %}
+              <li class="nav-item">
+                <a class="nav-link {{ 'active' if active=='qr_logs' else '' }}" href="{{ url_for('qr.qr_logs_page', lang=current_lang) }}">
+                  <i class="fa-solid fa-clipboard-list fa-fw"></i><span>QR print napló</span>
+                </a>
+              </li>
+              {% endif %}
+            </ul>
+          </div>
+        </li>
+        {% endif %}
+
+        
+
+      </ul>
+
+      {# ── Eredeti flat nézet (nem-IT) ── #}
+      {% else %}
+
+      <ul class="nav flex-column gap-1">
+
+        {% if user and can_view('database') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='dbv' %}active{% endif %}" href="{{ url_for('db_viewer.page', lang=current_lang) }}">
+            <i class="fa-solid fa-database"></i><span>Adatbázis</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('notifications') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='notifications' else '' }}" href="{{ url_for('notifications.notification_admin_page', lang=current_lang) }}">
+            <i class="fa-solid fa-bell"></i><span>Értesítések</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('devices') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='devices' %}active{% endif %}" href="/{{ current_lang }}/">
+            <i class="fa-solid fa-microchip"></i><span>Eszközök</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('programs') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='programs' %}active{% endif %}" href="{{ url_for('main.programs_page', lang=current_lang) }}">
+            Programok
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('vnc') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='vnc' %}active{% endif %}" href="{{ url_for('vnc.dashboard', lang=current_lang) }}">
+            <i class="fa-solid fa-display"></i><span>VNC</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('search') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='search' else '' }}" href="/{{ current_lang }}/search/">
+            <i class="fa-solid fa-magnifying-glass"></i><span>Fájlkereső</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('errors') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='errors' %}active{% endif %}" href="/errors/controller">
+            <i class="fa-solid fa-triangle-exclamation"></i><span>Hibák</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('pn_progress') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='pn_progress' %}active{% endif %}" href="/pn_progress">
+            <i class="fa-solid fa-hashtag"></i><span>Part Number haladás</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('users_progress') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='users_progress' %}active{% endif %}" href="/{{ current_lang }}/users_progress">
+            <i class="fa-solid fa-user-clock"></i><span>Felhasználói haladás</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('teamleaders') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='teamleaders' %}active{% endif %}" href="{{ url_for('teamleaders.teamleaders', lang=current_lang) }}">
+            <i class="fa-solid fa-user-gear"></i><span>TeamLeader oldal</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('tl_settings') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='tl_settings' %}active{% endif %}" href="{{ url_for('tl_settings.page', lang=current_lang) }}">
+            <i class="fa-solid fa-sliders"></i><span>Egyéb beállítások</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('wo_progress') %}
+        <li class="nav-item">
+          <a class="nav-link {% if active=='wo_progress' %}active{% endif %}" href="/{{ current_lang }}/wo_progress">
+            <i class="fa-solid fa-diagram-project"></i><span>WO haladás</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and (can_view('tables') or can_view('table_creator')) %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='tables' else '' }}" href="{{ url_for('tables.tables_page', lang=current_lang) }}">
+            <i class="fa-solid fa-table"></i><span>Table Creator</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('hr') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='hr' else '' }}" href="{{ url_for('human_resources.hr_home', lang=current_lang) }}">
+            <i class="fa-solid fa-users-gear"></i><span>HR</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('ad_users') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='ad_users' else '' }}" href="{{ url_for('ad_users.ad_users_home', lang=current_lang) }}">
+            <i class="fa-solid fa-address-book"></i><span>AD felhasználók</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('bartender_print') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='bartender_print' else '' }}" href="{{ url_for('bartender.print_page', lang=current_lang) }}">
+            <i class="fa-solid fa-print"></i><span>BarTender print</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('bartender_edit') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='bartender_edit' else '' }}" href="{{ url_for('bartender.edit_v1', lang=current_lang) }}">
+            <i class="fa-solid fa-pen-to-square"></i><span>BarTender szerkesztő</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('bartender_preview') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='bartender_preview' else '' }}" href="{{ url_for('bartender.preview_page', lang=current_lang) }}">
+            <i class="fa-regular fa-image"></i><span>BarTender nyomtatás</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('bartender_gallery') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='bartender_gallery' else '' }}" href="{{ url_for('qc_bartender.gallery_page', lang=current_lang) }}">
+            <i class="fa-solid fa-layer-group"></i><span>[QC] Bartender Template Kontrol</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('bartender_reports') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='bartender_reports' else '' }}" href="{{ url_for('bartender.reports_page', lang=current_lang) }}">
+            <i class="fa-solid fa-chart-column"></i><span>BarTender nyomtatási riportok</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('bartender_project_report') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='bartender_project_report' else '' }}" href="{{ url_for('bartender_project_report.page', lang=current_lang) }}">
+            <i class="fa-solid fa-diagram-project"></i><span>BarTender projektek riportok</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('bartender_template_debug') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='bartender_template_debug' else '' }}" href="{{ url_for('bartender.template_debug_page', lang=current_lang) }}">
+            <i class="fa-regular fa-floppy-disk"></i><span>BTW fájl tesztelő</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('scan') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='scan' else '' }}" href="{{ url_for('scan.scan_page', lang=current_lang) }}">
+            <i class="fa-solid fa-qrcode"></i><span>QR Scan</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('qr_logs') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='qr_logs' else '' }}" href="{{ url_for('qr.qr_logs_page', lang=current_lang) }}">
+            <i class="fa-solid fa-clipboard-list"></i><span>QR print napló</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('qr_injector') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='qr_injector' else '' }}" href="{{ url_for('qr_injector.form', lang=current_lang) }}">
+            <i class="fa-solid fa-qrcode"></i><span>QR Injector</span>
+          </a>
+        </li>
+        {% endif %}
+
+        {% if user and can_view('email_admin') %}
+        <li class="nav-item">
+          <a class="nav-link {{ 'active' if active=='email_admin' else '' }}" href="{{ url_for('email_module.admin_page', lang=current_lang) }}">
+            <i class="fa-solid fa-envelope-open-text"></i><span>Email modul</span>
+          </a>
+        </li>
+        {% endif %}
+
+      </ul>
+
+      {% endif %}{# /IT nézet #}
+    </div>
+
+    <div class="logout">
+      {% if user %}
+        <a class="nav-link text-danger" href="/auth/logout"><i class="fa-solid fa-right-from-bracket"></i> Kijelentkezés</a>
+      {% else %}
+        <div class="nav-link dim small">Publikus nézet</div>
+      {% endif %}
+    </div>
+  </aside>
+
+  <!-- Tartalom -->
+  <main class="content">
+    <div class="page-header d-flex align-items-center justify-content-between mb-3">
+      <h1 class="h5 mb-0">{% block page_title %}{% endblock %}</h1>
+      <div class="d-flex align-items-center gap-2">
+        {% block page_header_right %}{% endblock %}
+      </div>
+    </div>
+
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block extra_scripts %}{% endblock %}
+
+  <!-- ===== Admin/System notice UI hosts ===== -->
+  <div id="adminNoticeBannerHost" class="position-sticky top-0" style="z-index: 1200;"></div>
+  <div id="adminNoticeToastHost" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1200;"></div>
+
+  <div class="modal fade" id="adminNoticeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Rendszer értesítés</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Bezárás"></button>
+        </div>
+        <div class="modal-body">
+          <div id="adminNoticeModalText" class="mb-2"></div>
+          <div id="adminNoticeModalEta" class="text-muted" style="display:none;"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="adminNoticeAckBtn" type="button" class="btn btn-primary">Értettem</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container (flash üzenetek) -->
+  <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index:1100">
+    {% with messages = get_flashed_messages(with_categories=True) %}
+      {% for category, message in messages %}
+        <div class="toast align-items-center text-white
+                    {% if category in ['danger','error'] %}bg-danger{% elif category=='warning' %}bg-warning{% else %}bg-primary{% endif %}
+                    border-0 shadow"
+             role="alert" aria-live="assertive" aria-atomic="true"
+             data-bs-autohide="true" data-bs-delay="3500">
+          <div class="d-flex">
+            <div class="toast-body">{{ message }}</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+          </div>
+        </div>
+      {% endfor %}
+    {% endwith %}
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      document.querySelectorAll('.toast').forEach(function (el) { new bootstrap.Toast(el).show(); });
+    });
+  </script>
+
+  <!-- Mobil drawer JS -->
+  <script>
+  (function () {
+    const toggle   = document.getElementById('sidebarToggle');
+    const sidebar  = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    if (!toggle || !sidebar || !backdrop) return;
+
+    function openSidebar() {
+      sidebar.classList.add('sidebar-open');
+      backdrop.classList.add('sidebar-open');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeSidebar() {
+      sidebar.classList.remove('sidebar-open');
+      backdrop.classList.remove('sidebar-open');
+      document.body.style.overflow = '';
+    }
+
+    toggle.addEventListener('click', openSidebar);
+    backdrop.addEventListener('click', closeSidebar);
+
+    // Navigáció: link kattintás bezárja a drawert mobilon
+    sidebar.querySelectorAll('a.nav-link').forEach(function (link) {
+      link.addEventListener('click', function () {
+        if (window.innerWidth < 768) closeSidebar();
+      });
+    });
+
+    // Resize: desktop-ra visszaállva töröljük az overflow lockot
+    window.addEventListener('resize', function () {
+      if (window.innerWidth >= 768) {
+        sidebar.classList.remove('sidebar-open');
+        backdrop.classList.remove('sidebar-open');
+        document.body.style.overflow = '';
+      }
+    });
+  })();
+  </script>
+
+  <!-- ===== Socket listener + presence/page_view ===== -->
+  <script>
+  (function () {
+    const JINJA_PAGE = "{{ active|default('') }}";
+
+    function pageFromPath() {
+      const parts = (window.location.pathname || "").split("/").filter(Boolean);
+      const p0 = (parts[0] || "").toLowerCase();
+      const rest = (p0 === "hu" || p0 === "sk" || p0 === "en") ? parts.slice(1) : parts;
+      const last = rest[rest.length - 1] || "home";
+      const prev = rest[rest.length - 2] || "";
+      return (prev ? (prev + "_" + last) : last).replaceAll("-", "_");
+    }
+
+    const CURRENT_PAGE = (JINJA_PAGE && String(JINJA_PAGE).trim()) ? String(JINJA_PAGE).trim() : pageFromPath();
+
+    if (typeof io === "undefined") return;
+
+    const socket = io({ transports: ["websocket", "polling"], withCredentials: true });
+
+    let CURRENT_MODAL_NOTICE_ID = null;
+    const HEARTBEAT_MS = 10000;
+    let heartbeatTimer = null;
+
+    function sendPresence(reason = "hb") {
+      const visible = (document.visibilityState === "visible");
+      socket.emit("presence", { page: CURRENT_PAGE, visible, reason, ts: Date.now() });
+    }
+    function startHeartbeat() {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      heartbeatTimer = setInterval(() => { if (socket.connected) sendPresence("hb"); }, HEARTBEAT_MS);
+    }
+    function stopHeartbeat() { if (heartbeatTimer) clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    function safeDisconnect() {
+      try { sendPresence("leave"); } catch(e) {}
+      try { socket.disconnect(); } catch(e) {}
+    }
+
+    socket.on("connect", () => { socket.emit("page_view", { page: CURRENT_PAGE }); sendPresence("connect"); startHeartbeat(); });
+    socket.on("disconnect", () => { stopHeartbeat(); });
+
+    window.addEventListener("pagehide", safeDisconnect);
+    window.addEventListener("beforeunload", safeDisconnect);
+    window.addEventListener("pageshow", (e) => {
+      if (e.persisted) {
+        try { if (!socket.connected) socket.connect(); } catch(_) {}
+        try { socket.emit("page_view", { page: CURRENT_PAGE }); } catch(_) {}
+        try { sendPresence("pageshow"); } catch(_) {}
+      }
+    });
+
+    document.addEventListener("visibilitychange", () => socket.connected && sendPresence());
+    window.addEventListener("focus", () => socket.connected && sendPresence());
+    window.addEventListener("blur",  () => socket.connected && sendPresence());
+
+    function levelToBg(level) {
+      level = String(level || "warning").toLowerCase();
+      if (level === "danger" || level === "error") return "bg-danger text-white";
+      if (level === "warning") return "bg-warning";
+      if (level === "success") return "bg-success text-white";
+      return "bg-primary text-white";
+    }
+    function emitAck(noticeId) { if (!noticeId) return; socket.emit("notice_ack", { notice_id: noticeId }); }
+    function escapeHtml(s) {
+      return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+                      .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+    }
+
+    function showBanner(data) {
+      const host = document.getElementById("adminNoticeBannerHost");
+      if (!host) return;
+      host.dataset.noticeId = data.notice_id || "";
+      const bg = levelToBg(data.level);
+      const etaHtml = data.eta_minutes ? ('<span class="ms-2 opacity-75">(kb. ' + Number(data.eta_minutes) + ' perc)</span>') : "";
+      host.innerHTML =
+        '<div class="alert ' + bg + ' mb-0 rounded-0 d-flex align-items-center justify-content-between">' +
+          '<div><strong>Értesítés:</strong> <span>' + escapeHtml(data.message || "") + '</span>' + etaHtml + '</div>' +
+          '<div class="d-flex gap-2">' +
+            '<button class="btn btn-sm btn-light" id="adminBannerAck">Értettem</button>' +
+            '<button class="btn btn-sm btn-outline-light" id="adminBannerClose">Bezár</button>' +
+          '</div></div>';
+      document.getElementById("adminBannerAck")?.addEventListener("click", () => { emitAck(data.notice_id); host.innerHTML = ""; host.dataset.noticeId = ""; });
+      document.getElementById("adminBannerClose")?.addEventListener("click", () => { host.innerHTML = ""; host.dataset.noticeId = ""; });
+    }
+
+    function showModal(data) {
+      const modalEl = document.getElementById("adminNoticeModal");
+      const textEl  = document.getElementById("adminNoticeModalText");
+      const etaEl   = document.getElementById("adminNoticeModalEta");
+      const ackBtn  = document.getElementById("adminNoticeAckBtn");
+      if (!modalEl || !textEl || !etaEl || !ackBtn) return;
+      CURRENT_MODAL_NOTICE_ID = data.notice_id || null;
+      textEl.textContent = data.message || "";
+      if (data.eta_minutes) { etaEl.style.display = ""; etaEl.textContent = "Várható leállás: kb. " + Number(data.eta_minutes) + " perc múlva."; }
+      else { etaEl.style.display = "none"; }
+      modalEl.addEventListener("hidden.bs.modal", function onHidden() {
+        modalEl.removeEventListener("hidden.bs.modal", onHidden);
+        CURRENT_MODAL_NOTICE_ID = null;
+        if (data && data.sticky) showToast(data);
+      });
+      ackBtn.onclick = () => { emitAck(data.notice_id); bootstrap.Modal.getOrCreateInstance(modalEl).hide(); };
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+
+    function showToast(data) {
+      const host = document.getElementById("adminNoticeToastHost");
+      if (!host) return;
+      const bg = levelToBg(data.level);
+      const etaHtml = data.eta_minutes ? ('<div class="opacity-75 mt-1">Várható leállás: kb. ' + Number(data.eta_minutes) + ' perc</div>') : "";
+      const toastEl = document.createElement("div");
+      toastEl.className = "toast align-items-center " + bg + " border-0 shadow mb-2";
+      toastEl.setAttribute("role","alert"); toastEl.setAttribute("aria-live","assertive"); toastEl.setAttribute("aria-atomic","true");
+      toastEl.dataset.noticeId = data.notice_id || "";
+      toastEl.innerHTML = '<div class="d-flex"><div class="toast-body"><div class="fw-semibold">Rendszer értesítés</div><div>' + escapeHtml(data.message || "") + '</div>' + etaHtml + '</div></div>';
+      host.appendChild(toastEl);
+      bootstrap.Toast.getOrCreateInstance(toastEl, { autohide: !data.sticky, delay: 6000 }).show();
+      toastEl.addEventListener("hidden.bs.toast", () => toastEl.remove());
+    }
+
+    socket.on("admin_notice", (data) => {
+      const ui = String(data?.ui || "toast").toLowerCase();
+      if (ui === "banner") return showBanner(data);
+      if (ui === "modal") return showModal(data);
+      return showToast(data);
+    });
+
+    socket.on("admin_notice_stop", (payload) => {
+      const id = String(payload?.notice_id || "").trim();
+      if (!id) return;
+      const bannerHost = document.getElementById("adminNoticeBannerHost");
+      if (bannerHost && bannerHost.dataset.noticeId === id) { bannerHost.innerHTML = ""; bannerHost.dataset.noticeId = ""; }
+      document.querySelectorAll('#adminNoticeToastHost .toast[data-notice-id="'+id+'"]').forEach((el) => {
+        try { bootstrap.Toast.getOrCreateInstance(el).hide(); } catch(e) {}
+        el.remove();
+      });
+      if (CURRENT_MODAL_NOTICE_ID === id) {
+        const modalEl = document.getElementById("adminNoticeModal");
+        if (modalEl) { try { bootstrap.Modal.getOrCreateInstance(modalEl).hide(); } catch(e) {} }
+        CURRENT_MODAL_NOTICE_ID = null;
+      }
+    });
+
+  })();
+  </script>
+
+
+<!-- Nyitott hibák számláló badge az Errors menüpont mellett -->
+<script>
+(function(){
+  var links = document.querySelectorAll('a[href="/errors/controller"]');
+  if (!links.length) return;
+  var badges = [];
+  links.forEach(function(a){
+    var b = document.createElement('span');
+    b.className = 'badge rounded-pill bg-danger ms-1';
+    b.style.display = 'none';
+    a.appendChild(b);
+    badges.push(b);
+  });
+  function upd(){
+    fetch('/errors/api/open_count', {cache:'no-store', credentials:'same-origin'})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){
+        var n = (j && j.count) ? j.count : 0;
+        badges.forEach(function(b){
+          b.textContent = n;
+          b.style.display = n > 0 ? '' : 'none';
+        });
+      })
+      .catch(function(){});
+  }
+  upd();
+  setInterval(upd, 60000);
+})();
+</script>
+</body>
+</html>

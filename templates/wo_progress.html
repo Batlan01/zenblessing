@@ -1,0 +1,146 @@
+{% extends "sk/base.html" %}
+
+{% block title %}WO Progress{% endblock %}
+{% block page_title %}WO Progress{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <h3 class="text-primary mb-3">WO Progress</h3>
+
+  <div class="filter-container d-flex flex-wrap align-items-end gap-2 mb-3">
+    <div>
+      <label for="startDate" class="form-label mb-1">Dátum začiatku</label>
+      <input id="startDate" type="date" class="form-control" style="min-width: 200px;">
+    </div>
+    <div>
+      <label for="endDate" class="form-label mb-1">Konečný dátum</label>
+      <input id="endDate" type="date" class="form-control" style="min-width: 200px;">
+    </div>
+    <button id="filterBtn" class="btn btn-primary">Filtrovať</button>
+  </div>
+
+  <div class="table-container">
+    <div id="wo_progress-loader" class="text-center my-2" style="display:none;">Načítava sa…</div>
+
+    <div class="table-responsive">
+      <table id="wo_progress" class="table table-striped table-bordered align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>WO NO</th>
+            <th>WO QTY</th>
+            <th>ST. TIME</th>
+            <th>PROD</th>
+            <th>CRIMP</th>
+            <th>SOLD</th>
+            <th>MOLD</th>
+            <th>TEST</th>
+            <th>QC</th>
+            <th>SHIP</th>
+            <th>VYPRISIV</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="pagination d-flex gap-2">
+      <button id="prevPage" class="btn btn-outline-secondary" disabled>Predchádzajúce</button>
+      <button id="nextPage" class="btn btn-outline-secondary">Ďalej</button>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  let currentPage = 1;
+  const limit = 50;
+  const tableBody = document.querySelector("#wo_progress tbody");
+  const loader = document.getElementById("wo_progress-loader");
+  const prevPageBtn = document.getElementById("prevPage");
+  const nextPageBtn = document.getElementById("nextPage");
+  const filterBtn   = document.getElementById("filterBtn");
+
+  // Predvolený dátumový rozsah: dnes a -7 dní
+  (function presetDates() {
+    const today = new Date();
+    const lastWeek = new Date();
+    lastWeek.setDate(today.getDate() - 7);
+    document.getElementById("startDate").value = lastWeek.toISOString().split("T")[0];
+    document.getElementById("endDate").value   = today.toISOString().split("T")[0];
+  })();
+
+  function renderNoDataRow(message) {
+    tableBody.innerHTML = `<tr><td colspan="11" class="text-center">${message}</td></tr>`;
+  }
+
+  function fetchData(page) {
+    const startDate = document.getElementById("startDate").value;
+    const endDate   = document.getElementById("endDate").value;
+
+    if (!startDate || !endDate) {
+      alert("Vyber dátum začiatku aj konca!");
+      return;
+    }
+
+    loader.style.display = "block";
+
+    fetch(`/api/wo_progress_api?page=${page}&limit=${limit}&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`)
+      .then(response => {
+        if (!response.ok) throw new Error("Sieťová chyba: " + response.statusText);
+        return response.json();
+      })
+      .then(data => {
+        loader.style.display = "none";
+        tableBody.innerHTML = "";
+
+        if (!data || !data.data || data.data.length === 0) {
+          renderNoDataRow("Žiadne údaje.");
+          currentPage = data?.page ?? 1;
+          prevPageBtn.disabled = currentPage <= 1;
+          nextPageBtn.disabled = true;
+          return;
+        }
+
+        data.data.forEach(item => {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${item.WO}</td>
+            <td>${item.total_qty}</td>
+            <td>${item.st_time !== null ? item.st_time : "0"}</td>
+            <td>${item.PROD  ?? 0}</td>
+            <td>${item.CRIMP ?? 0}</td>
+            <td>${item.SOLD  ?? 0}</td>
+            <td>${item.MOLD  ?? 0}</td>
+            <td>${item.TEST  ?? 0}</td>
+            <td>${item.QC    ?? 0}</td>
+            <td>${item.SHIP  ?? 0}</td>
+            <td>${item.VYPRISIV ?? 0}</td>
+          `;
+          tableBody.appendChild(row);
+        });
+
+        currentPage = data.page;
+        prevPageBtn.disabled = currentPage === 1;
+        nextPageBtn.disabled = currentPage >= data.total_pages;
+      })
+      .catch(error => {
+        console.error("Chyba pri načítaní údajov:", error);
+        loader.style.display = "none";
+        renderNoDataRow("Chyba pri načítaní údajov.");
+      });
+  }
+
+  // Udalosti
+  filterBtn.addEventListener("click", () => fetchData(1));
+  prevPageBtn.addEventListener("click", () => { if (currentPage > 1) fetchData(currentPage - 1); });
+  nextPageBtn.addEventListener("click", () => fetchData(currentPage + 1));
+
+  // Úvodné načítanie
+  setTimeout(() => fetchData(currentPage), 300);
+});
+</script>
+{% endblock %}

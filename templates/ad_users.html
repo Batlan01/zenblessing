@@ -1,0 +1,404 @@
+{% extends lang ~ '/base.html' %}
+
+{% block title %}AD používatelia{% endblock %}
+{% block page_title %}Active Directory – správa používateľov{% endblock %}
+
+{% block page_header_right %}
+  <button id="btnNewUser" class="btn btn-success btn-sm">
+    <i class="fa-solid fa-user-plus me-1"></i> Nový používateľ
+  </button>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid my-3">
+  <div class="row g-3">
+
+    <!-- Bal oldal: lista -->
+    <div class="col-12 col-lg-5">
+      <div class="card">
+        <div class="card-header d-flex align-items-center gap-2">
+          <div class="input-group input-group-sm">
+            <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+            <input id="searchInput" type="text" class="form-control"
+                   placeholder="Hľadať (meno, login, e-mail)…" autocomplete="off">
+          </div>
+          <button id="btnReload" class="btn btn-outline-secondary btn-sm" title="Obnoviť">
+            <i class="fa-solid fa-rotate"></i>
+          </button>
+        </div>
+        <div class="list-group list-group-flush" id="userList"
+             style="max-height:70vh; overflow:auto;">
+          <div class="text-center text-muted py-4">Načítavam…</div>
+        </div>
+        <div class="card-footer small text-muted" id="listCount"></div>
+      </div>
+    </div>
+
+    <!-- Jobb oldal: részletek -->
+    <div class="col-12 col-lg-7">
+      <div class="card h-100">
+        <div class="card-body" id="detailPane">
+          <div class="text-center text-muted py-5">
+            <i class="fa-solid fa-arrow-left me-1"></i>
+            Vyberte používateľa zo zoznamu.
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== Modal: nová používateľ ===== -->
+<div class="modal fade" id="newUserModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Nový AD používateľ</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="newUserForm" class="row g-2">
+          <div class="col-6">
+            <label class="form-label small">Meno *</label>
+            <input name="first_name" class="form-control form-control-sm" required>
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Priezvisko *</label>
+            <input name="last_name" class="form-control form-control-sm" required>
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Login (sAMAccountName) *</label>
+            <input name="username" class="form-control form-control-sm" required autocomplete="off">
+          </div>
+          <div class="col-6">
+            <label class="form-label small">E-mail</label>
+            <input name="mail" type="email" class="form-control form-control-sm">
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Pracovná pozícia (title)</label>
+            <input name="job_title" class="form-control form-control-sm">
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Oddelenie</label>
+            <input name="department" class="form-control form-control-sm">
+          </div>
+          <div class="col-12">
+            <label class="form-label small">Počiatočné heslo *</label>
+            <input name="password" type="text" class="form-control form-control-sm" required autocomplete="off">
+          </div>
+          <div class="col-12 form-check ms-2 mt-2">
+            <input class="form-check-input" type="checkbox" name="must_change" id="nuMustChange" checked>
+            <label class="form-check-label small" for="nuMustChange">
+              Vynútiť zmenu hesla pri prvom prihlásení
+            </label>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Zrušiť</button>
+        <button class="btn btn-success btn-sm" id="btnCreate">
+          <i class="fa-solid fa-user-plus me-1"></i> Vytvoriť
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: reset hesla ===== -->
+<div class="modal fade" id="pwdModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Reset hesla</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-2">
+          Používateľ: <strong id="pwdUser"></strong>
+        </p>
+        <label class="form-label small">Nové heslo *</label>
+        <div class="input-group input-group-sm mb-2">
+          <input id="pwdInput" type="text" class="form-control" autocomplete="off">
+          <button class="btn btn-outline-secondary" type="button" id="btnGenPwd" title="Generovať">
+            <i class="fa-solid fa-dice"></i>
+          </button>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="pwdMustChange" checked>
+          <label class="form-check-label small" for="pwdMustChange">
+            Vynútiť zmenu pri ďalšom prihlásení
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Zrušiť</button>
+        <button class="btn btn-warning btn-sm" id="btnResetPwd">
+          <i class="fa-solid fa-key me-1"></i> Resetovať
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const BASE = "/{{ lang }}/ad_users";
+  const listEl   = document.getElementById("userList");
+  const detail   = document.getElementById("detailPane");
+  const countEl  = document.getElementById("listCount");
+  const searchEl = document.getElementById("searchInput");
+
+  let currentUser = null;
+
+  function esc(s){
+    return String(s == null ? "" : s)
+      .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+  }
+
+  function toast(msg, type){
+    const el = document.createElement("div");
+    el.className = "toast align-items-center text-white bg-" + (type || "primary") + " border-0 show position-fixed top-0 end-0 m-3";
+    el.style.zIndex = 1300;
+    el.innerHTML = '<div class="d-flex"><div class="toast-body">'+esc(msg)+
+      '</div><button type="button" class="btn-close btn-close-white me-2 m-auto" onclick="this.closest(\'.toast\').remove()"></button></div>';
+    document.body.appendChild(el);
+    setTimeout(()=>el.remove(), 5000);
+  }
+
+  function genPassword(len){
+    len = len || 12;
+    const upper="ABCDEFGHJKLMNPQRSTUVWXYZ", lower="abcdefghijkmnpqrstuvwxyz",
+          num="23456789", sym="!@#$%*?";
+    const all = upper+lower+num+sym;
+    let p = upper[Math.floor(Math.random()*upper.length)]
+          + lower[Math.floor(Math.random()*lower.length)]
+          + num[Math.floor(Math.random()*num.length)]
+          + sym[Math.floor(Math.random()*sym.length)];
+    for(let i=p.length;i<len;i++) p += all[Math.floor(Math.random()*all.length)];
+    return p.split("").sort(()=>Math.random()-0.5).join("");
+  }
+
+  // ---------- Lista ----------
+  function loadList(q){
+    listEl.innerHTML = '<div class="text-center text-muted py-4">Načítavam…</div>';
+    const url = BASE + "/api/list" + (q ? ("?q=" + encodeURIComponent(q)) : "");
+    fetch(url, {credentials:"same-origin"})
+      .then(r => r.json())
+      .then(j => {
+        if(!j.ok){ throw new Error(j.error || "Chyba"); }
+        renderList(j.users);
+        countEl.textContent = j.count + " používateľov";
+      })
+      .catch(e => {
+        listEl.innerHTML = '<div class="text-danger p-3">'+esc(e.message)+'</div>';
+      });
+  }
+
+  function renderList(users){
+    if(!users.length){
+      listEl.innerHTML = '<div class="text-muted p-3">Žiadny výsledok.</div>';
+      return;
+    }
+    listEl.innerHTML = "";
+    users.forEach(u => {
+      const a = document.createElement("button");
+      a.type = "button";
+      a.className = "list-group-item list-group-item-action d-flex justify-content-between align-items-start";
+      a.dataset.username = u.username;
+      const dis = u.disabled ? ' <span class="badge bg-secondary ms-1">vypnutý</span>' : '';
+      a.innerHTML =
+        '<div><div class="fw-semibold">'+esc(u.display_name || u.username)+dis+'</div>'+
+        '<div class="small text-muted">'+esc(u.username)+
+        (u.job_title ? ' · '+esc(u.job_title) : '')+'</div></div>';
+      a.addEventListener("click", () => {
+        listEl.querySelectorAll(".list-group-item").forEach(x=>x.classList.remove("active"));
+        a.classList.add("active");
+        loadDetail(u.username);
+      });
+      listEl.appendChild(a);
+    });
+  }
+
+  // ---------- Részletek ----------
+  function row(label, value){
+    return '<div class="row mb-1"><div class="col-4 col-md-3 text-muted small">'+esc(label)+
+      '</div><div class="col-8 col-md-9">'+esc(value || "—")+'</div></div>';
+  }
+
+  function loadDetail(username){
+    detail.innerHTML = '<div class="text-center text-muted py-5">Načítavam…</div>';
+    fetch(BASE + "/api/user/" + encodeURIComponent(username), {credentials:"same-origin"})
+      .then(r => r.json())
+      .then(j => {
+        if(!j.ok){ throw new Error(j.error || "Chyba"); }
+        currentUser = j.user;
+        renderDetail(j.user);
+      })
+      .catch(e => {
+        detail.innerHTML = '<div class="text-danger p-3">'+esc(e.message)+'</div>';
+      });
+  }
+
+  function renderDetail(u){
+    const dis = u.disabled
+      ? '<span class="badge bg-secondary">Vypnutý účet</span>'
+      : '<span class="badge bg-success">Aktívny</span>';
+    const groups = (u.groups && u.groups.length)
+      ? u.groups.map(g => '<span class="badge bg-info text-dark me-1 mb-1">'+esc(g)+'</span>').join("")
+      : '<span class="text-muted">—</span>';
+
+    detail.innerHTML =
+      '<div class="d-flex justify-content-between align-items-start mb-3">'+
+        '<div><h4 class="mb-0">'+esc(u.display_name || u.username)+'</h4>'+
+        '<div class="text-muted">'+esc(u.username)+'</div></div>'+
+        '<div>'+dis+'</div>'+
+      '</div>'+
+
+      '<div class="card mb-3"><div class="card-body">'+
+        '<label class="form-label small text-muted mb-1">Pracovná pozícia (job title)</label>'+
+        '<div class="input-group input-group-sm">'+
+          '<input id="titleInput" class="form-control" value="'+esc(u.job_title)+'">'+
+          '<button class="btn btn-primary" id="btnSaveTitle"><i class="fa-solid fa-floppy-disk me-1"></i>Uložiť</button>'+
+        '</div>'+
+      '</div></div>'+
+
+      '<div class="card mb-3"><div class="card-body">'+
+        row("Krstné meno", u.given_name)+
+        row("Priezvisko", u.surname)+
+        row("Oddelenie", u.department)+
+        row("Spoločnosť", u.company)+
+        row("Kancelária", u.office)+
+        row("E-mail", u.mail)+
+        row("Telefón", u.phone)+
+        row("Mobil", u.mobile)+
+        row("UPN", u.upn)+
+        row("Popis", u.description)+
+        row("Vytvorené", u.when_created)+
+        row("Zmenené", u.when_changed)+
+        '<div class="row mb-1"><div class="col-4 col-md-3 text-muted small">DN</div>'+
+          '<div class="col-8 col-md-9"><code class="small">'+esc(u.dn)+'</code></div></div>'+
+        '<div class="row mb-1"><div class="col-4 col-md-3 text-muted small">Skupiny</div>'+
+          '<div class="col-8 col-md-9">'+groups+'</div></div>'+
+      '</div></div>'+
+
+      '<div class="d-flex gap-2">'+
+        '<button class="btn btn-warning btn-sm" id="btnOpenReset">'+
+          '<i class="fa-solid fa-key me-1"></i>Reset hesla</button>'+
+      '</div>';
+
+    document.getElementById("btnSaveTitle").addEventListener("click", saveTitle);
+    document.getElementById("btnOpenReset").addEventListener("click", openReset);
+  }
+
+  // ---------- Title mentés ----------
+  function saveTitle(){
+    if(!currentUser) return;
+    const val = document.getElementById("titleInput").value;
+    const btn = document.getElementById("btnSaveTitle");
+    btn.disabled = true;
+    fetch(BASE + "/api/user/" + encodeURIComponent(currentUser.username) + "/title", {
+      method:"POST", credentials:"same-origin",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({job_title: val})
+    })
+    .then(r => r.json())
+    .then(j => {
+      if(!j.ok){ throw new Error(j.error || "Chyba"); }
+      toast("Pracovná pozícia uložená.", "success");
+      currentUser.job_title = val;
+      loadList(searchEl.value.trim());
+    })
+    .catch(e => toast(e.message, "danger"))
+    .finally(()=>{ btn.disabled = false; });
+  }
+
+  // ---------- Reset password ----------
+  const pwdModal = new bootstrap.Modal(document.getElementById("pwdModal"));
+  function openReset(){
+    if(!currentUser) return;
+    document.getElementById("pwdUser").textContent = currentUser.username;
+    document.getElementById("pwdInput").value = genPassword();
+    document.getElementById("pwdMustChange").checked = true;
+    pwdModal.show();
+  }
+  document.getElementById("btnGenPwd").addEventListener("click", ()=>{
+    document.getElementById("pwdInput").value = genPassword();
+  });
+  document.getElementById("btnResetPwd").addEventListener("click", ()=>{
+    const pwd = document.getElementById("pwdInput").value;
+    if(!pwd){ toast("Zadajte heslo.", "danger"); return; }
+    const btn = document.getElementById("btnResetPwd");
+    btn.disabled = true;
+    fetch(BASE + "/api/user/" + encodeURIComponent(currentUser.username) + "/password", {
+      method:"POST", credentials:"same-origin",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        new_password: pwd,
+        must_change: document.getElementById("pwdMustChange").checked
+      })
+    })
+    .then(r => r.json())
+    .then(j => {
+      if(!j.ok){ throw new Error(j.error || "Chyba"); }
+      toast("Heslo bolo resetované.", "success");
+      pwdModal.hide();
+    })
+    .catch(e => toast(e.message, "danger"))
+    .finally(()=>{ btn.disabled = false; });
+  });
+
+  // ---------- Nový používateľ ----------
+  const newUserModal = new bootstrap.Modal(document.getElementById("newUserModal"));
+  document.getElementById("btnNewUser").addEventListener("click", ()=>{
+    document.getElementById("newUserForm").reset();
+    document.getElementById("nuMustChange").checked = true;
+    newUserModal.show();
+  });
+  document.getElementById("btnCreate").addEventListener("click", ()=>{
+    const form = document.getElementById("newUserForm");
+    if(!form.reportValidity()) return;
+    const fd = new FormData(form);
+    const payload = {
+      first_name: fd.get("first_name"),
+      last_name:  fd.get("last_name"),
+      username:   fd.get("username"),
+      mail:       fd.get("mail"),
+      job_title:  fd.get("job_title"),
+      department: fd.get("department"),
+      password:   fd.get("password"),
+      must_change: document.getElementById("nuMustChange").checked
+    };
+    const btn = document.getElementById("btnCreate");
+    btn.disabled = true;
+    fetch(BASE + "/api/create", {
+      method:"POST", credentials:"same-origin",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(j => {
+      if(!j.ok){ throw new Error(j.error || "Chyba"); }
+      toast("Používateľ vytvorený: " + j.result.username, "success");
+      newUserModal.hide();
+      loadList();
+      setTimeout(()=>loadDetail(j.result.username), 400);
+    })
+    .catch(e => toast(e.message, "danger"))
+    .finally(()=>{ btn.disabled = false; });
+  });
+
+  // ---------- Keresés (debounce) ----------
+  let t = null;
+  searchEl.addEventListener("input", ()=>{
+    clearTimeout(t);
+    t = setTimeout(()=>loadList(searchEl.value.trim()), 300);
+  });
+  document.getElementById("btnReload").addEventListener("click", ()=>loadList(searchEl.value.trim()));
+
+  // init
+  loadList();
+})();
+</script>
+{% endblock %}

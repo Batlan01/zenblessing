@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <title>QR nyomtatási napló</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{--bg:#0f172a;--panel:#111827;--txt:#e5e7eb;--muted:#9ca3af;--ok:#10b981;--bad:#ef4444;--warn:#f59e0b}
+    body{margin:0;background:linear-gradient(180deg,#0b1020,#0b1220);color:var(--txt);font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
+    .card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:16px 18px;margin-bottom:16px;backdrop-filter: blur(6px)}
+    h1{font-size:20px;margin:4px 0 16px}
+    label{font-size:12px;color:var(--muted)}
+    input,select{background:#0b1220;color:var(--txt);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:9px}
+    .row{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+    .btn{appearance:none;border:0;border-radius:10px;padding:9px 12px;background:#1f2937;color:#e5e7eb;cursor:pointer;font-weight:600}
+    .btn.primary{background:linear-gradient(90deg,#2563eb,#7c3aed)}
+    .btn.tiny{padding:3px 7px;font-size:12px;border-radius:8px}
+    .inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .muted{color:var(--muted)}
+    .pill{padding:2px 8px;border-radius:999px;font-weight:700}
+    .ok{color:#a7f3d0;border:1px solid rgba(16,185,129,.5);background:rgba(16,185,129,.15)}
+    .bad{color:#fecaca;border:1px solid rgba(239,68,68,.5);background:rgba(239,68,68,.15)}
+
+    /* --- táblázat --- */
+    .card.table{overflow-x:auto}
+    table{width:100%;border-collapse:separate;border-spacing:0 8px;table-layout:fixed}
+    th,td{font-size:13px;padding:10px 12px;background:#0b1220;border:1px solid rgba(255,255,255,.08);
+          vertical-align:top;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    th{color:#d1d5db;text-align:left;position:relative;user-select:none}
+    td:first-child,th:first-child{border-top-left-radius:10px;border-bottom-left-radius:10px}
+    td:last-child,th:last-child{border-top-right-radius:10px;border-bottom-right-radius:10px}
+
+    /* resizer fogantyú a fejléc jobb szélén */
+    .resizer{position:absolute;right:0;top:0;height:100%;width:6px;cursor:col-resize;background:transparent}
+    th.resizing, td.resizing{user-select:none}
+    th.hidden, td.hidden { display:none !important; }
+
+    /* path blokk (a cellában csak a szöveg + „…” gomb) */
+    .files-block{display:flex; gap:6px; align-items:center; max-width:100%; min-width:0}
+    .path-text{min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+    .path-actions { display:flex; align-items:center; gap:6px; }
+    .path-ellipsis { padding:3px 9px; font-size:14px; line-height:1; border-radius:8px; }
+
+    /* ===== Globális (body-hoz csatolt) context menü ===== */
+    .ctx-menu {
+      position: fixed; /* fontos: ne a táblázatban legyen */
+      background:#0b1220; color:var(--txt);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:10px; padding:6px; min-width:230px;
+      box-shadow:0 10px 24px rgba(0,0,0,.35);
+      display:none; z-index: 999999;
+    }
+    .ctx-menu.show { display:block; }
+    .ctx-menu button{
+      width:100%; text-align:left; background:transparent; color:var(--txt);
+      border:0; border-radius:8px; padding:8px 10px; cursor:pointer; font-weight:600
+    }
+    .ctx-menu button:hover{background:rgba(255,255,255,.06)}
+    .ctx-menu .sep{height:1px; background:rgba(255,255,255,.08); margin:4px 2px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>QR nyomtatási napló</h1>
+    <div class="row">
+      <div><label>Dátumtól</label><input type="date" id="dateFrom"></div>
+      <div><label>Dátumig</label><input type="date" id="dateTo"></div>
+      <div><label>Felhasználó</label><input id="user" placeholder="user"></div>
+      <div><label>Fájl</label><input id="file" placeholder="*.btw / *.prn / stb."></div>
+      <div><label>Nyomtató</label><input id="printer" placeholder="printer"></div>
+      <div>
+        <label>Státusz</label>
+        <select id="status">
+          <option value="">(mind)</option>
+          <option value="ok">OK</option>
+          <option value="error">Error</option>
+        </select>
+      </div>
+    </div>
+    <div class="inline" style="margin-top:10px">
+      <button class="btn primary" id="searchBtn">Keresés</button>
+      <button class="btn" id="todayBtn">Mai nap</button>
+      <button class="btn" id="resetBtn">Szűrők törlése</button>
+      <a class="btn" id="exportBtn" href="#">Export CSV</a>
+      <span id="meta" class="muted"></span>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:-8px">
+    <div class="inline">
+      <strong>Oszlopok:</strong>
+      <div id="colToggles" class="inline" style="gap:12px"></div>
+      <button class="btn tiny" id="resetCols">Alap szélességek</button>
+    </div>
+  </div>
+
+  <div class="card table">
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th data-col="1">Idő</th>
+          <th data-col="2">User</th>
+          <th data-col="3">Fájl</th>
+          <th data-col="4">Forrás útvonal</th>
+          <th data-col="5">DOCX útvonal</th>
+          <th data-col="6">Nyomtató</th>
+          <th data-col="7">Pld</th>
+          <th data-col="8">Státusz</th>
+          <th data-col="9">Megjegyzés</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Globális context menü (egyetlen példány) -->
+<div id="ctxMenu" class="ctx-menu" role="menu" aria-hidden="true">
+  <button data-action="copy-file">Fájl útvonal másolása</button>
+  <button data-action="open-file">Fájl megnyitása</button>
+  <div class="sep"></div>
+  <button data-action="copy-folder">Mappa útvonal másolása</button>
+  <button data-action="open-folder">Mappa megnyitása</button>
+</div>
+
+<script>
+  const $ = s => document.querySelector(s);
+
+  // --- oszlop definíciók, alap szélességek (px) + láthatóság ---
+  const COLS = [
+    {i:1, key:'time',     title:'Idő',            width:140, visible:true},
+    {i:2, key:'user',     title:'User',           width:110, visible:true},
+    {i:3, key:'file',     title:'Fájl',           width:260, visible:true},
+    {i:4, key:'inpath',   title:'Forrás útvonal', width:360, visible:true},
+    {i:5, key:'outpath',  title:'DOCX útvonal',   width:360, visible:true},
+    {i:6, key:'printer',  title:'Nyomtató',       width:140, visible:true},
+    {i:7, key:'copies',   title:'Pld',            width:60,  visible:true},
+    {i:8, key:'status',   title:'Státusz',        width:90,  visible:true},
+    {i:9, key:'note',     title:'Megjegyzés',     width:220, visible:true},
+  ];
+  const LS_KEY = 'qrlog.columns.v1';
+
+  function saveCols() {
+    localStorage.setItem(LS_KEY, JSON.stringify(COLS.map(c=>({i:c.i,width:c.width,visible:c.visible}))));
+  }
+  function loadCols() {
+    try {
+      const s = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
+      s.forEach(st => {
+        const c = COLS.find(x=>x.i===st.i);
+        if (c) { if (st.width) c.width = st.width; if (typeof st.visible==='boolean') c.visible = st.visible; }
+      });
+    } catch(_) {}
+  }
+
+  // --- checkboxok felépítése ---
+  function buildToggles(){
+    const holder = $("#colToggles"); holder.innerHTML = "";
+    COLS.forEach(c=>{
+      const id = "colchk_"+c.i;
+      const span = document.createElement("span");
+      span.innerHTML = `
+        <label for="${id}" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="${id}" ${c.visible?'checked':''} data-col="${c.i}"/>
+          <span>${c.title}</span>
+        </label>`;
+      holder.appendChild(span);
+    });
+    holder.querySelectorAll('input[type="checkbox"]').forEach(ch=>{
+      ch.addEventListener('change', e=>{
+        const idx = parseInt(e.target.dataset.col,10);
+        const col = COLS.find(x=>x.i===idx);
+        if (!col) return;
+        col.visible = e.target.checked;
+        applyColumnVisibility();
+        saveCols();
+      });
+    });
+  }
+
+  // --- táblázat szélességek + láthatóság alkalmazása ---
+  function applyWidths(){
+    const ths = Array.from(document.querySelectorAll("#tbl thead th"));
+    ths.forEach(th=>{
+      const i = parseInt(th.dataset.col,10);
+      const conf = COLS.find(c=>c.i===i);
+      th.style.width = (conf?.width || 120) + "px";
+      if (!th.querySelector(".resizer")){
+        const rz = document.createElement("div");
+        rz.className = "resizer";
+        th.appendChild(rz);
+      }
+    });
+    syncBodyCellWidths();
+  }
+  function applyColumnVisibility(){
+    const ths = Array.from(document.querySelectorAll("#tbl thead th"));
+    ths.forEach(th=>{
+      const idx = parseInt(th.dataset.col,10);
+      const conf = COLS.find(c=>c.i===idx);
+      th.classList.toggle('hidden', !conf.visible);
+    });
+    const rows = Array.from(document.querySelectorAll("#tbl tbody tr"));
+    rows.forEach(tr=>{
+      Array.from(tr.children).forEach((td,ix)=>{
+        const conf = COLS.find(c=>c.i===ix+1);
+        if (conf) td.classList.toggle('hidden', !conf.visible);
+      });
+    });
+  }
+  function syncBodyCellWidths(){
+    const ths = Array.from(document.querySelectorAll("#tbl thead th"));
+    const widths = ths.map(th => th.getBoundingClientRect().width);
+    document.querySelectorAll("#tbl tbody tr").forEach(tr=>{
+      Array.from(tr.children).forEach((td,ix)=>{
+        td.style.width = widths[ix] + "px";
+      });
+    });
+  }
+
+  // --- oszlop átméretezés (drag) ---
+  function initColumnResize(){
+    const thead = $("#tbl thead");
+    let startX=0, startW=0, th=null, idx=-1;
+
+    thead.addEventListener("mousedown", (e)=>{
+      const handle = e.target.closest(".resizer");
+      if (!handle) return;
+      th = handle.parentElement;
+      idx = parseInt(th.dataset.col,10);
+      startX = e.pageX;
+      startW = th.getBoundingClientRect().width;
+      th.classList.add("resizing");
+      document.body.style.cursor = "col-resize";
+      e.preventDefault();
+    });
+
+    document.addEventListener("mousemove", (e)=>{
+      if(!th) return;
+      const dx = e.pageX - startX;
+      const newW = Math.max(60, Math.round(startW + dx));
+      th.style.width = newW + "px";
+      const conf = COLS.find(c=>c.i===idx);
+      if (conf) conf.width = newW;
+      syncBodyCellWidths();
+    });
+
+    document.addEventListener("mouseup", ()=>{
+      if(!th) return;
+      th.classList.remove("resizing");
+      document.body.style.cursor = "";
+      saveCols();
+      th = null;
+    });
+
+    window.addEventListener("resize", syncBodyCellWidths);
+  }
+
+  // --- másolás / megnyitás / segédek ---
+  function escapeHtml(s){ return (s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+  function copyToClipboard(txt){
+    if(!txt) return;
+    navigator.clipboard?.writeText(txt).catch(()=>{});
+  }
+  async function openPath(p){
+    if(!p) return;
+    if (window.top && typeof window.top.openFilePath === "function") {
+      try { window.top.openFilePath(p); return; } catch(_) {}
+    }
+    alert("Megnyitás csak telepített kliens/host integrációval működik.\nÚtvonal a vágólapon.");
+    copyToClipboard(p);
+  }
+  function dirname(p){
+    if(!p) return "";
+    const noTrail = p.replace(/[\\/]+$/,'');
+    const cut = noTrail.replace(/[/\\][^/\\]+$/, '');
+    return cut || noTrail;
+  }
+  async function openFolder(dir){
+    if(!dir) return;
+    if (window.top && typeof window.top.openFolderPath === "function") {
+      try { window.top.openFolderPath(dir); return; } catch(_) {}
+    }
+    alert("Mappa megnyitása csak telepített kliens/host integrációval működik.\nÚtvonal a vágólapon.");
+    copyToClipboard(dir);
+  }
+
+  // --- Globális (body) context menü vezérlés ---
+  const ctxMenuEl = document.getElementById('ctxMenu');
+  let ctxPayload = { file: '', folder: '' };
+  function clamp(val, min, max){ return Math.max(min, Math.min(max, val)); }
+
+  function openCtxMenu(ev, filePath){
+    ev.stopPropagation();
+    const rect = ev.currentTarget.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight;
+
+    ctxPayload.file   = filePath || '';
+    ctxPayload.folder = dirname(filePath || '');
+
+    // méréshez mutasd meg átmenetileg
+    ctxMenuEl.style.visibility = 'hidden';
+    ctxMenuEl.style.display = 'block';
+
+    const mw = ctxMenuEl.offsetWidth;
+    const mh = ctxMenuEl.offsetHeight;
+
+    // gomb alá, jobbra igazítva
+    let x = rect.right - mw;
+    let y = rect.bottom + 6;
+
+    x = clamp(x, 8, vw - mw - 8);
+    y = clamp(y, 8, vh - mh - 8);
+
+    ctxMenuEl.style.left = x + 'px';
+    ctxMenuEl.style.top  = y + 'px';
+
+    ctxMenuEl.style.visibility = '';
+    ctxMenuEl.classList.add('show');
+  }
+
+  function closeCtxMenu(){
+    ctxMenuEl.classList.remove('show');
+    ctxMenuEl.style.display = 'none';
+  }
+
+  ctxMenuEl.addEventListener('click', (e)=>{
+    const btn = e.target.closest('button[data-action]');
+    if(!btn) return;
+
+    const act = btn.dataset.action;
+    const file = ctxPayload.file;
+    const folder = ctxPayload.folder;
+
+    switch(act){
+      case 'copy-file':   copyToClipboard(file);   break;
+      case 'open-file':   openPath(file);          break;
+      case 'copy-folder': copyToClipboard(folder); break;
+      case 'open-folder': openFolder(folder);      break;
+    }
+    closeCtxMenu();
+  });
+
+  document.addEventListener('click', (e)=>{
+    if (!ctxMenuEl.contains(e.target)) closeCtxMenu();
+  });
+  ['scroll','resize'].forEach(ev=>window.addEventListener(ev, closeCtxMenu));
+
+  // --- path cella HTML (csak szöveg + „…” gomb; a menü globális) ---
+  function pathCell(pathStr){
+    const safe = escapeHtml(pathStr||"");
+    if(!safe) return "";
+    const literal = (pathStr||"").replace(/'/g,"\\'");
+    return `
+      <div class="files-block" title="${safe}">
+        <span class="path-text">${safe}</span>
+        <div class="path-actions">
+          <button class="btn tiny path-ellipsis" onclick="openCtxMenu(event, '${literal}')">…</button>
+        </div>
+      </div>
+    `;
+  }
+
+  // --- tábla feltöltés ---
+  function fillTable(items){
+    const tb = $("#tbl tbody");
+    tb.innerHTML = "";
+    (items||[]).forEach(r=>{
+      const meta = typeof r.meta === "string" ? JSON.parse(r.meta||"{}") : (r.meta||{});
+      const inPath  = r.input_path  || meta.input_path  || "";
+      const outPath = r.output_path || meta.output_file || meta.output_path || "";
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${r.printed_at||""}</td>
+        <td>${escapeHtml(r.user_name||"")}</td>
+        <td title="${escapeHtml(r.file_name||"")}">${escapeHtml(r.file_name||"")}</td>
+        <td>${pathCell(inPath)}</td>
+        <td>${pathCell(outPath)}</td>
+        <td>${escapeHtml(r.printer_name||"")}</td>
+        <td style="text-align:center">${r.copies||1}</td>
+        <td><span class="pill ${(r.status||'')==='ok'?'ok':'bad'}">${(r.status||'').toUpperCase()}</span></td>
+        <td title="${escapeHtml(r.message||'')}">${escapeHtml(r.message||"")}</td>
+      `;
+      tb.appendChild(tr);
+    });
+    applyColumnVisibility();
+    applyWidths();
+  }
+
+  // --- gyors dátum ---
+  function todayIso() {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  $("#todayBtn").addEventListener("click", () => {
+    const t = todayIso();
+    $("#dateFrom").value = t;
+    $("#dateTo").value = t;
+    fetchLogs();
+  });
+
+  // --- adat kérés ---
+  function buildQS(obj){ return new URLSearchParams(obj).toString(); }
+  async function fetchLogs(){
+    const q = {
+      date_from: $("#dateFrom").value || "",
+      date_to:   $("#dateTo").value || "",
+      user:      $("#user").value.trim(),
+      file:      $("#file").value.trim(),
+      printer:   $("#printer").value.trim(),
+      status:    $("#status").value,
+      limit:     500
+    };
+    const resp = await fetch(`/api/qr/logs?${buildQS(q)}`);
+    const data = await resp.json();
+    fillTable(data.items);
+    $("#meta").textContent = `Összes találat: ${data.total}`;
+    $("#exportBtn").href = `/api/qr/logs/export?${buildQS(q)}`;
+  }
+
+  // --- init ---
+  loadCols();
+  buildToggles();
+  initColumnResize();
+  applyWidths();
+  applyColumnVisibility();
+  fetchLogs();
+
+  $("#searchBtn").addEventListener("click", fetchLogs);
+  $("#resetBtn").addEventListener("click", ()=>{
+    ["dateFrom","dateTo","user","file","printer"].forEach(id=>$("#"+id).value="");
+    $("#status").value="";
+    fetchLogs();
+  });
+  $("#resetCols").addEventListener("click", ()=>{
+    localStorage.removeItem(LS_KEY);
+    COLS.forEach(c=>{
+      const def = {1:140,2:110,3:260,4:360,5:360,6:140,7:60,8:90,9:220}[c.i] || 120;
+      c.width = def; c.visible = true;
+    });
+    buildToggles();
+    applyWidths();
+    applyColumnVisibility();
+    saveCols();
+  });
+</script>
+</body>
+</html>

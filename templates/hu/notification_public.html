@@ -1,0 +1,12 @@
+{% extends (lang ~ '/base.html') %}
+{% block title %}Public{% endblock %}
+{% set active = 'notifications_public' %}
+{% block page_title %}Publikus oldal{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="alert alert-info mb-0">
+    Publikus nézet – a háttérben fut a presence/page_view, így az admin látja, hogy online vagy.
+  </div>
+</div>
+{% endblock %}

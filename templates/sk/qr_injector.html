@@ -1,0 +1,180 @@
+{% extends (lang ~ '/base.html') %}
+{% block title %}WO generátor{% endblock %}
+{% block page_title %}WO generátor{% endblock %}
+
+{# --- csak a zászlók kerülnek ide --- #}
+{% block page_header_right %}
+  <a href="{{ url_for('qr_injector.form', lang='hu') }}" title="Magyar">
+    <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar" width="32" height="20">
+  </a>
+  <a class="ms-2" href="{{ url_for('qr_injector.form', lang='sk') }}" title="Slovenský">
+    <img src="{{ url_for('static', filename='flags/sk.png') }}" alt="Slovenský" width="32" height="20">
+  </a>
+{% endblock %}
+{% block content %}
+
+<style>
+  .qr-wrap { max-width: 980px; margin: 24px auto; }
+  .app-card { background:#fff; color:#1b1f24; border:1px solid rgba(0,0,0,.08); box-shadow:0 10px 30px rgba(0,0,0,.18); border-radius:18px; }
+  .app-header { display:inline-flex; align-items:center; gap:.6rem; padding:.4rem .9rem; border-radius:12px; background:#eef6ff; color:#0b5ed7; font-weight:700; font-size:1.25rem; }
+  .form-panel { background:#0f1526; color:#e6e8ec; border-radius:14px; padding:22px; border:1px solid rgba(255,255,255,.08); }
+  .form-label { font-weight:600; letter-spacing:.2px; }
+  .form-control[type=file] { padding:.8rem; font-size:1rem; }
+  .btn-xl { padding:.9rem 1.2rem; font-size:1.05rem; font-weight:700; border-radius:12px; }
+  .muted { color:#93a1b3 !important; }
+
+  /* --- overlay loader --- */
+  .loader-overlay{
+    position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    display: none; align-items: center; justify-content: center; z-index: 9999;
+    backdrop-filter: blur(1.5px);
+  }
+  .loader-box{
+    background:#0f1526; color:#e6e8ec; border:1px solid rgba(255,255,255,.08);
+    border-radius:16px; padding:20px 24px; min-width: 320px; text-align:center;
+    box-shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  .spinner{
+    width:44px; height:44px; border:4px solid rgba(255,255,255,.25);
+    border-top-color:#08d4ff; border-radius:50%; margin:0 auto 12px; animation:spin 1s linear infinite;
+  }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+</style>
+
+<!-- overlay -->
+<div id="loader" class="loader-overlay" aria-hidden="true">
+  <div class="loader-box">
+    <div class="spinner"></div>
+    <div style="font-weight:700; font-size:1.05rem; margin-bottom:.25rem;">Prebieha spracovanie…</div>
+    <div class="muted" style="font-size:.95rem;">Počkaj, kým sa dokončí a spustí sa sťahovanie.</div>
+  </div>
+</div>
+
+<div class="qr-wrap">
+  <div class="app-card p-4 p-md-5">
+    <div class="d-flex align-items-center justify-content-between mb-4">
+      <div class="app-header shadow-sm">WO generátor (web)</div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for cat, msg in messages %}
+          <div class="alert alert-{{ cat }} mb-3">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <div id="formAlert" class="alert alert-danger d-none mb-3"></div>
+
+    <div class="form-panel mb-4">
+      <form id="qrForm"
+        action="{{ url_for('qr_injector.process', lang=lang) }}"
+        method="post"
+        enctype="multipart/form-data"
+        class="form-panel mb-4">
+
+
+        <div class="mb-3">
+          <label class="form-label">WO-PRINT súbor (.txt alebo .xls)</label>
+          <input class="form-control" type="file" name="wo_file" accept=".txt,.xls,.xlsx" required>
+          <div class="form-text muted mt-2">-----------------------------------------------------------------------------------------</div>
+        </div>
+
+        <div class="form-check mb-3">
+          <input class="form-check-input" type="checkbox" value="1" id="preview" name="preview">
+          <label class="form-check-label" for="preview">Len náhľad (nezapisuje do databázy)</label>
+        </div>
+
+        <button id="submitBtn" class="btn btn-info text-white btn-xl" type="submit">Spracovať</button>
+      </form>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function () {
+  const form   = document.getElementById('qrForm');
+  const loader = document.getElementById('loader');
+  const alertB = document.getElementById('formAlert');
+  const btn    = document.getElementById('submitBtn');
+
+  function showLoader() { loader.style.display = 'flex'; }
+  function hideLoader() { loader.style.display = 'none'; }
+  function showError(msg){
+    alertB.textContent = msg || 'Nastala neznáma chyba.';
+    alertB.classList.remove('d-none');
+  }
+  function clearError(){
+    alertB.classList.add('d-none');
+    alertB.textContent = '';
+  }
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    clearError();
+
+    if (!form.wo_file || !form.wo_file.files || !form.wo_file.files.length){
+      showError('Vyber súbor .txt alebo .xls!');
+      return;
+    }
+
+    // UI lock
+    btn.disabled = true;
+    showLoader();
+
+    try {
+      const fd = new FormData(form);
+      const resp = await fetch(form.action, {
+        method: 'POST',
+        body: fd,
+        credentials: 'include',
+        headers: { 'X-Requested-With': 'fetch' }
+      });
+
+      if (!resp.ok) {
+        // megpróbáljuk kiolvasni a szerver üzenetét
+        let msg = 'Chyba servera počas spracovania.';
+        try {
+          const ct = resp.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            const j = await resp.json();
+            msg = j.error || j.message || msg;
+          } else {
+            const t = await resp.text();
+            if (t) msg = t.slice(0, 300);
+          }
+        } catch(_){}
+        throw new Error(msg);
+      }
+
+      // fájlnázov a headerből (ha küldi a szerver)
+      let filename = 'WO_output.docx';
+      const dispo = resp.headers.get('Content-Disposition') || resp.headers.get('content-disposition');
+      if (dispo) {
+        const m = dispo.match(/filename\*=UTF-8''([^;]+)|filename="?([^"]+)"?/i);
+        if (m) filename = decodeURIComponent(m[1] || m[2] || filename);
+      }
+
+      const blob = await resp.blob();
+      const url  = window.URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+    } catch (err) {
+      console.error(err);
+      showError(err && err.message ? err.message : 'Počas sťahovania došlo k chybe.');
+    } finally {
+      hideLoader();
+      btn.disabled = false;
+      // opcionális: form.reset();
+    }
+  });
+})();
+</script>
+{% endblock %}

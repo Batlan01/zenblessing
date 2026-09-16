@@ -1,0 +1,2401 @@
+{% extends (lang ~ '/base.html') %}
+{% block title %}Tlač etikiet{% endblock %}
+{% set active = 'bartender_preview' %}
+{% block page_title %}Tlač etikiet{% endblock %}
+
+{# --- csak a zászlók kerülnek ide --- #}
+{% block page_header_right %}
+  <a href="{{ url_for('bartender.preview_page', lang='hu') }}" title="Magyar">
+    <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar" width="32" height="20">
+  </a>
+  <a class="ms-2" href="{{ url_for('bartender.preview_page', lang='sk') }}" title="Slovenský">
+    <img src="{{ url_for('static', filename='flags/sk.png') }}" alt="Slovenský" width="32" height="20">
+  </a>
+{% endblock %}
+
+{# ha a base-nek van külön head extra blokkja, ide tedd a CSS-t #}
+{% block extra_head  %}
+<script src="https://code.jquery.com/jquery-3.7.1.min.js" crossorigin="anonymous"></script>
+<style>
+  .template-container{display:flex;flex-wrap:wrap;gap:20px;margin-top:20px}
+  .template-card{position:relative;border:1px solid #ddd;border-radius:8px;padding:15px;width:300px;
+    box-shadow:0 2px 4px rgba(0,0,0,.1);cursor:pointer;user-select:none;transition:box-shadow .15s, transform .05s;
+    overflow:visible;background:#fff;}
+  .template-card:hover{box-shadow:0 4px 10px rgba(0,0,0,.15)}
+  .template-card.selected{outline:3px solid #198754; box-shadow:0 0 0 4px rgba(25,135,84,.15)}
+  .checkmark{position:absolute;top:10px;left:10px;width:24px;height:24px;border-radius:50%;
+    border:2px solid #198754;background:#fff;display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:14px;color:#198754;opacity:.2;transition:opacity .15s, background .15s, color .15s; z-index:3;}
+  .template-card.selected .checkmark{opacity:1;background:#198754;color:#fff}
+  .menu-wrap{position:absolute;top:8px;right:8px;z-index:5}
+  .menu-btn{width:28px;height:28px;border:0;background:transparent;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+  .menu-btn:hover{background:#f3f3f3}
+  .menu-icon .dot{display:block;width:4px;height:4px;border-radius:50%;background:#444;margin:2px auto}
+  .menu{position:absolute;top:36px;right:0;min-width:200px;background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.12);display:none}
+  .menu.open{display:block}
+  .menu-item{padding:10px 12px;cursor:pointer}
+  .menu-item:hover{background:#f7f7f7}
+  .preview-lines { margin:.5rem 0 0; padding-left:1rem; }
+  .preview-lines li { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.25; }
+  pre.xml { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.9rem; white-space:pre-wrap; max-height: 360px; overflow:auto; }
+  .printed-card{background:#fcfffc}
+  .badge-reprint{font-size:.75rem}
+  .toast .btn-close { filter: invert(1) grayscale(100%); opacity: .8; }
+  .toast.success { background:#198754; color:#fff; }
+  .toast.warning { background:#ffc107; color:#212529; }
+  .toast.error   { background:#dc3545; color:#fff; }
+  .toast.info    { background:#0dcaf0; color:#212529; }
+  .template-card { padding-bottom: 56px; } /* hely a sarokgombnak */
+  .card-print-btn{
+    position:absolute; right:12px; bottom:12px;
+    border:0; border-radius:8px; padding:8px 12px;
+    background:#198754; color:#fff; font-weight:600; font-size:.9rem;
+    box-shadow:0 2px 6px rgba(0,0,0,.15); cursor:pointer;
+  }
+  .card-print-btn:hover{ filter: brightness(1.05); }
+  /* a globális print selected panelt elrejtjük */
+  .global-print-panel{ display:none !important; }
+
+  .pqm-mini { font-size: 12px; }
+  .pqm-pill {
+    display:inline-flex; gap:8px; align-items:center;
+    padding:4px 10px; border-radius:999px; background:#f6f7f9;
+    border:1px solid rgba(0,0,0,.06);
+  }
+</style>
+{% endblock %}
+
+{# --- IDE jön az oldal tartalma --- #}
+{% block content %}
+  <div class="container mt-5">
+    <h1 class="mb-4">Tlač etikiet</h1>
+
+    <div class="card mb-4">
+      <div class="card-body">
+        <form id="previewForm" action="#">
+          <div class="mb-3">
+            <label for="inputString" class="form-label">
+              Naskenuj QR kód:
+            </label>
+            <input id="inputString" name="inputString" class="form-control" placeholder="PN-ABC123|WO-12345|REV-A|QTY-100|" required />
+          </div>
+          <button type="button" id="genPreviewBtn" class="btn btn-primary">Vygenerovať náhľad etikiet</button>
+        </form>
+
+        <!-- felső üzenetszalag -->
+        <div id="pageMsg" class="alert mt-3 d-none"></div>
+      </div>
+    </div>
+
+    <div id="previewResults" class="d-none">
+      <h3 class="mb-3">Zhrnutie náhľadu</h3>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-md-3"><strong>PN:</strong> <span id="previewPN"></span></div>
+            <div class="col-md-3"><strong>WO:</strong> <span id="previewWO"></span></div>
+            <div class="col-md-3"><strong>REV:</strong> <span id="previewREV"></span></div>
+            <div class="col-md-3"><strong>Množstvo:</strong> <span id="previewQTY"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex align-items-center justify-content-between mb-2 global-print-panel">
+        <h4 class="mb-0">Templates to Print</h4>
+        <div>
+          <span class="me-3"><strong>Selected:</strong> <span id="selCount">0</span></span>
+          <button id="printSelectedBtn" class="btn btn-outline-success btn-sm" disabled>Kiválasztott nyomtatása</button>
+        </div>
+      </div>
+
+
+      <div id="templatesContainer" class="template-container"></div>
+
+      <div class="d-flex align-items-center justify-content-between mt-4">
+        <h4 class="mb-0">História tlače:</h4>
+      </div>
+      <div id="printedContainer" class="template-container"></div>
+
+      <div class="row mt-4">
+        <div class="col-md-6">
+          <div id="xmlPreviewCard" class="card d-none">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">XML náhľad (všetko)</h4>
+                <button id="copyXmlBtn" class="btn btn-sm btn-outline-secondary">Kopírovať</button>
+              </div>
+              <pre id="xmlPreview" class="xml mt-3"></pre>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div id="xmlSelectedCard" class="card d-none">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">XML (iba vybrané)</h4>
+                <button id="copyXmlSelBtn" class="btn btn-sm btn-outline-secondary">Kopírovať</button>
+              </div>
+              <pre id="xmlSelected" class="xml mt-3"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      
+
+  <!-- Toast stack a jobb felső sarokban -->
+  <div class="position-fixed top-0 end-0 p-3" style="z-index:1100">
+    <div id="toastStack" class="toast-container"></div>
+  </div>
+
+  <!-- Print confirmation modal -->
+  <div class="modal fade" id="printConfirmModal" tabindex="-1" aria-labelledby="printConfirmTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="printConfirmTitle">Potvrdenie tlače</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Bezárás"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-2"><strong>Tlačiareň:</strong> <span id="modalPrinterName"></span></div>
+          <div class="mb-3"><strong>Etiketa:</strong> <span id="modalTplName"></span></div>
+          <p class="mb-0" id="modalCheckText" style="line-height:1.45"></p>
+
+          <!-- rejtett: a kiválasztott kártya adatai -->
+          <input type="hidden" id="modalTplHidden" />
+          <input type="hidden" id="modalCopiesHidden" />
+          <!-- ÚJ: pontosan melyik kártyáról nyílt a modál -->
+          <input type="hidden" id="modalCardId" />
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Zrušiť</button>
+          <button type="button" class="btn btn-success" id="confirmPrintBtn">Tlač</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+<!-- ✅ Print Qty Modal -->
+<div class="modal fade" id="printQtyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="border-radius:16px;">
+      <div class="modal-header">
+        <h5 class="modal-title" id="pqmTitle">
+          <i class="fa-solid fa-print me-2"></i>
+          Tlačiteľné množstvo
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Bezárás"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="mb-2">
+          <div class="fw-semibold" id="pqmTemplate">—</div>
+          <div class="small text-muted" id="pqmPrinter">—</div>
+        </div>
+
+        <div class="p-2 rounded bg-light mb-3" id="pqmStats">
+          <div class="d-flex justify-content-between">
+            <span class="text-muted">Pôvodne tlačiteľné:</span>
+            <b id="pqmTotal">0</b>
+          </div>
+          <div class="d-flex justify-content-between">
+            <span class="text-muted">Doteraz vytlačené:</span>
+            <b id="pqmPrinted">0</b>
+          </div>
+          <div class="d-flex justify-content-between">
+            <span class="text-muted" id="pqmRemainingLabel">Zostávajúce:</span>
+            <b id="pqmRemaining">0</b>
+          </div>
+        </div>
+
+        <label class="form-label" id="pqmQtyLabel">Množstvo na tlač teraz</label>
+        <input type="number" class="form-control" id="pqmQty" min="1" step="1" inputmode="numeric" />
+
+        <div class="small text-danger mt-2 d-none" id="pqmErr"></div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Zrušiť</button>
+        <button type="button" class="btn btn-success" id="pqmConfirmBtn">
+          <i class="fa-solid fa-print me-2"></i>Tlač
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    window.URL_PRINTED_SET_TOTAL = window.URL_PRINTED_SET_TOTAL || "/bartender/api/printed_set_total";
+window.URL_REPRINT_ADD       = window.URL_REPRINT_ADD       || "/bartender/api/reprint_add";
+  window.URL_PRINTED_STATUS = window.URL_PRINTED_STATUS || "/bartender/api/printed_status";
+  window.URL_PRINTED_ADD    = window.URL_PRINTED_ADD    || "/bartender/api/printed_add";
+
+function getPNREVECNFromScan(){
+  const inputStr = String($("#inputString").val() || "").trim();
+  return {
+    pn:  parseField(inputStr, "PN"),
+    rev: parseField(inputStr, "REV"),
+    ecn: parseField(inputStr, "ECN")
+  };
+}
+async function fetchPrintedFromBackend(cardKey){
+  const {pn,rev,ecn} = getPNREVECNFromScan();
+  if(!pn || !rev || !ecn) return { printed:0, total_allowed:0 };
+
+  const qs = new URLSearchParams({ pn, rev, ecn, key: cardKey });
+  const r = await fetch(`${window.URL_PRINTED_STATUS}?${qs.toString()}`, { credentials:"same-origin" });
+  const j = await r.json();
+  if(!j || !j.ok) return { printed:0, total_allowed:0 };
+
+  return {
+    printed: parseInt(j.printed || 0, 10) || 0,
+    total_allowed: parseInt(j.total_allowed || 0, 10) || 0
+  };
+}
+
+async function setTotalAllowedToBackend(cardKey, total){
+  const {pn,rev,ecn} = getPNREVECNFromScan();
+  if(!pn || !rev || !ecn) return;
+
+  await fetch(window.URL_PRINTED_SET_TOTAL, {
+    method:"POST",
+    credentials:"same-origin",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ pn, rev, ecn, key: cardKey, total })
+  });
+}
+
+async function reprintLogToBackend(payload){
+  await fetch(window.URL_REPRINT_ADD, {
+    method:"POST",
+    credentials:"same-origin",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify(payload || {})
+  });
+}
+
+async function addPrintedToBackend(cardKey, addQty){
+  const {pn,rev,ecn} = getPNREVECNFromScan();
+  const r = await fetch(window.URL_PRINTED_ADD, {
+    method:"POST",
+    credentials:"same-origin",
+    headers: { "Content-Type":"application/json" },
+    body: JSON.stringify({ pn, rev, ecn, key: cardKey, add: addQty })
+  });
+  const j = await r.json();
+  if(!j || !j.ok) throw new Error(j?.error || "printed_add failed");
+
+  // helyi job-számláló: hány nyomtatási feladat ment el ezzel a kulccsal.
+  // (A pontos, összesített értéket a következő preview tölti be a backendből.)
+  window.__jobsByKey = window.__jobsByKey || new Map();
+  window.__jobsByKey.set(cardKey, (window.__jobsByKey.get(cardKey) || 0) + 1);
+
+  return parseInt(j.printed || 0, 10) || 0;
+}
+// ✅ KULCS ugyanaz, mint renderTemplates-ben (template + lines)
+function cardKeyOf(template, lines){
+  return JSON.stringify({
+    tpl: String(template||"").trim(),
+    lines: (lines||[]).map(x => String(x||"").trim())
+  });
+}
+
+// ✅ Kártyából sorok (preview-lines li) -> array
+function getLinesFromCardEl(cardEl){
+  const out = [];
+  if (!cardEl) return out;
+  cardEl.querySelectorAll(".preview-lines li").forEach(li => out.push(li.textContent.trim()));
+  return out;
+}
+
+// ✅ Mennyi nyomtatható MÉG erről a kártyáról (max - eddig kinyomtatva).
+// Az újranyomtatás nem számít bele, ezért ez mindig a valós maradék.
+function remainingForCard(cardEl){
+  if (!cardEl) return 0;
+  const total   = parseInt(cardEl.getAttribute("data-card-total") || "0", 10) || 0;
+  const printed = parseInt((cardEl.querySelector(".js-printed")?.textContent || "0"), 10) || 0;
+  if (total <= 0) return 0;
+  return Math.max(0, total - printed);
+}
+
+// ✅ Kártya számlálók beállítása (UI)
+function applyCardCounters(cardEl, printed){
+  if (!cardEl) return;
+  const total = parseInt(cardEl.getAttribute("data-card-total") || "0", 10) || 0;
+  const remaining = Math.max(0, total - (parseInt(printed,10)||0));
+
+  const elP = cardEl.querySelector(".js-printed");
+  const elR = cardEl.querySelector(".js-remaining");
+  if (elP) elP.textContent = String(printed||0);
+  if (elR) elR.textContent = String(remaining);
+
+  // nyomtatható menü tiltása ha 0
+  const btnPrint = cardEl.querySelector(".card-print-btn");
+  if (btnPrint) btnPrint.disabled = remaining <= 0;
+
+  // ✅ Ha a max mennyiség elfogyott, a kártya AZONNAL átkerül az előzményekbe.
+  // (Korábban itt csak megjelöltük, és a tényleges áthelyezést a
+  //  loadAndRenderHistory végezte – az viszont csak új előnézet generálásakor
+  //  fut le, ezért kellett oldal-újratöltés, hogy megjelenjen az előzményekben.)
+  if (remaining <= 0) {
+    cardEl.classList.add("printed-card");
+    cardEl.classList.remove("selected");
+    moveCardToHistory(cardEl, parseInt(printed, 10) || 0);
+    return;
+  }
+  cardEl.classList.remove("printed-card");
+}
+
+// ✅ Előzmény-kártya beszúrása VAGY frissítése kulcs alapján.
+// Idempotens: ugyanarra a kulcsra sosem kerül két kártya az előzményekbe
+// (a preview-render és a nyomtatás utáni frissítés versenyezhet egymással).
+function upsertHistoryCard({ key, template, printerName, lines, printedSum, jobsCount, reprintJobs }){
+  const $cont = $("#printedContainer");
+  const safeKey = String(key || "");
+
+  if (safeKey) {
+    const $existing = $cont.children(".template-card").filter(function(){
+      return (this.getAttribute("data-card-key") || "") === safeKey;
+    }).first();
+
+    if ($existing.length) {
+      if (Number.isFinite(printedSum)) {
+        $existing.find(".printed-copies").text(String(printedSum));
+        $existing.attr("data-printed-copies", String(printedSum));
+        if (!$existing.attr("data-reprint-copies")) {
+          $existing.attr("data-reprint-copies", String(printedSum));
+        }
+      }
+      if (Number.isFinite(jobsCount)) {
+        $existing.find(".js-jobs-info")
+                 .text(`Jobs: ${jobsCount} (reprints: ${Number.isFinite(reprintJobs) ? reprintJobs : 0})`);
+      }
+      $existing.find(".js-reprint").removeClass("d-none");
+      return $existing;
+    }
+  }
+
+  const opts = {};
+  if (Number.isFinite(jobsCount))   opts.jobsCount   = jobsCount;
+  if (Number.isFinite(reprintJobs)) opts.reprintJobs = reprintJobs;
+
+  const $card = createPrintedCard(template, printerName, lines, printedSum || 0, opts);
+  if (safeKey) $card.attr("data-card-key", safeKey);
+  $card.find(".js-reprint").removeClass("d-none");
+  $cont.append($card);
+  return $card;
+}
+
+// ✅ Kimerült preview-kártya áthelyezése az előzményekbe – azonnal, újratöltés nélkül.
+function moveCardToHistory(cardEl, printedSum){
+  if (!cardEl) return;
+
+  const template = cardEl.getAttribute("data-template") || "";
+  if (!template) { updateSelCount(); return; }
+
+  const key         = cardEl.getAttribute("data-card-key") || "";
+  const printerName = (cardEl.getAttribute("data-printer") || "").trim();
+  const lines       = getLinesFromCardEl(cardEl);
+  const total       = parseInt(cardEl.getAttribute("data-card-total") || "0", 10) || 0;
+
+  const sum = Number.isFinite(printedSum) && printedSum > 0 ? printedSum : total;
+  const jobs = (window.__jobsByKey && window.__jobsByKey.get(key)) || undefined;
+
+  upsertHistoryCard({
+    key, template, printerName, lines,
+    printedSum: sum,
+    jobsCount: jobs
+  });
+
+  cardEl.remove();
+  updateSelCount();
+}
+
+// ✅ backendből frissítjük egy kártya számlálóját
+async function refreshCardCountersFromBackend(cardEl){
+  const key = cardEl?.getAttribute("data-card-key") || "";
+  if (!key) return;
+
+  const st = await fetchPrintedFromBackend(key); // {printed,total_allowed}
+  const printed = parseInt(st?.printed || 0, 10) || 0;
+  const totalDb = parseInt(st?.total_allowed || 0, 10) || 0;
+
+  const totalDom = parseInt(cardEl.getAttribute("data-card-total") || "0", 10) || 0;
+  const totalEff = Math.max(totalDom, totalDb);
+
+  if (totalEff !== totalDom) {
+    cardEl.setAttribute("data-card-total", String(totalEff));
+    const elT = cardEl.querySelector(".js-total");
+    if (elT) elT.textContent = String(totalEff);
+    const elTC = cardEl.querySelector(".total-copies");
+    if (elTC) elTC.textContent = String(totalEff);
+  }
+
+  applyCardCounters(cardEl, printed);
+}
+window.__pqmState = null;
+
+// ✅ Újranyomtatás előzmény-kártyáról – UGYANAZT a darabszám-modált használja,
+// mint a sima nyomtatás. Itt nincs "hátralévő" korlát (a kártya már kész),
+// ezért a számláló-blokkot elrejtjük.
+async function openReprintModalFromCard(cardEl){
+  document.querySelectorAll(".modal-backdrop").forEach(b => b.remove());
+  document.body.classList.remove("modal-open");
+  document.body.style.removeProperty("overflow");
+  document.body.style.removeProperty("padding-right");
+
+  const tpl     = cardEl.getAttribute("data-template") || "";
+  const printer = (cardEl.getAttribute("data-printer") || "").trim();
+  const lines   = getLinesFromCardEl(cardEl);
+
+  if (!lines.length) {
+    showMsg("Táto karta nemá tlačiteľný obsah.", "warning");
+    toastMsg("Táto karta nemá tlačiteľný obsah.", "warning");
+    return;
+  }
+
+  const key = cardEl.getAttribute("data-card-key") || cardKeyOf(tpl, lines);
+
+  // ✅ Ugyanazok a számok, mint a sima nyomtatásnál – a backendből.
+  // Az újranyomtatás felső határa az EREDETI engedélyezett darabszám,
+  // hogy elgépelésből ne lehessen sokszorosát kinyomtatni.
+  const st = await fetchPrintedFromBackend(key);
+  const printedSum = parseInt(st?.printed || 0, 10) || 0;
+  const totalAllowed = parseInt(st?.total_allowed || 0, 10) || 0;
+  const domSum = parseInt(cardEl.getAttribute("data-printed-copies") || "0", 10) || 0;
+
+  const total = totalAllowed > 0 ? totalAllowed : 0;
+  const shownPrinted = printedSum > 0 ? printedSum : domSum;
+  const limit = total > 0 ? total : 0;              // 0 = nincs ismert korlát
+  const preset = limit > 0 ? Math.min(shownPrinted || limit, limit)
+                           : (shownPrinted || 1);
+
+  document.getElementById("pqmTemplate").textContent = tpl || "—";
+  document.getElementById("pqmPrinter").textContent  = printer ? `Tlačiareň: ${printer}` : "Tlačiareň: —";
+  document.getElementById("pqmTitle").innerHTML =
+    '<i class="fa-solid fa-rotate-right me-2"></i>Opätovná tlač';
+  document.getElementById("pqmQtyLabel").textContent = "Počet kusov na opätovnú tlač";
+
+  // ugyanaz a blokk, mint sima nyomtatásnál – csak a 3. sor mást mutat
+  document.getElementById("pqmStats").classList.remove("d-none");
+  document.getElementById("pqmTotal").textContent   = total > 0 ? String(total) : "—";
+  document.getElementById("pqmPrinted").textContent = String(shownPrinted);
+  document.getElementById("pqmRemainingLabel").textContent = "Max. na opätovnú tlač:";
+  document.getElementById("pqmRemaining").textContent = limit > 0 ? String(limit) : "bez limitu";
+
+  const err = document.getElementById("pqmErr");
+  err.classList.add("d-none"); err.textContent = "";
+
+  const qtyInput = document.getElementById("pqmQty");
+  qtyInput.value = String(Math.max(1, preset));
+  if (limit > 0) qtyInput.max = String(limit); else qtyInput.removeAttribute("max");
+
+  window.__pqmState = { mode: "reprint", cardEl, tpl, printer, key, lines, limit };
+
+  bootstrap.Modal.getOrCreateInstance(document.getElementById("printQtyModal")).show();
+  setTimeout(() => qtyInput.focus(), 150);
+}
+
+async function openPrintQtyModalFromCard(cardEl){
+  // (ha néha beragad backdrop)
+  document.querySelectorAll(".modal-backdrop").forEach(b => b.remove());
+  document.body.classList.remove("modal-open");
+  document.body.style.removeProperty("overflow");
+  document.body.style.removeProperty("padding-right");
+
+  // vissza a normál (nem reprint) megjelenésre
+  document.getElementById("pqmTitle").innerHTML =
+    '<i class="fa-solid fa-print me-2"></i>Tlačiteľné množstvo';
+  document.getElementById("pqmQtyLabel").textContent = "Množstvo na tlač teraz";
+  document.getElementById("pqmStats").classList.remove("d-none");
+  document.getElementById("pqmRemainingLabel").textContent = "Zostávajúce:";
+
+  const tpl = cardEl.getAttribute("data-template") || "";
+  const printer = (cardEl.getAttribute("data-printer") || "").trim();
+
+  const totalDom = parseInt(cardEl.getAttribute("data-card-total") || "0", 10) || 0;
+  const key = cardEl.getAttribute("data-card-key") || "";
+  const lines = getLinesFromCardEl(cardEl);
+
+  // ✅ st objektum: {printed,total_allowed}
+  const st = await fetchPrintedFromBackend(key);
+  const printed = parseInt(st?.printed || 0, 10) || 0;
+  const totalDb = parseInt(st?.total_allowed || 0, 10) || 0;
+
+  const totalEff = Math.max(totalDom, totalDb);
+  const remaining = Math.max(0, totalEff - printed);
+
+  // DOM total frissítése, ha DB nagyobb
+  if (totalEff !== totalDom) {
+    cardEl.setAttribute("data-card-total", String(totalEff));
+    const elT = cardEl.querySelector(".js-total");
+    if (elT) elT.textContent = String(totalEff);
+    const elTC = cardEl.querySelector(".total-copies");
+    if (elTC) elTC.textContent = String(totalEff);
+  }
+
+  // modal kitöltés
+  document.getElementById("pqmTemplate").textContent = tpl || "—";
+  document.getElementById("pqmPrinter").textContent  = printer ? `Tlačiareň: ${printer}` : "Tlačiareň: —";
+  document.getElementById("pqmTotal").textContent = String(totalEff);
+  document.getElementById("pqmPrinted").textContent = String(printed);
+  document.getElementById("pqmRemaining").textContent = String(remaining);
+
+  const qtyInput = document.getElementById("pqmQty");
+  qtyInput.value = remaining > 0 ? String(remaining) : "0";
+  qtyInput.max = String(Math.max(0, remaining));
+  qtyInput.min = "1";
+
+  const err = document.getElementById("pqmErr");
+  err.classList.add("d-none");
+  err.textContent = "";
+
+  window.__pqmState = { cardEl, tpl, printer, total: totalEff, key, printed, remaining, lines };
+
+  bootstrap.Modal.getOrCreateInstance(document.getElementById("printQtyModal")).show();
+  setTimeout(() => qtyInput.focus(), 150);
+}
+
+// ✅ Modal confirm
+document.getElementById("pqmConfirmBtn")?.addEventListener("click", async () => {
+  const st = window.__pqmState;
+  if (!st) return;
+
+  const qty = parseInt(document.getElementById("pqmQty").value, 10);
+  const err = document.getElementById("pqmErr");
+
+  if (!Number.isFinite(qty) || qty <= 0){
+    err.textContent = "Zadaj kladné celé číslo.";
+    err.classList.remove("d-none");
+    return;
+  }
+  // ── Újranyomtatás ág: nincs "hátralévő" korlát, a kártya már kész ──
+  if (st.mode === "reprint"){
+    // ✅ az újranyomtatás sem mehet az eredeti maximum fölé
+    if (st.limit > 0 && qty > st.limit){
+      err.textContent = `Príliš veľa. Maximum: ${st.limit}.`;
+      err.classList.remove("d-none");
+      return;
+    }
+    try {
+      const inputStr = $("#inputString").val().trim();
+
+      // ugyanaz a hívás, mint a sima nyomtatásnál – csak reprint jelzéssel,
+      // így a print_log source='reprint' lesz és látszik a riportokon
+      await printCard(st.tpl, qty, inputStr, st.lines, { reprint: true });
+
+      // külön reprint napló (bartender_reprint_log)
+      await reprintLogToBackend({
+        pn:  parseField(inputStr, "PN"),
+        wo:  parseField(inputStr, "WO"),
+        rev: parseField(inputStr, "REV"),
+        ecn: parseField(inputStr, "ECN"),
+        card_key: st.key,
+        template: st.tpl,
+        printer:  st.printer || "",
+        copies:   qty,
+        lines:    st.lines
+      });
+
+      // kártya visszajelzés
+      const $c = $(st.cardEl);
+      $c.attr("data-reprint-copies", String(qty));
+      $c.find(".reprint-copies").text(String(qty));
+      $c.find(".js-row-reprint").removeClass("d-none");
+      $c.find(".badge-reprint").removeClass("d-none");
+
+      addLogEntry(parseField(inputStr,"PN"), parseField(inputStr,"WO"),
+                  parseField(inputStr,"REV"), [`${st.tpl} × ${qty} (reprint)`]);
+
+      showMsg("Opätovná tlač odoslaná.");
+      toastMsg("Opätovná tlač odoslaná.", "success");
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("printQtyModal")).hide();
+    } catch(e){
+      err.textContent = "Pri opätovnej tlači nastala chyba.";
+      err.classList.remove("d-none");
+      console.error(e);
+    }
+    return;
+  }
+
+  if (qty > st.remaining){
+    err.textContent = `Túl sok. Maximum: ${st.remaining}.`;
+    err.classList.remove("d-none");
+    return;
+  }
+
+  try {
+    const inputStr = $("#inputString").val().trim();
+
+    // ✅ NYOMTATÁS a meglévő függvényeddel (cards sorai alapján!)
+    await printCard(st.tpl, qty, inputStr, st.lines);
+
+    // ✅ BACKEND számláló frissítés
+    const newPrinted = await addPrintedToBackend(st.key, qty);
+
+    // ✅ UI frissítés
+    applyCardCounters(st.cardEl, newPrinted);
+
+    showMsg("Tlačová úloha odoslaná.");
+    toastMsg("Tlačová úloha odoslaná.", "success");
+
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("printQtyModal")).hide();
+  } catch(e){
+    err.textContent = "Počas tlače nastala chyba.";
+    err.classList.remove("d-none");
+    console.error(e);
+  }
+});
+    window.__lastPreview ??= null;
+    window.__lastQty ??= 0;
+    window.DEBUG_XML = false;
+    window.__forceRawTpls = new Set();
+    function dbgGroup(title, data, color = "#0a7") {
+  try {
+    console.groupCollapsed(`%c${title}`, `color:${color};font-weight:600`);
+    if (data !== undefined) console.log(data);
+  } finally {
+    console.groupEnd();
+  }
+}
+
+    function isConTemplate(t){
+  t = String(t || "")
+    .replace(/\u00A0/g, " ")   // NBSP -> space
+    .trim();
+
+  // 1L.btw és ne legyen ID/FROM/TO (szóhatárral)
+  return /1l\.btw\b/i.test(t)
+    && !/id\s*label/i.test(t)
+    && !/\bfrom\b/i.test(t)
+    && !/\bto\b/i.test(t);
+}
+    function isFromTemplate(t){ return /from/i.test(String(t||"")); }
+    function isToTemplate(t){ return /to/i.test(String(t||"")); }
+
+
+
+    function ensureIssuePrefix(v){
+      v = String(v || "").trim();
+      if (!v) return v;
+      return v.toUpperCase().startsWith("ISSUE") ? v : ("ISSUE " + v);
+    }
+
+    // REV-ből ISSUE előtag levétele
+function stripIssuePrefix(s){
+  return String(s || "").replace(/^ISSUE\s*/i, "");
+}
+
+// PN-ből SVK előtag levétele (SVK-, SVK⎵)
+function stripSvkPrefix(s){
+  return String(s || "").replace(/^SVK[-\s]*/i, "");
+}
+
+// Field-specifikus tisztítás SPECIAL (RAW) forrásnál
+function sanitizeSpecialValue(fieldKey, value){
+  const v = String(value ?? "");
+  if (!v) return v;
+
+  switch ((fieldKey || "").toUpperCase()){
+    case "REV": return stripIssuePrefix(v);   // pl. "ISSUE A" -> "A"
+    case "PN":  return stripSvkPrefix(v);     // pl. "SVK-12345" -> "12345"
+    // ide vehetsz fel további mintákat később (pl. ECN, ha kéne külön szabály)
+    default:    return v;                     // általános: hagyjuk érintetlenül
+  }
+}
+
+
+
+    // -------------------- ÜZENETKEZELÉS --------------------
+    function toastMsg(text, level = "info", autohideMs = 0) {
+      const id = "t" + Math.random().toString(16).slice(2);
+      const wrap = document.getElementById("toastStack");
+      const el = document.createElement("div");
+      el.className = `toast align-items-center ${level}`;
+      el.id = id;
+      el.setAttribute("role","status");
+      el.setAttribute("aria-live","polite");
+      el.setAttribute("aria-atomic","true");
+      el.dataset.bsAutohide = autohideMs > 0 ? "true" : "false";
+      el.dataset.bsDelay = String(autohideMs);
+      el.innerHTML = `
+        <div class="d-flex">
+          <div class="toast-body">${text}</div>
+          <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>`;
+      wrap.appendChild(el);
+      const bsToast = new bootstrap.Toast(el);
+      bsToast.show();
+      el.addEventListener("hidden.bs.toast", () => el.remove());
+    }
+
+    // kompatibilis showMsg: 2. param lehet boolean (régi) vagy "success|warning|error|info"
+    function showMsg(text, levelOrErr = false, autohideMs = 6000) {
+      const box = document.getElementById("pageMsg");
+      const level = (typeof levelOrErr === "boolean")
+          ? (levelOrErr ? "error" : "success")
+          : (levelOrErr || "success");
+
+      box.classList.remove("d-none","alert-success","alert-danger","alert-warning","alert-info");
+      const cls = (level === "error") ? "alert-danger"
+                : (level === "warning") ? "alert-warning"
+                : (level === "info") ? "alert-info"
+                : "alert-success";
+      box.classList.add(cls);
+      box.innerHTML = typeof text === "string" ? text : String(text ?? "");
+
+      if (autohideMs > 0) {
+        clearTimeout(box.__hideTimer);
+        box.__hideTimer = setTimeout(() => box.classList.add("d-none"), autohideMs);
+      }
+    }
+
+    // Globális AJAX hibák
+    $(document).ajaxError(function(_evt, jqxhr, settings){
+      console.groupCollapsed("%cAJAX ERROR", "color:#c00;font-weight:700", settings?.url || "");
+      console.log("status:", jqxhr?.status, jqxhr?.statusText);
+      console.log("responseJSON:", jqxhr?.responseJSON);
+      console.log("responseText:", jqxhr?.responseText?.slice(0,2000)); // 2k elég
+      console.dir(jqxhr);
+      console.groupEnd();
+    });
+
+
+    // Promise/unhandled hibák
+    window.addEventListener("unhandledrejection", (e) => {
+      const msg = (e.reason && (e.reason.message || e.reason)) || "Neznáma chyba (promise).";
+      showMsg(String(msg), "error");
+      toastMsg(String(msg), "error");
+    });
+  function collectSpecialTemplates(resp) {
+  const { list } = normalizeSpecial(resp); // Get the normalized list without duplicates
+  const templates = {};
+  const linesByTpl = {};
+  const copiesByTpl = {};
+
+  list.forEach(item => {
+    const tpl = String(item.template || "").trim();
+    if (!tpl) return;
+    const qty = Math.max(0, parseInt(item.qty, 10) || 0);
+
+    if (!templates[tpl]) templates[tpl] = 0;
+    templates[tpl] += 1;
+
+    copiesByTpl[tpl] = (copiesByTpl[tpl] || 0) + qty;
+
+    if (!linesByTpl[tpl]) linesByTpl[tpl] = Array.isArray(item.lines) ? item.lines : [];
+  });
+
+  return { templates, linesByTpl, copiesByTpl };
+}
+
+
+    // -------------------- Segédek --------------------
+function parseField(str, key){
+  const m = String(str||"").match(new RegExp(key + "-(.*?)\\|"));
+  return (m && m[1]) ? m[1].trim() : "";
+}
+function normalizeEmptyEcnToFini(inputStr){
+  let s = String(inputStr || "");
+  // ECN-|   vagy ECN-   |  -> ECN-FINI|
+  s = s.replace(/ECN-\s*\|/gi, "ECN-FINI|");
+  return s;
+}
+
+    function xmlEscape(s){ return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&apos;"); }
+
+  // --- Mezőnév-tábla – ugyanaz a szabály, mint a backend _field_names_for()-ban.
+  // A címke sorainak száma a fájlnévből jön, mindkét névsorrendben
+  // ("From 4L" és "3L From (2-1)").
+  const RE_DAT34_FROM_3L =
+    /9320-5807\s*\(DAT-34\)\s*(?:From\s*3L|3L\s*From(?:\s*\([^)]*\))?)\.btw$/i;
+  // Ezek a 2 sorosok FROM címkék, hiába nincs a nevükben "From".
+  const RE_2L_AS_FROM =
+    /^(?:9320-5807\s*\(DAT-34\)|TMT-20045\s*\(DAT-39\)|TMT50195)\s*2L\.btw$/i;
+
+  function ftLinesInName(t, isFrom){
+    const re = isFrom
+      ? /(?:\bFrom\s*(\d+)\s*L\b|\b(\d+)\s*L\s*From\b)/i
+      : /(?:\bTo\s*(\d+)\s*L\b|\b(\d+)\s*L\s*To\b)/i;
+    const m = String(t || "").match(re);
+    if (!m) return null;
+    return parseInt(m[1] || m[2], 10);
+  }
+
+  // A sablon NamedSubString nevei, a címkén látható sorrendben.
+  // null = ID Label 3L/4L vagy ismeretlen -> a régi ágak kezelik.
+  function fieldNamesForTemplate(templateName){
+    const t = String(templateName || "").replace(/\u00A0/g, " ").trim();
+    if (isConTemplate(t)) return ["CON"];
+
+    const hasFrom = /\bfrom\b/i.test(t) || RE_2L_AS_FROM.test(t);
+    const hasTo   = /\bto\b/i.test(t);
+    // Kombinált "From - To" címke: nem tudjuk, hány mezője van -> marad 2.
+    const combined = /\bfrom\b/i.test(t) && hasTo;
+
+    if (hasFrom){
+      // DAT-34 3L kivétel: a második alsó sor neve FROM_UP_2, nem FROM_DOWN_2.
+      if (RE_DAT34_FROM_3L.test(t)) return ["FROM_UP", "FROM_DOWN_1", "FROM_UP_2"];
+      const n = combined ? 2 : (ftLinesInName(t, true) || 2);
+      if (n <= 2) return ["FROM_UP", "FROM_DOWN"];
+      const out = ["FROM_UP"];
+      for (let i = 1; i < n; i++) out.push("FROM_DOWN_" + i);
+      return out;
+    }
+    if (hasTo){
+      const n = combined ? 2 : (ftLinesInName(t, false) || 2);
+      if (n <= 2) return ["TO_UP", "TO_DOWN"];
+      const out = [];
+      for (let i = 1; i < n; i++) out.push("TO_UP_" + i);
+      out.push("TO_DOWN");
+      return out;
+    }
+    // VARIAN ID címke: ID1..ID4 (bármelyik gyártmánynál)
+    if (/\bid\s*label\s*varian\s*4l\.btw$/i.test(t)) return ["ID1","ID2","ID3","ID4"];
+    // Sima "<gyártmány> 2L.btw": 2 soros ID címke
+    if (/\b2l\.btw$/i.test(t)) return ["ID1", "ID2"];
+    return null;
+  }
+
+  function substringsForTemplate(templateName, lines, opts){
+  const t = templateName || "";
+  const L = (lines || []).map(x => String(x||"").trim());
+  const source = (opts && opts.source) || "normal"; // "normal" | "special"
+  const RAW = (source === "special");               // special: semmilyen elő/utótag
+
+  // CON 1L
+  if (isConTemplate(t)) return { CON: extractConValue(L[0] || "") };
+
+  // FROM / TO / VARIAN ID / 2 soros ID: annyi sort viszünk át, ahány mezője van
+  const names = fieldNamesForTemplate(t);
+  if (names){
+    const out = {};
+    names.forEach((k, i) => { out[k] = L[i] || ""; });
+    // a REV jellegű utolsó sor ugyanúgy, mint az ID Label ágakon
+    if (names[0] === "ID1" && names.length === 4){
+      out.ID4 = RAW ? sanitizeSpecialValue("REV", L[3] || "")
+                    : ensureIssuePrefix(L[3] || (__lastPreview && __lastPreview.rev) || "");
+    }
+    return out;
+  }
+
+  // ID 4L (WO, <_>, PN, REV)
+  if (/id\s*label\s*4l/i.test(t)) {
+    const wo  = L[0] || "";
+    const pn  = RAW ? sanitizeSpecialValue("PN",  L[2] || "")  : (L[2] || "");
+    const rev = RAW ? sanitizeSpecialValue("REV", L[3] || "")  : ensureIssuePrefix(L[3] || (__lastPreview && __lastPreview.rev) || "");
+    return { WO: wo, PN: pn, REV: rev };
+  }
+
+  // ID 3L (WO, PN, REV)
+  if (/id\s*label\s*3l/i.test(t)) {
+    const wo  = L[0] || "";
+    const pn  = RAW ? sanitizeSpecialValue("PN",  L[1] || "")  : (L[1] || "");
+    const rev = RAW ? sanitizeSpecialValue("REV", L[2] || "")  : ensureIssuePrefix(L[2] || (__lastPreview && __lastPreview.rev) || "");
+    return { WO: wo, PN: pn, REV: rev };
+  }
+
+  // Általános: LINE1..LINE10
+  const out = {};
+  for (let i=0;i<Math.min(10, L.length);i++) out["LINE"+(i+1)] = L[i];
+  return out;
+}
+
+
+
+
+function formatSkDate(d = new Date()){
+  const day = d.getDate();
+  const mon = d.getMonth() + 1;
+  const yr  = d.getFullYear();
+  return `${day}/${mon}/${yr}`;
+}
+
+function isSpecialTemplateName(resp, tpl){
+  const { set } = normalizeSpecial(resp);
+  return set.has(String(tpl||"").trim());
+}
+
+function getIsoWeekYear(d = new Date()){
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = (date.getUTCDay() + 6) % 7; // hétfő=0
+  date.setUTCDate(date.getUTCDate() - dayNum + 3);
+  const isoYear = date.getUTCFullYear();
+  const jan4 = new Date(Date.UTC(isoYear, 0, 4));
+  const week = 1 + Math.round(((date - jan4) / 86400000 - ((jan4.getUTCDay() + 6) % 7) + 3) / 7);
+  return { week, year: isoYear };
+}
+
+function getScanParams(inputStr){
+  const s = String(inputStr || "");
+  const { week, year } = getIsoWeekYear(new Date());
+  const todaySk  = formatSkDate(new Date());
+  const yearShort = String(year).slice(-2);   // "2025" -> "25"
+
+  // --- WO nyers érték a QR-ből ---
+  let woRaw = parseField(s, "WO");
+  woRaw = String(woRaw || "").trim();
+
+  // --- SVK előtag hozzáadása, ha még nincs ---
+  let woWithPrefix = woRaw;
+  if (woRaw && !/^SVK/i.test(woRaw)) {
+    woWithPrefix = "SVK" + woRaw;
+  }
+
+  return {
+    SCAN_WO:   woWithPrefix,         // <<< INNENTŐL MÁR SVKxxxx MEGY BE
+    SCAN_PN:   parseField(s, "PN"),
+    SCAN_DATE: todaySk,              // pl. 17/11/2025
+    SCAN_WEEK: `${week}/${yearShort}` // pl. 47/25
+  };
+}
+
+
+
+function replaceScanTokens(str, scan){
+  if (!str) return str;
+  return String(str)
+    .replace(/<SCAN_WO>/g,   scan.SCAN_WO || "")
+    .replace(/<SCAN_PN>/g,   scan.SCAN_PN || "")
+    .replace(/<SCAN_DATE>/g, scan.SCAN_DATE || "")
+    .replace(/<SCAN_WEEK>/g, scan.SCAN_WEEK || "");
+}
+function replaceScanTokensInLines(lines, scan){
+  return (lines || []).map(v => replaceScanTokens(v, scan));
+}
+    function docPrintXML(template, copies, printer, substr){
+      const ns = Object.entries(substr || {}).map(
+        ([k,v]) => `  <NamedSubString Name="${xmlEscape(k)}"><Value>${xmlEscape(v)}</Value></NamedSubString>`
+      ).join("\n");
+      return (
+`<Print JobName="${xmlEscape('Batch_' + printer)}">
+  <Format>${xmlEscape('C:\\\\Users\\\\ntrencik\\\\Documents\\\\BarTender\\\\Integrations\\\\Templates\\\\' + template)}</Format>
+  <PrintSetup>
+    <IdenticalCopiesOfLabel>${xmlEscape(copies)}</IdenticalCopiesOfLabel>
+    <Printer>${xmlEscape(printer)}</Printer>
+  </PrintSetup>
+${ns}
+</Print>`
+      );
+    }
+
+  function buildBatchPreviewXML(resp, qty){
+  const byPrinter = {};
+  const q = parseInt(qty,10) || 0;
+  const { set: specialSet } = normalizeSpecial(resp);
+  const scan = window.__scan || getScanParams($("#inputString").val().trim());
+
+  // Normál sablonok
+  for (const [tpl, perUnit] of Object.entries(resp.templates || {})) {
+    if (specialSet.has(String(tpl).trim())) continue;
+    const printer = (resp.printers && resp.printers[tpl]) || "";
+    if (!printer) continue;
+
+    const total = (parseInt(perUnit,10) || 0) * q;
+    if (total <= 0) continue;
+
+    // <<< TOKENCSERE ITT >>>
+    const lines = replaceScanTokensInLines((resp.line_preview?.[tpl]) || [], scan);
+
+    (byPrinter[printer] ||= []).push({
+      template: tpl,
+      copies: total,
+      lines,
+      source: "normal"
+    });
+  }
+
+  // Specials
+// Specials (QTY-val SZOROZVA)
+const sp = collectSpecialTemplates(resp);
+Object.entries(sp.copiesByTpl).forEach(([tpl, perUnit]) => {
+  const printer = (resp.printers && resp.printers[tpl]) || "";
+  if (!printer || (perUnit <= 0)) return;
+
+  const lines = replaceScanTokensInLines(sp.linesByTpl[tpl] || [], scan);
+  const copies = (parseInt(perUnit, 10) || 0) * q;                  // ← perUnit × QTY
+
+  if (copies <= 0) return;
+  (byPrinter[printer] ||= []).push({
+    template: tpl,
+    copies,
+    lines,
+    source: "special"
+  });
+});
+
+
+  const prints = [];
+  for (const [printer, docs] of Object.entries(byPrinter)) {
+    for (const d of docs) {
+      const subs = substringsForTemplate(d.template, d.lines, { source: d.source });
+      prints.push(docPrintXML(d.template, d.copies, printer, subs));
+    }
+  }
+  return `<?xml version="1.0" encoding="utf-8"?>\n<XMLScript Version="2.0"><Command>\n${prints.join("\n")}\n</Command></XMLScript>`;
+}
+
+
+
+
+
+
+
+function buildSelectedPreviewXML(resp, qty, selectedCopiesMap){
+  const byPrinter = {};
+  const q = parseInt(qty,10) || 0;
+  const { set: specialSet } = normalizeSpecial(resp);
+  const scan = window.__scan || getScanParams($("#inputString").val().trim());
+
+  for (const [tpl, wantCopies] of Object.entries(selectedCopiesMap || {})) {
+    const printer = (resp.printers && resp.printers[tpl]) || "";
+    if (!printer) continue;
+
+    const source = specialSet.has(String(tpl||"").trim()) ? "special" : "normal";
+
+    if (isConTemplate(tpl)) {
+      const values  = replaceScanTokensInLines((resp.line_preview?.[tpl]) || [], scan);
+      const perUnit = parseInt((resp.templates || {})[tpl] || "0", 10) || 0;
+      const items   = Math.min(perUnit, values.length, Math.floor((parseInt(wantCopies,10)||0) / Math.max(1,q)));
+      for (let i = 0; i < items; i++) {
+        (byPrinter[printer] ||= []).push({
+          template: tpl,
+          copies: q,
+          lines: [String(values[i]||"")],
+          source
+        });
+      }
+      continue;
+    }
+
+    // ID / FROM / TO
+    const lines = replaceScanTokensInLines((resp.line_preview?.[tpl]) || [], scan);
+
+    (byPrinter[printer] ||= []).push({
+      template: tpl,
+      copies: Math.max(0, parseInt(wantCopies,10) || 0),
+      lines,
+      source
+    });
+  }
+
+  const prints = [];
+  for (const [printer, docs] of Object.entries(byPrinter)) {
+    for (const d of docs) {
+      const subs = substringsForTemplate(d.template, d.lines, { source: d.source });
+      prints.push(docPrintXML(d.template, d.copies, printer, subs));
+    }
+  }
+  return `<?xml version="1.0" encoding="utf-8"?>\n<XMLScript Version="2.0"><Command>\n${prints.join("\n")}\n</Command></XMLScript>`;
+}
+
+
+
+
+
+
+
+    
+    function renderSelectedXml(){
+  if (!__lastPreview) return;
+
+  const hasAny = $(".template-card.selected").length > 0;
+  const xml = hasAny ? buildSelectedXmlFromCards(__lastPreview, __lastQty) : "";
+
+  $("#xmlSelected").text(xml);
+  if (DEBUG_XML && xml) console.debug("[XML selected]\n", xml);
+
+  $("#xmlSelectedCard").toggleClass("d-none", !hasAny);
+}
+
+
+    function updateSelCount(){
+      $("#selCount").text($(".template-card.selected").length);
+      $("#printSelectedBtn").prop("disabled", $(".template-card.selected").length === 0);
+      renderSelectedXml();
+    }
+    function addLogEntry(pn, wo, rev, list){
+      // A #printLog elem nincs minden oldalváltozatban – ha hiányzik, ne dobjunk
+      // hibát (a nyomtatás ilyenkor is sikeres, csak a vizuális napló marad ki)
+      const log = document.getElementById("printLog");
+      if (!log) return;
+      const time = new Date().toLocaleString();
+      const li = document.createElement("li");
+      li.innerHTML = `<strong>${xmlEscape(time)}</strong> — PN: ${xmlEscape(pn)}, WO: ${xmlEscape(wo)}, REV: ${xmlEscape(rev||"")}
+        <br><small>Printed: ${list.map(x=>`<code>${$("<div>").text(x).html()}</code>`).join(", ")}</small>`;
+      log.prepend(li);
+    }
+
+    // --- Printed kártya, reprint funkcióval ---
+    // --- Printed kártya, reprint funkcióval (aggregált megjelenítés támogatása) ---
+function createPrintedCard(template, printerName, lines, printedCopies, opts){
+  const safeTpl = $("<div>").text(template).html();
+
+  // ✅ UGYANAZ a formázás, mint preview-nál:
+  const scan = window.__scan || getScanParams($("#inputString").val().trim());
+  let shownLines = replaceScanTokensInLines(Array.isArray(lines) ? lines : [], scan);
+  if (isConTemplate(template)) shownLines = shownLines.map(extractConValue);
+
+  const linesHtml = shownLines.length
+    ? `<ul class="preview-lines">${shownLines.map(ln => `<li>${$("<div>").text(ln).html()}</li>`).join("")}</ul>`
+    : "";
+
+  // Aggregálás meta
+  const meta = Object.assign({ jobsCount: 1, reprintJobs: 0 }, opts || {});
+  const jobsInfo = `<div><small class="text-muted js-jobs-info">Jobs: ${meta.jobsCount} (reprints: ${meta.reprintJobs})</small></div>`;
+
+  const card = $(`
+    <div class="template-card printed-card"
+         data-template="${safeTpl}"
+         data-printer="${$("<div>").text(String(printerName || "").replace(/<[^>]*>/g, "").trim()).html()}"
+         data-printed-copies="${printedCopies}"
+         data-reprint-copies="${printedCopies}">
+      <div class="checkmark">✓</div>
+      <div class="menu-wrap">
+        <button class="menu-btn" type="button" aria-label="menu">
+          <span class="menu-icon"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
+        </button>
+        <div class="menu">
+          <div class="menu-item js-reprint">Opätovná tlač</div>
+        </div>
+      </div>
+      <div class="template-info">
+        <div><strong>Template:</strong> ${template}</div>
+        <div><strong>Printer:</strong> ${printerName || "<em>n/a</em>"}</div>
+        <div><strong>Printed copies (sum):</strong> <span class="printed-copies">${printedCopies}</span></div>
+        ${jobsInfo}
+        <div class="js-row-reprint d-none"><strong>Reprint copies:</strong> <span class="reprint-copies">—</span> <span class="badge bg-secondary badge-reprint d-none ms-1">reprint</span></div>
+        ${linesHtml}
+      </div>
+    </div>
+  `);
+
+  // Menü viselkedés ugyanaz
+  card.find(".menu-btn").on("click", function(e){
+    e.stopPropagation();
+    const $m = card.find(".menu");
+    $(".menu").not($m).removeClass("open");
+    $m.toggleClass("open");
+  });
+
+  // ✅ Újranyomtatás – EGY menüpont, és pontosan úgy néz ki / úgy megy,
+  // mint a sima nyomtatás: ugyanaz a darabszám-modál, ugyanaz a backend útvonal.
+  card.find(".js-reprint").on("click", function(e){
+    e.stopPropagation();
+    card.find(".menu").removeClass("open");
+    openReprintModalFromCard(card[0]);
+  });
+
+  return card;
+}
+
+
+  async function loadAndRenderHistory(response) {
+  $("#printedContainer").empty();
+
+  // 1) Totálok (totalCopies) map a JELENLEGI preview kártyákból (card_key -> total)
+  const totalsMap = new Map();
+  document.querySelectorAll("#templatesContainer .template-card").forEach(cardEl => {
+    const key = String(cardEl.getAttribute("data-card-key") || "").trim();
+    const total = parseInt(cardEl.getAttribute("data-card-total") || "0", 10) || 0;
+    if (key && total > 0) totalsMap.set(key, total);
+  });
+
+  // 2) Backend preview válaszából (összevont history)
+  const history = Array.isArray(response?.history_cards) ? response.history_cards : [];
+  if (!history.length) return;
+
+  const scan = window.__scan || getScanParams($("#inputString").val().trim());
+
+  // 3) Csak akkor jelenjen meg history card, ha remaining=0
+  for (const h of history) {
+    const template = String(h.template || "").trim();
+    if (!template) continue;
+
+    const printerName = String(h.printer_name || "").trim();
+    const rawLines = Array.isArray(h.lines) ? h.lines : [];
+
+    // ugyanaz a formázás, mint preview-nál
+    let shownLines = replaceScanTokensInLines(rawLines, scan);
+    if (isConTemplate(template)) shownLines = shownLines.map(extractConValue);
+
+    const key = cardKeyOf(template, shownLines);
+
+    const total = totalsMap.get(key) || 0;
+    if (total <= 0) continue; // ha nincs már ilyen preview kártya, skip
+
+    // printed counter backendből (nálad ez már működik)
+    const st = await fetchPrintedFromBackend(key);
+    const printed = (typeof st === "number") ? st : (parseInt(st?.printed || 0, 10) || 0);
+
+    const remaining = Math.max(0, total - printed);
+    if (remaining > 0) continue; // ✅ csak kész kártya jöhet előzménybe
+
+    // összevont példányszám (amit a print_log összegzett)
+    const printedSum = parseInt(h.printed_sum || h.sumCopies || 0, 10) || 0;
+    const jobsCount  = parseInt(h.jobs || h.jobsCount || 0, 10) || 0;
+    const reprintJobs = parseInt(h.reprints || h.reprintJobs || 0, 10) || 0;
+
+    // ✅ közös, kulcs alapján duplikátum-mentes beszúrás/frissítés
+    upsertHistoryCard({
+      key, template, printerName,
+      lines: shownLines,
+      printedSum, jobsCount, reprintJobs
+    });
+
+    // ha ugyanez a kártya (kulcs alapján) még kint van a preview listában
+    // "kinyomtatva" jelöléssel, onnan levesszük – az előzmény-kártya váltja ki
+    document.querySelectorAll("#templatesContainer .template-card").forEach(el => {
+      if ((el.getAttribute("data-card-key") || "") === key) el.remove();
+    });
+    updateSelCount();
+  }
+}
+
+
+
+    // menük bezárása kártyán kívüli kattintásra
+    $(document).on("click", function(e){
+      if (!$(e.target).closest(".menu-wrap").length) $(".menu").removeClass("open");
+    });
+
+    // -------------------- FŐ LOGIKA --------------------
+    // === Teljes renderTemplates: minden special elem KÜLÖN kártya ===
+function renderTemplates(response, qty) {
+  $("#templatesContainer").empty();
+
+  const spNorm = normalizeSpecial(response);
+  const specialSet = spNorm.set;
+  const spList = spNorm.list || [];
+
+  const scan = window.__scan || getScanParams($("#inputString").val().trim());
+
+  // ✅ kulcs: template + (megjelenített) lines
+  const keyOf = (tpl, lines) => JSON.stringify({
+    tpl: String(tpl || "").trim(),
+    lines: (lines || []).map(x => String(x || "").trim())
+  });
+
+  const renderedKeys = new Set(); // template+lines kulcsok (hogy ne legyen duplikált render)
+
+  // -----------------------------
+  // 1) CARDS összevonás (template+lines alapján)
+  // -----------------------------
+  const grouped = new Map(); // key -> { tpl, printerName, lines, perUnit, isCon }
+
+  (response.cards || []).forEach(card => {
+    const tpl = String(card.template || "").trim();
+    if (!tpl) return;
+    // Egy ID/FROM-TO kártyát NEM ejtünk el csak azért, mert ugyanahhoz a .btw-hez
+    // speciális etikett is tartozik: az két külön etikett, két külön kártya.
+    // A dupla renderelés ellen a lentebbi renderedKeys (template+lines) véd.
+
+    const printerName = (response.printers && response.printers[tpl]) || "<em>nie je priradená</em>";
+
+    const linesRaw = Array.isArray(card.lines)
+      ? card.lines
+      : ((response.line_preview && response.line_preview[tpl]) || []);
+
+    const linesRepl = replaceScanTokensInLines(linesRaw, scan);
+    const lines = isConTemplate(tpl) ? linesRepl.map(extractConValue) : linesRepl;
+
+    const inc = Math.max(1, parseInt(card.per_unit || 1, 10) || 1);
+
+    // CON: nem összevonjuk úgy, mint a simákat (értékenként 1 card logika)
+    if (isConTemplate(tpl)) {
+      const k = "__CON__" + keyOf(tpl, lines);
+      // itt is összeadhatjuk, de a render úgyis 1/érték -> qtySum
+      if (!grouped.has(k)) grouped.set(k, { tpl, printerName, lines, perUnit: inc, isCon: true });
+      else grouped.get(k).perUnit += inc;
+      return;
+    }
+
+    const k = keyOf(tpl, lines);
+    if (!grouped.has(k)) grouped.set(k, { tpl, printerName, lines, perUnit: inc, isCon: false });
+    else grouped.get(k).perUnit += inc;
+  });
+
+  // -----------------------------
+  // 2) CARDS render (összevontan)
+  // -----------------------------
+  const qtyInt = parseInt(qty, 10) || 0;
+
+  for (const [k, g] of grouped.entries()) {
+    const tpl = g.tpl;
+    const safeTpl = $("<div>").text(tpl).html();
+
+    if (g.isCon) {
+      // CON: értékenként 1 kártya, totalCopies = qtySum
+      const qtySum = parseInt((window.__lastPreview?.qty_sum ?? qty), 10) || qtyInt || 1;
+      const vals = (g.lines || []).map(v => String(v ?? "").trim()).filter(v => v !== "");
+      const list = vals.length ? vals : [""];
+
+      for (const v of list) {
+        const key = keyOf(tpl, [v]);          // kulcs értékenként
+        if (renderedKeys.has(key)) continue;
+        renderedKeys.add(key);
+
+        $("#templatesContainer").append(
+          makeCard({
+            template: tpl,
+            safeTpl,
+            printerName: g.printerName,
+            lines: [v],
+            perUnit: 1,
+            totalCopies: qtySum
+          })
+        );
+      }
+    } else {
+      const perUnitFixed = g.perUnit;
+      const totalCopies = perUnitFixed * qtyInt;
+
+      const key = keyOf(tpl, g.lines);
+      if (renderedKeys.has(key)) continue;
+      renderedKeys.add(key);
+
+      $("#templatesContainer").append(
+        makeCard({
+          template: tpl,
+          safeTpl,
+          printerName: g.printerName,
+          lines: g.lines,
+          perUnit: perUnitFixed,
+          totalCopies
+        })
+      );
+    }
+  }
+
+  // -----------------------------
+  // 3) CARDS-on kívüli sablonok (response.templates) render
+  //    (csak ha ugyanaz a template+lines még nincs renderelve)
+  // -----------------------------
+  for (const [template, perUnitRaw] of Object.entries(response.templates || {})) {
+    const tpl = String(template || "").trim();
+    if (!tpl) continue;
+    if (specialSet.has(tpl)) continue;
+
+    const printerName = (response.printers && response.printers[tpl]) || "<em>nie je priradená</em>";
+    const linesRaw = (response.line_preview && response.line_preview[tpl]) || [];
+
+    const linesRepl = replaceScanTokensInLines(linesRaw, scan);
+    const lines = isConTemplate(tpl) ? linesRepl.map(extractConValue) : linesRepl;
+
+    const safeTpl = $("<div>").text(tpl).html();
+
+    if (isConTemplate(tpl)) {
+      const qtySum = parseInt((window.__lastPreview?.qty_sum ?? qty), 10) || qtyInt || 1;
+      const vals = (lines || []).map(v => String(v ?? "").trim()).filter(v => v !== "");
+      const list = vals.length ? vals : [""];
+
+      // QC-mód: az azonos értékű konnektor-etiketteket NEM dobjuk el, hanem
+      // ×N darabszámmal összevonjuk (pl. "L" kétszer → 1 kártya, 2 db/egység)
+      const valCounts = new Map();
+      list.forEach(v => valCounts.set(v, (valCounts.get(v) || 0) + 1));
+
+      for (const [v, cnt] of valCounts.entries()) {
+        const key = keyOf(tpl, [v]);
+        if (renderedKeys.has(key)) continue;
+        renderedKeys.add(key);
+
+        $("#templatesContainer").append(
+          makeCard({
+            template: tpl,
+            safeTpl,
+            printerName,
+            lines: [v],
+            perUnit: cnt,
+            totalCopies: cnt * qtySum
+          })
+        );
+      }
+    } else {
+      const perUnit = Math.max(0, parseInt(perUnitRaw, 10) || 0);
+      const totalCopies = perUnit * qtyInt;
+
+      const key = keyOf(tpl, lines);
+      if (renderedKeys.has(key)) continue;
+      renderedKeys.add(key);
+
+      $("#templatesContainer").append(
+        makeCard({ template: tpl, safeTpl, printerName, lines, perUnit, totalCopies })
+      );
+    }
+  }
+
+  // -----------------------------
+  // 4) Special sablonok (elem-szinten render, nincs összevonás)
+  // -----------------------------
+  spList.forEach(item => {
+    const tpl = String(item.template || "").trim();
+    if (!tpl) return;
+
+    const printerName = (response.printers && response.printers[tpl]) || "<em>nie je priradená</em>";
+    const rawLines = Array.isArray(item.lines) ? item.lines : [];
+    const lines = replaceScanTokensInLines(rawLines, scan);
+
+    const perUnit = Math.max(0, parseInt(item.qty, 10) || 0);
+    const totalCopies = perUnit * qtyInt;
+
+    const safeTpl = $("<div>").text(tpl).html();
+
+    if (isConTemplate(tpl)) {
+      const qtySum = parseInt((window.__lastPreview?.qty_sum ?? qty), 10) || qtyInt || 1;
+      const vals = (lines || []).map(v => String(v ?? "").trim()).filter(v => v !== "");
+      const list = vals.length ? vals : [""];
+
+      for (const v of list) {
+        // specialnél szándékosan NEM deduplikálunk (elem-szint)
+        $("#templatesContainer").append(
+          makeCard({
+            template: tpl,
+            safeTpl,
+            printerName,
+            lines: [v],
+            perUnit: 1,
+            totalCopies: qtySum
+          })
+        );
+      }
+    } else {
+      $("#templatesContainer").append(
+        makeCard({ template: tpl, safeTpl, printerName, lines, perUnit, totalCopies })
+      );
+    }
+  });
+}
+
+async function printCard(tplName, copies, headerText, cardLines, opts) {
+  const fd = new FormData();
+  fd.append('text', headerText);
+  fd.append('only_template', tplName);
+  if (copies && copies > 0) fd.append('only_copies', String(copies));
+  // ✅ Újranyomtatás UGYANAZON az útvonalon megy, mint a sima nyomtatás –
+  // csak megjelöljük, hogy a print_log source='reprint' legyen (riportokhoz).
+  if (opts && opts.reprint) fd.append('reprint', '1');
+  // a kártya kulcsa: ebből tudja a szerver ellenőrizni a maximumot
+  try { fd.append('card_key', cardKeyOf(tplName, cardLines || [])); } catch(e) {}
+
+  const scan = window.__scan || getScanParams($("#inputString").val().trim());
+  const { set: specialSet } = normalizeSpecial(__lastPreview || {});
+  const source = specialSet.has(String(tplName).trim()) ? "special" : "normal";
+
+  // 1) Alapsorok: ha a kártya átadott sorai vannak, azokat használjuk,
+  //    különben visszaesünk a line_preview-re
+  let linesBase = Array.isArray(cardLines) && cardLines.length
+    ? cardLines
+    : ((__lastPreview?.line_preview?.[tplName]) || []);
+
+  let lines = replaceScanTokensInLines(linesBase, scan);
+
+  if (isConTemplate(tplName)) {
+    // --- CON 1L: direktben küldjük a sorokat a backendnek,
+    // hogy az _fields_from_card_lines a megfelelő CON értéket vegye.
+    fd.append('only_lines', JSON.stringify(lines));
+  } else {
+    // --- Minden más: marad a korábbi only_fields logika
+    const onlyFields = substringsForTemplate(tplName, lines, { source });
+    fd.append('only_fields', JSON.stringify(onlyFields));
+  }
+
+  const res = await fetch('/api/bartender/print', { method: 'POST', body: fd });
+  const j = await res.json();
+  if (!res.ok) throw new Error(j.error || 'Print failed');
+  return j;
+}
+
+
+
+
+
+
+
+
+// === SPECIAL normalizálás + utilok ============================
+// === SPECIAL normalizálás: NINCS deduplikálás ===
+function normalizeSpecial(resp) {
+  const raw = resp && resp.special_labels;
+  const list = [];
+  if (!raw) return { list, set: new Set() };
+
+  if (Array.isArray(raw)) {
+    raw.forEach(item => {
+      if (!item) return;
+      if (typeof item === "string") {
+        list.push({ template: item.trim(), qty: 1, lines: [] });
+      } else if (typeof item === "object") {
+        const tpl   = String(item.template || "").trim();
+        if (!tpl) return;
+        const qty   = Math.max(0, parseInt(item.qty, 10) || 0);
+        const lines = Array.isArray(item.lines) ? item.lines.map(x => String(x || "")) : [];
+        list.push({ template: tpl, qty, lines });
+      }
+    });
+  } else if (typeof raw === "object") {
+    Object.entries(raw).forEach(([tpl, v]) => {
+      const name = String(tpl || "").trim();
+      if (!name) return;
+      if (Array.isArray(v)) {
+        list.push({ template: name, qty: 1, lines: v.map(x => String(x || "")) });
+      } else if (typeof v === "object") {
+        const qty   = Math.max(0, parseInt(v.qty, 10) || 0);
+        const lines = Array.isArray(v.lines) ? v.lines.map(x => String(x || "")) : [];
+        list.push({ template: name, qty, lines });
+      } else if (typeof v === "string") {
+        list.push({ template: name, qty: 1, lines: [v] });
+      }
+    });
+  }
+
+  console.groupCollapsed("%c[Preview] special_labels (normalized, no dedupe)", "color:#0a7;font-weight:600");
+  console.table(list.map(x => ({ template: x.template, qty: x.qty, lines: (x.lines || []).join(" | ") })));
+  console.groupEnd();
+
+  // set: csak arra kell, hogy a normál sablonok közül kizárjuk a special nevűeket
+  return { list, set: new Set(list.map(x => x.template)) };
+}
+
+
+
+
+
+function logPreviewDebug({response, stage, inputStr, qty, extra}){
+  const pn  = (inputStr.match(/PN-(.*?)\|/)  || [,''])[1];
+  const wo  = (inputStr.match(/WO-(.*?)\|/)  || [,''])[1];
+  const rev = (inputStr.match(/REV-(.*?)\|/) || [,''])[1];
+  const ecn = (inputStr.match(/ECN-(.*?)\|/) || [,''])[1];
+
+  const tCount   = Object.keys(response?.templates || {}).length;
+  const lpCount  = Object.keys(response?.line_preview || {}).length;
+  const prCount  = Object.keys(response?.printers || {}).length;
+  const specialCount = Array.isArray(response?.special_labels)
+    ? response.special_labels.filter(s => (s?.template||'').trim()).length : 0;
+
+  console.groupCollapsed(
+    `%c[Bartender Preview] ${stage}  PN=${pn||'-'} WO=${wo||'-'} REV=${rev||'-'} ECN=${ecn||'-'}  QTY=${qty??'—'}`,
+    "color:#0a7;font-weight:600"
+  );
+  console.log("has_templates_effective:", !!response?.has_templates_effective);
+  if (response?.matched) console.log("matched:", response.matched);
+  console.log("counts:", { templates:tCount, line_preview:lpCount, printers:prCount, special:specialCount });
+  if (Array.isArray(response?.skipped) && response.skipped.length){
+    console.table(response.skipped.map(s => ({template:s.template, reason:s.reason})));
+  }
+  if (extra) console.log("extra:", extra);
+
+  // gyors rálátás: sablonok és printerek
+  if (tCount)  console.table(Object.entries(response.templates).map(([k,v])=>({template:k, per_unit:v})));
+  if (prCount) console.table(Object.entries(response.printers).map(([k,v])=>({template:k, printer:v})));
+
+  // speciálisok (ha vannak)
+  if (specialCount){
+    console.table((response.special_labels||[]).map((x,i)=>({
+      i,
+      template: x?.template || '',
+      qty: x?.qty || 0,
+      lines: (x?.lines||[]).join(" | ")
+    })));
+  }
+  console.groupEnd();
+}
+
+
+
+    $(function () {
+      if (window.__BT_PREVIEW_INITED) return;
+        window.__BT_PREVIEW_INITED = true;
+      // Ne küldje el a formot natívan
+      $("#previewForm").on("submit", (e) => e.preventDefault());
+
+      // Enter → Generate Preview
+      $("#inputString").on("keydown", function(e){
+        if (e.key === "Enter" || e.keyCode === 13) {
+          e.preventDefault();
+          $("#genPreviewBtn").trigger("click");
+        }
+      });
+
+      const modalEl = document.getElementById("printConfirmModal");
+        if (modalEl && modalEl.parentElement !== document.body) {
+          document.body.appendChild(modalEl);
+        }
+        const pqmEl = document.getElementById("printQtyModal");
+if (pqmEl && pqmEl.parentElement !== document.body) {
+  document.body.appendChild(pqmEl);
+}
+      const toastWrap = document.querySelector(".position-fixed.top-0.end-0");
+        if (toastWrap && toastWrap.parentElement !== document.body) {
+          document.body.appendChild(toastWrap);
+        }  
+
+      $("#genPreviewBtn").on("click", function () {
+        let inputStr = $("#inputString").val().trim();
+        if (!inputStr){
+          showMsg("Zadaj platný vstup!", "warning");
+          toastMsg("Chýba vstup.", "warning");
+          return;
+        }
+
+        // ✅ ECN-| -> ECN-FINI|
+        inputStr = normalizeEmptyEcnToFini(inputStr);
+        $("#inputString").val(inputStr); // opcionális, de jó: a további print/reprint is ezt használja
+
+        const pn  = parseField(inputStr, "PN");
+        const wo  = parseField(inputStr, "WO");
+        const rev = parseField(inputStr, "REV");
+        const ecn = parseField(inputStr, "ECN"); // már FINI lesz, ha üres volt
+
+        $.ajax({
+          url: "/api/bartender/preview",
+          type: "POST",
+          contentType: "application/json",
+          data: JSON.stringify({ template: null, pn, wo, rev, ecn }),
+          success: async function (response) {
+            const inputStr = $("#inputString").val().trim(); // ez már normalizált
+            window.__scan = getScanParams(inputStr);
+
+            // --- 3/a: nyers válasz konzolba ---
+            logPreviewDebug({ response, stage: "response-raw", inputStr });
+
+            // Hiba a backendtől
+            if (response && response.error) {
+              console.error("[Preview error]", response.error);
+              showMsg("Chyba: " + response.error, "error");
+              return;
+            }
+
+            // QTY feloldás + log
+            const qtyFromInputRaw = parseField(inputStr, "QTY");
+            const qtyFromInput = parseInt(qtyFromInputRaw, 10);
+            const qty = Number.isFinite(qtyFromInput) ? qtyFromInput : (response.qty_sum || 0);
+            logPreviewDebug({ response, stage: "after-qty", inputStr, qty });
+
+            // Kért mezők és egyezések
+            const requested = {
+              pn:  parseField(inputStr, "PN"),
+              rev: parseField(inputStr, "REV"),
+              ecn: parseField(inputStr, "ECN"),
+            };
+            const mm = response.matched || { pn: true, rev: true, ecn: true };
+
+            // Speciális címkék darabszáma (ha csak speciális van, ne jelezzünk "nincs etikett"-et)
+            const specialCount = Array.isArray(response.special_labels)
+              ? response.special_labels.filter(s => (s?.template || "").trim()).length
+              : 0;
+
+            // Hiány-ellenőrzés
+            const missing = [];
+            if (requested.rev && mm.rev === false) missing.push("REV");
+            if (requested.ecn && mm.ecn === false) missing.push("ECN");
+            if (!response.has_templates_effective && specialCount === 0) missing.push("štítky");
+
+            if (missing.length) {
+              logPreviewDebug({ response, stage: "missing-exit", inputStr, qty, extra: { missing } });
+
+              const human = (missing.length === 1)
+                ? missing[0]
+                : (missing.length === 2 ? `${missing[0]} és ${missing[1]}` : missing.join(", "));
+
+              const msg = `Az alábbi ${requested.pn} PN-hez nincs meg hozzárendelt ${human}, `
+                        + `kontaktuj Team Leadera a vytvor štítok v Bartenderi`;
+
+              showMsg(msg, "error", 0);
+
+              // Automatikus email értesítés – session-szintű deduplikálás
+              const _missingKey = `missing_notified_${requested.pn}_${requested.rev || ""}_${requested.ecn || ""}`;
+              if (!sessionStorage.getItem(_missingKey)) {
+                sessionStorage.setItem(_missingKey, "1");
+                fetch("/api/bartender/notify_missing_template", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    pn:      requested.pn  || "",
+                    rev:     requested.rev || "",
+                    ecn:     requested.ecn || "",
+                    wo:      wo            || "",
+                    missing: missing,
+                  })
+                })
+                .then(r => r.json())
+                .then(d => {
+                  if (d.ok) {
+                    console.info("[notify_missing] Email értesítés elküldve:", requested.pn);
+                  } else {
+                    console.warn("[notify_missing] Email nem küldhető (nincs konfig?):", d.error);
+                  }
+                })
+                .catch(e => console.warn("[notify_missing] Hálózati hiba:", e));
+              }
+
+              // UI reset
+              window.__lastPreview = null;
+              window.__lastQty = 0;
+              $("#previewResults").addClass("d-none");
+              $("#templatesContainer, #printedContainer").empty();
+              $("#xmlPreview").text("");  $("#xmlPreviewCard").addClass("d-none");
+              $("#xmlSelected").text(""); $("#xmlSelectedCard").addClass("d-none");
+              return;
+            }
+
+            // ===== QC ZÁROLÁS ELLENŐRZÉS =====
+            if (response.qc_blocked) {
+              const revokedNote = response.qc_revoked_by
+                ? ` (zrušené: ${response.qc_revoked_by})`
+                : "";
+              const qcMsg = `⛔ QC ešte neschválilo tlač!`
+                          + ` PN: ${response.pn}  |  REV: ${response.rev || "—"}${revokedNote}`
+                          + ` Prosím informuj QC kontrolóra, aby schválil etiketu!`;
+
+              showMsg(qcMsg, "error", 0);
+
+              window.__lastPreview = null;
+              window.__lastQty = 0;
+              $("#previewResults").addClass("d-none");
+              $("#templatesContainer, #printedContainer").empty();
+              $("#xmlPreview").text("");  $("#xmlPreviewCard").addClass("d-none");
+              $("#xmlSelected").text(""); $("#xmlSelectedCard").addClass("d-none");
+
+              // Email értesítés – session-szintű deduplikálás
+              const _notifyKey = `qc_blocked_notified_${response.pn}_${response.rev || ""}_${ecn || ""}`;
+              if (!sessionStorage.getItem(_notifyKey)) {
+                fetch("/api/bartender/notify_qc_blocked", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    pn:  response.pn,
+                    rev: response.rev || "",
+                    ecn: ecn || "",
+                    wo:  wo  || "",
+                  })
+                })
+                .then(r => r.json())
+                .then(d => {
+                  if (d.ok) {
+                    sessionStorage.setItem(_notifyKey, "1");
+                    console.info("[notify_qc_blocked] Email elküldve:", response.pn);
+                  } else {
+                    console.warn("[notify_qc_blocked] Email nem küldhető:", d.error);
+                  }
+                })
+                .catch(e => console.warn("[notify_qc_blocked] Hálózati hiba:", e));
+              }
+              return;
+            }
+
+            // Opcionális info a kihagyott sablonokról (nincs printer)
+            if ((response.skipped || []).length) {
+              const noPr = response.skipped
+                .filter(s => (s.reason || "").includes("no_printer"))
+                .map(s => s.template)
+                .filter(Boolean);
+              if (noPr.length) {
+                console.warn("[Preview] Nie je priradená tlačiareň:", noPr);
+                // UI-ban nem kötelező jelezni, csak ha szeretnéd:
+                // toastMsg(`Figyelem: nincs nyomtató hozzárendelve: ${noPr.join(", ")}`, "warning");
+              }
+            }
+
+            // --- 3/b: render előtt log ---
+            logPreviewDebug({ response, stage: "render-start", inputStr, qty });
+
+            // State frissítés
+            window.__lastPreview = response;
+            window.__lastQty = qty;
+
+            // Zhrnutie
+            $("#previewPN").text(response.pn);
+            $("#previewWO").text(response.wo);
+            $("#previewREV").text(response.rev || "N/A");
+            $("#previewQTY").text(qty);
+
+            // Előző nyomatok betöltése
+            // Kártyák renderelése (előbb!)
+            $("#templatesContainer").empty();
+            renderTemplates(response, qty);
+
+            // Előzmények: csak a teljesen elfogyott kártyák
+            await loadAndRenderHistory(response);
+
+            // Diagnosztika panel frissítése
+            window.__lastPreview = response;
+            renderDiagnostics(response);
+
+            
+
+            // Kijelöltek XML-je (kezdetben üres, de frissítjük, ha van kijelölés)
+            renderSelectedXml();
+
+            // UI megjelenítés
+            $("#previewResults").removeClass("d-none");
+            updateSelCount();
+
+            // Felhasználói visszajelzés
+            if (response.test_mode) {
+              showMsg("⚠️ TESTOVACÍ REŽIM aktívny – QC kontrola a automatické e-mailové notifikácie sú pozastavené (Email admin → Bartender teszt mód).", "warning", 0);
+            } else {
+              showMsg("Údaje náhľadu načítané.");
+            }
+            // toastMsg("Údaje náhľadu načítané.", "success"); // ha nem akarsz toastot, hagyd kikommentezve
+
+            // --- 3/c: render után log ---
+            logPreviewDebug({ response, stage: "render-done", inputStr, qty });
+
+
+            // Nyers, lerövidített áttekintés a bejövő adatokról
+            dbgGroup("[Preview API] raw payload", {
+              pn: response.pn, wo: response.wo, rev: response.rev,
+              templates: response.templates,
+              printers: response.printers,
+              line_preview: response.line_preview,
+              special_labels: response.special_labels
+            });
+
+          },
+          error: function(jqxhr) {
+            const err = (jqxhr.responseJSON && jqxhr.responseJSON.error) || "Chyba servera.";
+            const isNotFound = jqxhr.status === 404;
+
+            // UI správa
+            const msg = isNotFound
+              ? `⚠️ Pre PN ${pn} ešte nie sú vytvorené šablóny. Informuj Team Leadera a inžiniera!`
+              : `Chyba: ${err}`;
+            showMsg(msg, "error", 0);
+
+            // UI reset
+            window.__lastPreview = null;
+            window.__lastQty = 0;
+            $("#previewResults").addClass("d-none");
+            $("#templatesContainer, #printedContainer").empty();
+
+            // Email notifikácia pri 404 – session dedup
+            if (isNotFound) {
+              const _mk = `missing_notified_${pn}_${rev || ""}_${ecn || ""}`;
+              if (!sessionStorage.getItem(_mk)) {
+                fetch("/api/bartender/notify_missing_template", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ pn, rev: rev||"", ecn: ecn||"", wo: wo||"", missing: ["šablóna"] })
+                })
+                .then(r => r.json())
+                .then(d => {
+                  if (d.ok) {
+                    sessionStorage.setItem(_mk, "1");
+                    console.info("[notify_missing] Email odoslaný (404):", pn);
+                  } else {
+                    console.warn("[notify_missing] Email sa nedá odoslať:", d.error);
+                  }
+                })
+                .catch(e => console.warn("[notify_missing] Sieťová chyba:", e));
+              }
+            }
+          }
+
+        });
+      });
+
+      $("#copyXmlBtn").on("click", function(){
+        const txt = $("#xmlPreview").text();
+        navigator.clipboard.writeText(txt).then(
+          () => $(this).text("Skopírované ✓").prop("disabled", true),
+          () => toastMsg("Kopírovanie zlyhalo.", "error")
+        );
+      });
+      $("#copyXmlSelBtn").on("click", function(){
+        const txt = $("#xmlSelected").text();
+        navigator.clipboard.writeText(txt).then(
+          () => $(this).text("Skopírované ✓").prop("disabled", true),
+          () => toastMsg("Kopírovanie zlyhalo.", "error")
+        );
+      });
+
+      $("#printButton").on("click", function () {
+        const inputStr = $("#inputString").val().trim();
+        const pn  = parseField(inputStr, "PN");
+        const wo  = parseField(inputStr, "WO");
+        const rev = parseField(inputStr, "REV");
+
+        $.ajax({
+          url: "/api/bartender/print",
+          type: "POST",
+          contentType: "application/x-www-form-urlencoded; charset=UTF-8",
+          data: { text: inputStr },
+          success: function (r) {
+            if (r && r.error) { showMsg("Chyba tlače: " + r.error, "error"); return; }
+            showMsg("Tlačová úloha odoslaná.");
+            toastMsg("Tlačová úloha odoslaná.", "success");
+
+            const details = Object.entries(r.templates || {}).map(([tpl, perUnit]) => {
+              const total = (parseInt(perUnit,10)||0) * (parseInt(r.qty_sum,10)||0);
+              return { template: tpl, copies: total };
+            });
+
+            details.forEach(d => {
+              const printerName = (r.printers && r.printers[d.template]) || "";
+              const lines = (__lastPreview && __lastPreview.line_preview && __lastPreview.line_preview[d.template]) || [];
+              $("#printedContainer").append(createPrintedCard(d.template, printerName, lines, d.copies));
+              $(`.template-card[data-template="${d.template.replace(/"/g,'\\"')}"]`).remove();
+            });
+            updateSelCount();
+            addLogEntry(pn, wo, rev, details.map(d => `${d.template} × ${d.copies}`));
+          }
+        });
+      });
+      
+// Modal: megerősített nyomtatás CSAK az adott kártyára
+$("#confirmPrintBtn").on("click", async function(){
+  const inputStr = $("#inputString").val().trim();
+  const tpl      = $("#modalTplHidden").val();
+  const copies   = parseInt($("#modalCopiesHidden").val() || "0", 10) || 0;
+  const cardId   = $("#modalCardId").val(); // ← melyik kártya volt
+
+  if (!tpl){
+    showMsg("Chýba šablóna.", "error");
+    return;
+  }
+  if (copies <= 0){
+    showMsg("A darabszám 0. Állíts be pozitív értéket a kártya menüjében (Printable copies).", "warning");
+    return;
+  }
+
+  // ✅ Utolsó ellenőrzés közvetlenül nyomtatás előtt (a modál nyitva lehetett,
+  // közben más is nyomtathatott ugyanerről a kártyáról).
+  if (cardId) {
+    const cEl = document.getElementById(cardId);
+    if (cEl) {
+      const remainNow = remainingForCard(cEl);
+      if (remainNow <= 0){
+        showMsg("Z tejto karty už nie je čo tlačiť (maximum je vyčerpané).", "warning");
+        toastMsg("Z tejto karty už nie je čo tlačiť (maximum je vyčerpané).", "warning");
+        return;
+      }
+      if (copies > remainNow){
+        showMsg("Množstvo bolo obmedzené na zostávajúci počet: " + remainNow, "warning");
+        toastMsg("Množstvo bolo obmedzené na zostávajúci počet: " + remainNow, "warning");
+        return;
+      }
+    }
+  }
+
+  // --- Kártya sorainak összegyűjtése (pl. CON: "kettes") ---
+  let cardLines = [];
+  if (cardId) {
+    const cardEl = document.getElementById(cardId);
+    if (cardEl) {
+      cardEl.querySelectorAll('.preview-lines li').forEach(li => {
+        cardLines.push(li.textContent.trim());
+      });
+    }
+  }
+
+  try {
+    // Tlač backend felé (only_template mód)
+    const r = await printCard(tpl, copies, inputStr, cardLines);
+        // ✅ BACKEND counter (ez a nyomtatás is számítson)
+    const key = cardKeyOf(tpl, cardLines);
+    const newPrinted = await addPrintedToBackend(key, copies);
+
+    // ✅ A kártya CSAK akkor kerül át az előzményekbe, ha a max mennyiség
+    // elfogyott. (Korábban minden nyomtatás után feltétel nélkül átkerült,
+    // így részleges nyomtatásnál is eltűnt a maradék darabszámmal együtt.)
+    const cardEl = cardId ? document.getElementById(cardId) : null;
+    if (cardEl) {
+      applyCardCounters(cardEl, newPrinted);
+    }
+
+    // log + UI visszajelzés
+    const pn  = parseField(inputStr, "PN");
+    const wo  = parseField(inputStr, "WO");
+    const rev = parseField(inputStr, "REV");
+    addLogEntry(pn, wo, rev, [`${tpl} × ${copies}`]);
+
+    showMsg("Tlačová úloha odoslaná.");
+    toastMsg("Tlačová úloha odoslaná.", "success");
+
+    // modal zárása
+    const modalEl = document.getElementById("printConfirmModal");
+    const inst = bootstrap.Modal.getInstance(modalEl);
+    if (inst) inst.hide();
+
+    updateSelCount();
+  } catch (e) {
+    showMsg("Chyba tlače: " + (e.message || e), "error");
+    toastMsg("Tlači hiba.", "error");
+  }
+});
+
+
+
+
+      $("#printSelectedBtn").on("click", async function () {
+  const inputStr = $("#inputString").val().trim();
+  const pn  = parseField(inputStr, "PN");
+  const wo  = parseField(inputStr, "WO");
+  const rev = parseField(inputStr, "REV");
+
+  const $sel = $(".template-card.selected");
+  if (!$sel.length){ showMsg("Nie je vybraná žiadna šablóna.", "warning"); toastMsg("Nie je vybraná žiadna šablóna.", "warning"); return; }
+
+  const details = [];
+
+  // ÚJ: kártyánként nyomtatunk (így ugyanaz a sablon többször is működik külön sorokkal)
+  for (const el of $sel.toArray()) {
+    const $card = $(el);
+    const tpl   = String($card.attr("data-template") || "").trim();
+    if (!tpl) continue;
+
+    const total    = parseInt($card.find(".total-copies").text(), 10) || 0;
+    const override = parseInt($card.attr("data-override-copies") || "", 10);
+    let   copies   = Number.isFinite(override) && override >= 0
+      ? Math.min(override, total)
+      : total;
+
+    // ✅ itt sem mehetünk a maximum fölé
+    copies = Math.min(copies, remainingForCard($card[0]));
+
+    if (copies <= 0) continue;
+
+    const linesBase = [];
+    $card.find(".preview-lines li").each(function () {
+      linesBase.push($(this).text().trim());
+    });
+
+    try {
+      await printCard(tpl, copies, inputStr, linesBase);
+            const key = cardKeyOf(tpl, linesBase);
+      const newPrinted = await addPrintedToBackend(key, copies);
+
+      // ✅ Csak a kimerült kártya kerül át az előzményekbe.
+      applyCardCounters($card[0], newPrinted);
+
+      details.push({ template: tpl, copies });
+    } catch (e) {
+      showMsg("Chyba tlače: " + (e.message || e), "error");
+      toastMsg("Tlači hiba.", "error");
+      return;
+    }
+  }
+
+  updateSelCount();
+
+  if (details.length) {
+    addLogEntry(pn, wo, rev, details.map(d => `${d.template} × ${d.copies}`));
+    showMsg("Tlač vybraných kariet odoslaná.");
+    toastMsg("Tlač vybraných kariet odoslaná.", "success");
+  } else {
+    showMsg("Nie je nič na tlač vo výbere.", "warning");
+    toastMsg("Nie je nič na tlač vo výbere.", "warning");
+  }
+});
+
+
+    });
+
+
+    function buildSelectedXmlFromCards(resp, qty){
+  if (!resp) return "";
+  const byPrinter = {};
+  const { set: specialSet } = normalizeSpecial(resp);
+  const scan = window.__scan || getScanParams($("#inputString").val().trim());
+
+  // végigmegyünk az ÖSSZES kijelölt kártyán
+  $(".template-card.selected").each(function () {
+    const $card = $(this);
+    const tpl   = $card.attr("data-template");
+    if (!tpl) return;
+
+    const printer = (resp.printers && resp.printers[tpl]) || "";
+    if (!printer) return;
+
+    const total    = parseInt($card.find(".total-copies").text(), 10) || 0;
+    const override = parseInt($card.attr("data-override-copies") || "", 10);
+    const copies   = Number.isFinite(override) && override >= 0
+      ? Math.min(override, total)
+      : total;
+
+    if (copies <= 0) return;
+
+    // sorok a kártyáról (pl. CON: "kettes")
+    const linesBase = [];
+    $card.find(".preview-lines li").each(function () {
+      linesBase.push($(this).text().trim());
+    });
+
+    const lines  = replaceScanTokensInLines(linesBase, scan);
+    const source = specialSet.has(String(tpl).trim()) ? "special" : "normal";
+
+    (byPrinter[printer] ||= []).push({
+      template: tpl,
+      copies,
+      lines,
+      source
+    });
+  });
+
+  const prints = [];
+  for (const [printer, docs] of Object.entries(byPrinter)) {
+    for (const d of docs) {
+      // itt már a KÁRTYA sorait használjuk → CON esetén a megfelelő "kettes" megy be
+      const subs = substringsForTemplate(d.template, d.lines, { source: d.source });
+      prints.push(docPrintXML(d.template, d.copies, printer, subs));
+    }
+  }
+
+  if (!prints.length) return "";
+  return `<?xml version="1.0" encoding="utf-8"?>\n<XMLScript Version="2.0"><Command>\n${prints.join("\n")}\n</Command></XMLScript>`;
+}
+
+
+
+
+
+    function makeCard({ template, safeTpl, printerName, lines, perUnit, totalCopies }) {
+  const cardId = "card_" + Math.random().toString(36).slice(2);
+    const cardKey = cardKeyOf(template, lines);
+
+  const linesHtml = (lines||[]).length
+    ? `<ul class="preview-lines">${lines.map(ln => `<li>${$("<div>").text(ln).html()}</li>`).join("")}</ul>`
+    : "";
+
+  const $card = $(`
+    <div class="template-card"
+     id="${cardId}"
+     data-template="${safeTpl}"
+     data-override-copies=""
+     data-card-key='${$("<div>").text(cardKey).html()}'
+     data-card-total="${totalCopies}">
+      <div class="checkmark">✓</div>
+      <div class="menu-wrap">
+        <button class="menu-btn" type="button" aria-label="menu">
+          <span class="menu-icon"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
+        </button>
+        <div class="menu">
+          <div class="menu-item js-set-copies">Tlačiteľné množstvo…</div>
+        </div>
+      </div>
+
+      <div class="template-info">
+        <div><strong>Šablóna:</strong> ${template}</div>
+        <div><strong>Tlačiareň:</strong> ${printerName || "<em>nie je priradená</em>"}</div>
+        <div><strong>Počet podľa PN:</strong> ${perUnit}</div>
+        <div><strong>Celkový počet (WO + PN):</strong> <span class="total-copies">${totalCopies}</span></div>
+        <div class="pqm-pill pqm-mini mt-1">
+  <span class="text-muted">Spolu:</span> <b class="js-total">${totalCopies}</b>
+  <span class="text-muted">Vytlačené:</span> <b class="js-printed">0</b>
+  <span class="text-muted">Zostáva:</span> <b class="js-remaining">${totalCopies}</b>
+</div>
+        ${linesHtml}
+      </div>
+
+      <button class="card-print-btn" type="button">Tlač</button>
+    </div>
+  `);
+
+  // ✅ nyomtató nevét adatként tároljuk, nem a feliratból fogjuk visszanyerni
+  $card.attr("data-printer", String(printerName || "").replace(/<[^>]*>/g, "").trim());
+
+
+  // ... a többi handler változatlan ...
+
+  // Kijelölés kattintásra (a menü és a gomb kivételével)
+  $card.on("click", function (e) {
+    if ($(e.target).closest(".menu-wrap,.card-print-btn").length) return;
+    if ($(this).hasClass("printed-card")) return; // kimerült kártya nem jelölhető ki
+    $(this).toggleClass("selected");
+    updateSelCount();
+  });
+
+  // Menü nyit/zár
+  $card.find(".menu-btn").on("click", function(e){
+    e.stopPropagation();
+    const $m = $card.find(".menu");
+    $(".menu").not($m).removeClass("open");
+    $m.toggleClass("open");
+  });
+
+  // „Printable copies” beállítás
+   // ✅ „Tlačiteľné množstvo…” -> saját modal (backend számlálóval)
+  $card.find(".js-set-copies").on("click", async function(e){
+    e.stopPropagation();
+    $card.find(".menu").removeClass("open");
+
+    await openPrintQtyModalFromCard($card[0]);
+  });
+
+  // Kártya „Print selected” → csak modált nyitunk, NEM nyomtatunk azonnal
+  $card.find(".card-print-btn").on("click", function(e){
+    e.stopPropagation();
+
+    const tpl = $card.attr("data-template");
+    const total    = parseInt($card.find(".total-copies").text(), 10) || 0;
+    const override = parseInt($card.attr("data-override-copies") || "", 10);
+    let   copies   = Number.isFinite(override) && override >= 0 ? Math.min(override, total) : total;
+
+    // ✅ Sosem mehet a maximum fölé: a hátralévő mennyiségre vágjuk.
+    const remain = remainingForCard($card[0]);
+    if (remain <= 0){
+      showMsg("Z tejto karty už nie je čo tlačiť (maximum je vyčerpané).", "warning");
+      toastMsg("Z tejto karty už nie je čo tlačiť (maximum je vyčerpané).", "warning");
+      return;
+    }
+    if (copies > remain){
+      copies = remain;
+      toastMsg("Množstvo bolo obmedzené na zostávajúci počet: " + remain, "warning");
+    }
+
+    // printer názov kibontása a kártyából
+    let printer = ($card.attr("data-printer") || "").trim();
+    printer = printer.replace(/^<em>.*<\/em>$/i, "").trim();
+
+
+    const labelNoExt = String(tpl || "").replace(/\.btw$/i, "");
+
+    // Modál mezők feltöltése
+    $("#modalPrinterName").text(printer || "—");
+    $("#modalTplName").text(labelNoExt || "—");
+    $("#modalTplHidden").val(tpl);
+    $("#modalCopiesHidden").val(String(Math.max(0, copies)));
+    $("#modalCardId").val(cardId); // ← itt adjuk át, melyik kártya volt
+
+    const checkText = `Ellenőrizd, hogy a „${printer || "—"}” nyomtatóban a(z) „${labelNoExt}” etikett típusú szalag van.`;
+    $("#modalCheckText").text(checkText);
+
+    new bootstrap.Modal(document.getElementById("printConfirmModal")).show();
+  });
+  setTimeout(() => setTotalAllowedToBackend(cardKey, totalCopies), 0);
+  // ✅ első betöltéskor frissítjük a printed/remaining értékeket backendből
+
+  setTimeout(() => refreshCardCountersFromBackend($card[0]), 0);
+  return $card;
+}
+
+
+
+
+function getSelectedCopiesMap(){
+  // { "<template>": összes_kért_példány }
+  const map = {};
+  $(".template-card.selected").each(function(){
+    const tpl = $(this).attr("data-template");
+    const total = parseInt($(this).find(".total-copies").text(), 10) || 0;
+    const override = parseInt($(this).attr("data-override-copies") || "", 10);
+    const copies = Number.isFinite(override) && override >= 0 ? Math.min(override, total) : total;
+    map[tpl] = (map[tpl] || 0) + copies;   // több FROM/TO kártya → összeadódik
+  });
+  return map;
+}
+// --- DIAG: FROM/TO párok kigyűjtése és ellenőrzése ---
+function baseNameOfFT(tpl){
+  // pl. "9320-5807 (DAT-34) From 2L.btw" → "9320-5807 (DAT-34) 2L.btw"
+  return String(tpl||"")
+    .replace(/\bfrom\b/i,"")
+    .replace(/\bto\b/i,"")
+    .replace(/\s{2,}/g," ")
+    .trim();
+}
+
+function buildFromToIndex(response){
+  const idx = {}; // base -> {from:[], to:[]}
+  for (const tpl of Object.keys(response.templates || {})) {
+    const isFrom = /from/i.test(tpl);
+    const isTo   = /to/i.test(tpl);
+    if (!isFrom && !isTo) continue;
+
+    const base = baseNameOfFT(tpl);
+    (idx[base] ||= { from: [], to: [] });
+    if (isFrom) idx[base].from.push(tpl);
+    if (isTo)   idx[base].to.push(tpl);
+  }
+  return idx;
+}
+
+function renderDiagnostics(response){
+  // láthatóvá tesszük a kártyát
+  $("#diagCard").removeClass("d-none");
+
+  const idx = buildFromToIndex(response);
+  const allFrom = [];
+  const allTo   = [];
+  const missingLis = [];
+  const listLis = [];
+
+  Object.entries(idx).forEach(([base, pair])=>{
+    allFrom.push(...pair.from);
+    allTo.push(...pair.to);
+
+    // listázás
+    listLis.push(
+      `<li><code>${$("<div>").text(base).html()}</code><br>
+        FROM: ${pair.from.length ? pair.from.map(x=>`<code>${$("<div>").text(x).html()}</code>`).join(", ") : "<em>nie je</em>"}<br>
+        TO:&nbsp;&nbsp;&nbsp;${pair.to.length ? pair.to.map(x=>`<code>${$("<div>").text(x).html()}</code>`).join(", ") : "<em>nie je</em>"}
+       </li>`
+    );
+
+    // hiányzó oldalak
+    if (!pair.from.length || !pair.to.length){
+      const miss = !pair.from.length ? "Chýba FROM" : "Chýba TO";
+      missingLis.push(`<li><strong>${$("<div>").text(base).html()}</strong>: ${miss}</li>`);
+    }
+  });
+
+  $("#diagFromCount").text(allFrom.length);
+  $("#diagToCount").text(allTo.length);
+  $("#diagList").html(listLis.join(""));
+  $("#diagMissingPairs").html(missingLis.length ? missingLis.join("") : "<li><em>Žiadne chýbajúce páry.</em></li>");
+
+  // Rövidített preview JSON (csak a sablonok + line_preview FROM/TO része)
+  const short = {
+    templates: Object.fromEntries(
+      Object.entries(response.templates||{}).filter(([k])=>/from|to/i.test(k))
+    ),
+    line_preview: Object.fromEntries(
+      Object.entries(response.line_preview||{}).filter(([k])=>/from|to/i.test(k))
+    )
+  };
+  $("#diagJson").text(JSON.stringify(short, null, 2));
+
+  // Konzolra is dobunk mindent
+  console.groupCollapsed("%cFROM/TO Diagnostics","color:#0a7");
+  console.log("Összes FROM:", allFrom.length, allFrom);
+  console.log("Összes TO:", allTo.length, allTo);
+  console.table(Object.entries(idx).map(([base,pair])=>({
+    base, FROM_count: pair.from.length, TO_count: pair.to.length
+  })));
+  if (missingLis.length) console.warn("Chýbajúce páry:", $(missingLis.join("")).text());
+  console.groupEnd();
+}
+
+// Toggle gomb a kártyán
+$(document).on("click","#toggleDiagBtn", function(){
+  $("#diagBody").toggleClass("d-none");
+  $(this).text( $("#diagBody").hasClass("d-none") ? "Zobraziť" : "Skryť" );
+});
+// A CON sorból (pl. "ABC123 — Motor 1" vagy "ABC123 - Motor 1") csak az értéket adja vissza.
+function extractConValue(raw){
+  let s = String(raw || "").trim();
+  // ha "CON:" előtag lenne, szedjük le
+  s = s.replace(/^CON[:\s-]*/i, "").trim();
+  if (s.includes("—")) return s.split("—").pop().trim();
+  if (s.includes(" - ")) return s.split(" - ").pop().trim();
+  return s;
+}
+
+function normalizeConToValues(resp){
+  const out = JSON.parse(JSON.stringify(resp || {}));
+  if (out && out.line_preview){
+    Object.entries(out.line_preview).forEach(([tpl, arr])=>{
+      if (isConTemplate(tpl)) out.line_preview[tpl] = (arr || []).map(extractConValue);
+    });
+  }
+  return out;
+}
+
+
+
+  </script>
+{% endblock %}

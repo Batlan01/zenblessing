@@ -1,0 +1,281 @@
+{% extends "hu/base.html" %}
+{% block page_title %}Eszközök állapota{% endblock %}
+{% block page_title_mobile %}Eszközök{% endblock %}
+{% block page_header_right %}
+  <a href="{{ url_for('main.index', lang='hu') }}"><img src="{{ url_for('static', filename='flags/hu.png') }}" width="32" height="20"></a>
+  <a href="{{ url_for('main.index', lang='sk') }}"><img src="{{ url_for('static', filename='flags/sk.png') }}" width="32" height="20"></a>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Desktop tábla (≥768px) ── -->
+<div class="card shadow-sm d-none d-md-block">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <h5 class="mb-0">Eszközök állapota</h5>
+    <small class="text-muted" id="last-refresh">—</small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="devices-table" class="table table-sm table-hover align-middle mb-0">
+        <thead class="table-light position-sticky top-0">
+          <tr>
+            <th>Eszköz</th>
+            <th>IP</th>
+            <th>Állapot</th>
+            <th>Hőmérséklet</th>
+            <th>Uptime</th>
+            <th>CPU</th>
+            <th>RAM</th>
+            <th>I/O</th>
+            <th>SD kártya</th>
+            <th>Böngésző</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="10" class="text-center py-4 text-muted">Betöltés…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── Mobil kártyák (<768px) ── -->
+<div class="d-md-none">
+  <div class="d-flex align-items-center justify-content-between mb-2 px-1">
+    <span class="fw-semibold text-body-secondary small">Eszközök állapota</span>
+    <small class="text-muted" id="last-refresh-mobile">—</small>
+  </div>
+  <div id="device-cards" class="d-flex flex-column gap-2">
+    <div class="dev-card">
+      <div class="text-center py-4 text-muted">
+        <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+        Betöltés…
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="error-box" class="alert alert-danger mt-3 d-none" role="alert"></div>
+
+<style>
+.dev-card {
+  background: #1e2330;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: .75rem;
+  overflow: hidden;
+  position: relative;
+}
+.dev-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--status-color, #6c757d);
+}
+.dev-card .dev-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: .75rem 1rem .5rem 1.1rem;
+}
+.dev-card .dev-name {
+  font-size: .95rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+.dev-card .dev-sub {
+  font-size: .72rem;
+  color: #64748b;
+  font-family: monospace;
+  margin-top: .1rem;
+}
+.dev-card .dev-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: .25rem;
+  flex-shrink: 0;
+}
+.dev-card .dev-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid rgba(255,255,255,.06);
+}
+.dev-card .dev-metric {
+  padding: .45rem .75rem;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(255,255,255,.04);
+}
+.dev-card .dev-metric:nth-child(3),
+.dev-card .dev-metric:nth-child(6) { border-right: none; }
+.dev-card .metric-label {
+  font-size: .62rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: #475569;
+  margin-bottom: .15rem;
+}
+.dev-card .metric-val {
+  font-size: .85rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+</style>
+
+<script>
+  const T_THRESH   = { warn: 60, crit: 80 };
+  const CPU_THRESH = { warn: 70, crit: 90 };
+
+  function badge(text, type) {
+    return `<span class="badge rounded-pill bg-${type}">${text}</span>`;
+  }
+  function statusBadge(state) {
+    const s = String(state || '').toLowerCase();
+    if (s.includes('up') || s.includes('online')) return badge('Online', 'success');
+    if (s.includes('down') || s.includes('offline')) return badge('Offline', 'danger');
+    return badge(state || 'Ismeretlen', 'secondary');
+  }
+  function qualityBadge(q) {
+    const s = String(q || '').toLowerCase();
+    if (s.includes('good')) return badge('Jó', 'success');
+    if (s.includes('warn')) return badge('Figyelem', 'warning');
+    if (s.includes('bad') || s.includes('fail') || s.includes('error')) return badge('Hiba', 'danger');
+    return badge(q || '—', 'secondary');
+  }
+  function browserBadge(state) {
+    const s = String(state || '').toLowerCase();
+    if (s.includes('running'))  return badge('Fut', 'success');
+    if (s.includes('disabled') || s.includes('stopped')) return badge('Leállítva', 'secondary');
+    if (s.includes('unknown'))  return badge('Ismeretlen', 'secondary');
+    if (!state) return '—';
+    return badge(state, 'info');
+  }
+  function metricClass(value, th) {
+    const v = Number(value);
+    if (Number.isNaN(v)) return '';
+    if (v >= th.crit) return 'text-danger fw-semibold';
+    if (v >= th.warn) return 'text-warning';
+    return '';
+  }
+
+  /* ── Desktop tábla ── */
+  function renderRows(list) {
+    const tbody = document.querySelector('#devices-table tbody');
+    tbody.innerHTML = '';
+    if (!list || !list.length) {
+      tbody.innerHTML = `<tr><td colspan="10" class="text-center py-4 text-muted">Nincs megjeleníthető adat.</td></tr>`;
+      return;
+    }
+    for (const d of list) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="text-truncate" style="max-width:200px" title="${d.name||''}">${d.name||'—'}</td>
+        <td>${d.ip||'—'}</td>
+        <td>${statusBadge(d.status)}</td>
+        <td class="${metricClass(d.temperature,T_THRESH)}">${d.temperature!=null?d.temperature+'°C':'—'}</td>
+        <td>${d.uptime||'—'}</td>
+        <td class="${metricClass(d.cpu_usage,CPU_THRESH)}">${d.cpu_usage!=null?d.cpu_usage+'%':'—'}</td>
+        <td>${d.ram_usage!=null?d.ram_usage:'—'}</td>
+        <td>${d.io_stats||'—'}</td>
+        <td>${qualityBadge(d.sd_health)}</td>
+        <td>${browserBadge(d.program_status)}</td>`;
+      tbody.appendChild(tr);
+    }
+  }
+
+  /* ── Mobil kártyák ── */
+  function renderCards(list) {
+    const container = document.getElementById('device-cards');
+    container.innerHTML = '';
+    if (!list || !list.length) {
+      container.innerHTML = `<div class="dev-card"><div class="text-center py-4 text-muted small">Nincs megjeleníthető adat.</div></div>`;
+      return;
+    }
+    for (const d of list) {
+      const isOnline = String(d.status||'').toLowerCase().match(/up|online/);
+      const statusColor = isOnline ? '#198754' : '#dc3545';
+      const tClass = metricClass(d.temperature, T_THRESH);
+      const cClass = metricClass(d.cpu_usage, CPU_THRESH);
+
+      const card = document.createElement('div');
+      card.className = 'dev-card';
+      card.style.setProperty('--status-color', statusColor);
+      card.innerHTML = `
+        <div class="dev-header">
+          <div style="min-width:0">
+            <div class="dev-name" title="${d.name||''}">${d.name||'—'}</div>
+            <div class="dev-sub">${d.ip||''}${d.uptime ? ' · '+d.uptime : ''}</div>
+          </div>
+          <div class="dev-badges">
+            ${statusBadge(d.status)}
+            ${browserBadge(d.program_status)}
+          </div>
+        </div>
+        <div class="dev-metrics">
+          <div class="dev-metric">
+            <span class="metric-label">Hőmérséklet</span>
+            <span class="metric-val ${tClass}">${d.temperature!=null ? d.temperature+'°C' : '—'}</span>
+          </div>
+          <div class="dev-metric">
+            <span class="metric-label">CPU</span>
+            <span class="metric-val ${cClass}">${d.cpu_usage!=null ? d.cpu_usage+'%' : '—'}</span>
+          </div>
+          <div class="dev-metric">
+            <span class="metric-label">RAM</span>
+            <span class="metric-val">${d.ram_usage!=null ? d.ram_usage : '—'}</span>
+          </div>
+          <div class="dev-metric">
+            <span class="metric-label">SD kártya</span>
+            <span>${qualityBadge(d.sd_health)}</span>
+          </div>
+          <div class="dev-metric">
+            <span class="metric-label">I/O</span>
+            <span class="metric-val">${d.io_stats||'—'}</span>
+          </div>
+          <div class="dev-metric">
+            <span class="metric-label">Böngésző</span>
+            <span>${browserBadge(d.program_status)}</span>
+          </div>
+        </div>`;
+      container.appendChild(card);
+    }
+  }
+
+  function showError(msg) {
+    const box = document.getElementById('error-box');
+    box.textContent = msg;
+    box.classList.remove('d-none');
+    setTimeout(() => box.classList.add('d-none'), 6000);
+  }
+  function updateTimestamps() {
+    const t = 'Frissítve: ' + new Date().toLocaleTimeString();
+    const e1 = document.getElementById('last-refresh');
+    const e2 = document.getElementById('last-refresh-mobile');
+    if (e1) e1.textContent = t;
+    if (e2) e2.textContent = t;
+  }
+
+  async function loadDeviceData() {
+    try {
+      const res = await fetch('/api/devices');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      renderRows(data);
+      renderCards(data);
+      updateTimestamps();
+    } catch(e) {
+      showError('Nem sikerült betölteni az eszközadatokat. ' + e.message);
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadDeviceData();
+    setInterval(loadDeviceData, 5000);
+  });
+</script>
+{% endblock %}

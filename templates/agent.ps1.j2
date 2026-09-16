@@ -1,0 +1,299 @@
+# ============================================================
+#  Domain Deploy Agent (desired-state)
+#  - telepiti a kivant csomagokat (install lista)
+#  - eltavolitja a tiltottakat (remove lista) ES azokat, amik
+#    korabban telepitve voltak, de mar nincsenek a kivant allapotban
+#  - vegrehajtja az egyszeri feladatokat (jobs: teszt / ad-hoc)
+#  - leltart kuld (telepitett programok a registrybol)
+#  Generalva a szerver altal – ne szerkeszd kezzel a gepen.
+# ============================================================
+[CmdletBinding()]
+param()
+
+$ErrorActionPreference = 'Stop'
+$Server = "{{ base_url }}"
+$ApiKey = "{{ api_key }}"
+
+$Headers = @{}
+if ($ApiKey -ne "") { $Headers["X-Deploy-Key"] = $ApiKey }
+
+$HostName = $env:COMPUTERNAME
+try { $os = (Get-CimInstance Win32_OperatingSystem).Caption }
+catch { $os = [System.Environment]::OSVersion.VersionString }
+
+$StateDir = Join-Path $env:ProgramData "DomainDeploy"
+if (-not (Test-Path $StateDir)) { New-Item -ItemType Directory -Path $StateDir -Force | Out-Null }
+$StateFile = Join-Path $StateDir "state.json"
+$LogFile   = Join-Path $StateDir "agent.log"
+
+function Write-Log($msg) {
+    $line = ("[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg)
+    Add-Content -Path $LogFile -Value $line
+    Write-Output $line
+}
+
+# --- Allapot betoltese (telepitett lepesek + alkalmazott csomagok) ---
+$StepState = @{}
+$Applied   = @{}
+if (Test-Path $StateFile) {
+    try {
+        $raw = Get-Content $StateFile -Raw | ConvertFrom-Json
+        if ($raw.steps) { foreach ($p in $raw.steps.PSObject.Properties) { $StepState[$p.Name] = $p.Value } }
+        if ($raw.applied) { foreach ($p in $raw.applied.PSObject.Properties) { $Applied[$p.Name] = $p.Value } }
+    } catch { }
+}
+function Save-State {
+    $obj = @{ steps = $StepState; applied = $Applied }
+    ($obj | ConvertTo-Json -Depth 8) | Set-Content -Path $StateFile -Encoding UTF8
+}
+
+# --- Manifest lekerese ---
+$manUrl = ("{0}/deploy/agent/manifest?hostname={1}&os={2}" -f $Server, [uri]::EscapeDataString($HostName), [uri]::EscapeDataString($os))
+Write-Log "Manifest: $manUrl"
+try {
+    $manifest = Invoke-RestMethod -Uri $manUrl -Headers $Headers -Method Get -TimeoutSec 60
+} catch {
+    Write-Log ("HIBA: manifest lekerese sikertelen: {0}" -f $_.Exception.Message)
+    exit 1
+}
+if (-not $manifest.ok) { Write-Log ("HIBA: manifest nem ok: {0}" -f $manifest.error); exit 1 }
+
+$installPkgs = @($manifest.install)
+$removePkgs  = @($manifest.remove)
+$jobs        = @($manifest.jobs)
+Write-Log ("install={0} remove={1} jobs={2}" -f $installPkgs.Count, $removePkgs.Count, $jobs.Count)
+
+# --- Choco szukseges? ---
+$needsChoco = $false
+foreach ($pk in $installPkgs) { foreach ($st in $pk.steps) { if ($st.method -eq "choco") { $needsChoco = $true } } }
+foreach ($jb in $jobs) { foreach ($st in $jb.package.steps) { if ($st.method -eq "choco") { $needsChoco = $true } } }
+if ($needsChoco -and -not (Get-Command choco -ErrorAction SilentlyContinue)) {
+    Write-Log "Chocolatey telepitese..."
+    try {
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        $env:Path += ";$env:ProgramData\chocolatey\bin"
+    } catch { Write-Log ("HIBA: Chocolatey: {0}" -f $_.Exception.Message) }
+}
+
+$results = New-Object System.Collections.ArrayList
+$jobResults = New-Object System.Collections.ArrayList
+
+function Add-Result($pkgId, $pkgName, $method, $identifier, $action, $status, $message) {
+    $null = $results.Add(@{
+        package_id = $pkgId; package_name = $pkgName; method = $method
+        identifier = $identifier; action = $action; status = $status
+        message = ("{0}" -f $message)
+    })
+    Write-Log ("[{0}] {1} {2}/{3} -> {4}: {5}" -f $pkgName, $action, $method, $identifier, $status, $message)
+}
+
+function Download-Installer($identifier) {
+    if ($identifier -match '^https?://') { $url = $identifier }
+    else { $url = ("{0}/static/installers/{1}" -f $Server, $identifier) }
+    $fname = Split-Path ($identifier -replace '\?.*$','') -Leaf
+    if ([string]::IsNullOrWhiteSpace($fname)) { $fname = "inst_" + [guid]::NewGuid().ToString() }
+    $dest = Join-Path $env:TEMP $fname
+    Invoke-WebRequest -Uri $url -Headers $Headers -OutFile $dest -UseBasicParsing -TimeoutSec 300
+    return $dest
+}
+
+# --- Egy lepes telepitese; visszaad @{ok=$bool; msg=...} ---
+function Install-Step($step) {
+    try {
+        switch ($step.method) {
+            "choco" {
+                $a = "install {0} -y --no-progress {1}" -f $step.identifier, $step.args
+                $p = Start-Process -FilePath "choco" -ArgumentList $a -Wait -PassThru -NoNewWindow
+                if ($p.ExitCode -in 0,1605,1641,3010) { return @{ok=$true; msg=("choco exit {0}" -f $p.ExitCode)} }
+                return @{ok=$false; msg=("choco exit {0}" -f $p.ExitCode)}
+            }
+            "winget" {
+                $a = "install --id {0} -e --silent --accept-package-agreements --accept-source-agreements {1}" -f $step.identifier, $step.args
+                $p = Start-Process -FilePath "winget" -ArgumentList $a -Wait -PassThru -NoNewWindow
+                if ($p.ExitCode -eq 0) { return @{ok=$true; msg="winget ok"} }
+                return @{ok=$false; msg=("winget exit {0}" -f $p.ExitCode)}
+            }
+            "msi" {
+                $file = Download-Installer $step.identifier
+                $a = '/i "{0}" /qn /norestart {1}' -f $file, $step.args
+                $p = Start-Process -FilePath "msiexec.exe" -ArgumentList $a -Wait -PassThru
+                if ($p.ExitCode -in 0,1641,3010) { return @{ok=$true; msg=("msi exit {0}" -f $p.ExitCode)} }
+                return @{ok=$false; msg=("msi exit {0}" -f $p.ExitCode)}
+            }
+            "exe" {
+                $file = Download-Installer $step.identifier
+                if ($step.args -and $step.args.Trim() -ne "") { $p = Start-Process -FilePath $file -ArgumentList $step.args -Wait -PassThru }
+                else { $p = Start-Process -FilePath $file -Wait -PassThru }
+                if ($p.ExitCode -in 0,3010) { return @{ok=$true; msg=("exe exit {0}" -f $p.ExitCode)} }
+                return @{ok=$false; msg=("exe exit {0}" -f $p.ExitCode)}
+            }
+            "cmd" {
+                cmd /c $step.identifier > $null 2>&1
+                if ($LASTEXITCODE -eq 0) { return @{ok=$true; msg="cmd ok"} }
+                return @{ok=$false; msg=("cmd exit {0}" -f $LASTEXITCODE)}
+            }
+            default { return @{ok=$false; msg=("ismeretlen metodus: {0}" -f $step.method)} }
+        }
+    } catch { return @{ok=$false; msg=$_.Exception.Message} }
+}
+
+# --- Egy lepes eltavolitasa ---
+function Uninstall-Step($step) {
+    $uid = $step.uninstall_identifier
+    if ([string]::IsNullOrWhiteSpace($uid)) { $uid = $step.identifier }
+    $uargs = $step.uninstall_args
+    try {
+        switch ($step.method) {
+            "choco" {
+                $a = "uninstall {0} -y --no-progress {1}" -f $uid, $uargs
+                $p = Start-Process -FilePath "choco" -ArgumentList $a -Wait -PassThru -NoNewWindow
+                if ($p.ExitCode -in 0,1605,1614,3010) { return @{ok=$true; msg=("choco uninstall exit {0}" -f $p.ExitCode)} }
+                return @{ok=$false; msg=("choco uninstall exit {0}" -f $p.ExitCode)}
+            }
+            "winget" {
+                $a = "uninstall --id {0} -e --silent {1}" -f $uid, $uargs
+                $p = Start-Process -FilePath "winget" -ArgumentList $a -Wait -PassThru -NoNewWindow
+                if ($p.ExitCode -eq 0) { return @{ok=$true; msg="winget uninstall ok"} }
+                return @{ok=$false; msg=("winget uninstall exit {0}" -f $p.ExitCode)}
+            }
+            "msi" {
+                if ([string]::IsNullOrWhiteSpace($step.uninstall_identifier)) {
+                    return @{ok=$false; msg="msi uninstall: hianyzik a ProductCode/uninstall_identifier"}
+                }
+                $a = '/x "{0}" /qn /norestart {1}' -f $uid, $uargs
+                $p = Start-Process -FilePath "msiexec.exe" -ArgumentList $a -Wait -PassThru
+                if ($p.ExitCode -in 0,1605,1641,3010) { return @{ok=$true; msg=("msi uninstall exit {0}" -f $p.ExitCode)} }
+                return @{ok=$false; msg=("msi uninstall exit {0}" -f $p.ExitCode)}
+            }
+            "exe" {
+                if ([string]::IsNullOrWhiteSpace($step.uninstall_identifier)) {
+                    return @{ok=$false; msg="exe uninstall: hianyzik az uninstall parancs"}
+                }
+                cmd /c $uid > $null 2>&1
+                if ($LASTEXITCODE -eq 0) { return @{ok=$true; msg="exe uninstall ok"} }
+                return @{ok=$false; msg=("exe uninstall exit {0}" -f $LASTEXITCODE)}
+            }
+            "cmd" {
+                if ([string]::IsNullOrWhiteSpace($step.uninstall_identifier)) {
+                    return @{ok=$false; msg="cmd uninstall: hianyzik az uninstall parancs"}
+                }
+                cmd /c $uid > $null 2>&1
+                if ($LASTEXITCODE -eq 0) { return @{ok=$true; msg="cmd uninstall ok"} }
+                return @{ok=$false; msg=("cmd uninstall exit {0}" -f $LASTEXITCODE)}
+            }
+            default { return @{ok=$false; msg="ismeretlen metodus"} }
+        }
+    } catch { return @{ok=$false; msg=$_.Exception.Message} }
+}
+
+# --- Csomag telepitese (lepesenkent), siker eseten allapotba mentes ---
+function Install-Package($pkg, $action) {
+    $allOk = $true
+    foreach ($step in $pkg.steps) {
+        $key = ("step_{0}" -f $step.id)
+        # check_cmd: ha mar fent van
+        if ($step.check_cmd -and $step.check_cmd.Trim() -ne "") {
+            cmd /c $step.check_cmd > $null 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Add-Result $pkg.id $pkg.name $step.method $step.identifier $action "skipped" "mar telepitve (check)"
+                $StepState[$key] = "ok"; continue
+            }
+        } elseif ($StepState[$key] -eq "ok" -and $action -ne "job") {
+            Add-Result $pkg.id $pkg.name $step.method $step.identifier $action "skipped" "mar telepitve (state)"
+            continue
+        }
+        $r = Install-Step $step
+        if ($r.ok) { Add-Result $pkg.id $pkg.name $step.method $step.identifier $action "installed" $r.msg; $StepState[$key] = "ok" }
+        else { Add-Result $pkg.id $pkg.name $step.method $step.identifier $action "error" $r.msg; $allOk = $false }
+    }
+    if ($allOk) { $Applied[("{0}" -f $pkg.id)] = $pkg }
+    Save-State
+    return $allOk
+}
+
+# --- Csomag eltavolitasa (forditott sorrendben) ---
+function Uninstall-Package($pkg, $action) {
+    $steps = @($pkg.steps)
+    [array]::Reverse($steps)
+    foreach ($step in $steps) {
+        $r = Uninstall-Step $step
+        $st = if ($r.ok) { "removed" } else { "error" }
+        Add-Result $pkg.id $pkg.name $step.method $step.identifier $action $st $r.msg
+        $key = ("step_{0}" -f $step.id)
+        if ($StepState.ContainsKey($key)) { $StepState.Remove($key) }
+    }
+    $pk = ("{0}" -f $pkg.id)
+    if ($Applied.ContainsKey($pk)) { $Applied.Remove($pk) }
+    Save-State
+}
+
+# 1) Kivant csomagok telepitese
+$desiredIds = @()
+foreach ($pkg in $installPkgs) { $desiredIds += ("{0}" -f $pkg.id); Install-Package $pkg "install" | Out-Null }
+
+# 2) Tiltott csomagok eltavolitasa
+foreach ($pkg in $removePkgs) { Uninstall-Package $pkg "remove" | Out-Null }
+
+# 3) Desired-state takaritas: amit korabban telepitettunk, de mar nem kivant -> eltavolitas
+foreach ($pk in @($Applied.Keys)) {
+    if ($desiredIds -notcontains $pk) {
+        $old = $Applied[$pk]
+        if ($old -and $old.steps) {
+            Write-Log ("Auto-eltavolitas (mar nem kivant): {0}" -f $old.name)
+            Uninstall-Package $old "auto-remove" | Out-Null
+        } else {
+            $Applied.Remove($pk); Save-State
+        }
+    }
+}
+
+# 4) Feladatok (jobs)
+foreach ($jb in $jobs) {
+    $pkg = $jb.package
+    $act = $jb.action
+    try {
+        if ($act -eq "remove") { Uninstall-Package $pkg "job-remove" | Out-Null; $jstatus = "done" }
+        else { $ok = Install-Package $pkg "job"; $jstatus = if ($ok) { "done" } else { "error" } }
+    } catch { $jstatus = "error" }
+    $null = $jobResults.Add(@{ job_id = $jb.job_id; status = $jstatus; message = ("{0} {1}" -f $act, $pkg.name) })
+}
+
+# 5) Leltar (telepitett programok a registrybol)
+$inventory = New-Object System.Collections.ArrayList
+$regPaths = @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+)
+foreach ($rp in $regPaths) {
+    try {
+        Get-ItemProperty $rp -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -and -not $_.SystemComponent } |
+            ForEach-Object {
+                $null = $inventory.Add(@{
+                    name      = ("{0}" -f $_.DisplayName)
+                    version   = ("{0}" -f $_.DisplayVersion)
+                    publisher = ("{0}" -f $_.Publisher)
+                })
+            }
+    } catch { }
+}
+
+# --- Jelentes ---
+$payload = @{
+    hostname  = $HostName
+    os        = $os
+    results   = @($results)
+    jobs      = @($jobResults)
+    inventory = @($inventory)
+} | ConvertTo-Json -Depth 6
+
+try {
+    Invoke-RestMethod -Uri ("{0}/deploy/agent/report" -f $Server) -Headers $Headers -Method Post -Body $payload -ContentType "application/json" -TimeoutSec 90 | Out-Null
+    Write-Log ("Jelentes elkuldve: {0} eredmeny, {1} feladat, {2} leltar-tetel." -f $results.Count, $jobResults.Count, $inventory.Count)
+} catch {
+    Write-Log ("HIBA: jelentes kuldese sikertelen: {0}" -f $_.Exception.Message)
+}
+
+Write-Log "Kesz."

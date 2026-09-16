@@ -1,0 +1,2512 @@
+{% extends 'hu/base.html' %}
+
+{% block content %}
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>BarTender Nyomtatási Oldal</title>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+<link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+
+</head>
+<style>
+.bartender-buttons {
+  margin-top: 30px;
+  text-align: center;
+}
+
+.bartender-buttons .btn {
+  margin: 10px;
+  padding: 12px 24px;
+  font-size: 18px;
+  font-weight: 500;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease-in-out;
+}
+
+.bartender-buttons .btn:hover {
+  transform: translateY(-2px);
+  opacity: 0.9;
+}
+
+ /*  j bejegyz s modal st lus */
+#modal {
+  display: none;
+  position: relative; /* Ez fontos! */
+  margin: 40px auto;
+  background-color: #fff;
+  padding: 25px 30px;
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
+  width: 90%;
+  max-width: 1400px;
+}
+
+
+#modal h2 {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+
+#modal table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 10px;
+}
+
+#modal th {
+  background-color: #f0f4ff;
+  color: #007bff;
+  font-size: 14px;
+  text-transform: uppercase;
+  padding: 10px;
+}
+
+#modal td {
+  text-align: center;
+}
+
+#modal input[type="text"],
+#modal select {
+  width: 130px;
+  padding: 8px;
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+
+#modal .btn {
+  padding: 6px 12px;
+  font-size: 14px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.checkNewBtn {
+  background-color: #0d6efd;
+  color: #fff;
+}
+
+.confirmBtn {
+  background-color: #198754;
+  color: #fff;
+}
+
+.confirmBtn:disabled {
+  background-color: #aaa;
+  cursor: not-allowed;
+}
+
+#editModal {
+  display: none;
+  position: relative;
+  margin: 40px auto;
+  background-color: #fff;
+  padding: 25px 30px;
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
+  width: 90%;
+  max-width: 1000px;
+}
+
+#editModal h2 {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+
+#editModal table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 10px;
+}
+
+#editModal th {
+  background-color: #f0f4ff;
+  color: #007bff;
+  font-size: 14px;
+  text-transform: uppercase;
+  padding: 10px;
+}
+
+#editModal td {
+  text-align: center;
+}
+
+#editModal input[type="text"],
+#editModal select {
+  width: 90%;
+  padding: 8px;
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+}
+
+#editModal .btn {
+  padding: 6px 12px;
+  font-size: 14px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+.checkBtn {
+  background-color: #0d6efd;
+  color: white;
+  border: none;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 6px;
+  transition: background-color 0.2s ease;
+}
+
+.checkBtn:hover {
+  background-color: #0b5ed7;
+}
+
+.updateBtn {
+  background-color: #198754;
+  color: white;
+  border: none;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 6px;
+  transition: background-color 0.2s ease;
+}
+
+.updateBtn:hover {
+  background-color: #157347;
+}
+
+.updateBtn:disabled {
+  background-color: #ccc;
+  color: #666;
+  cursor: not-allowed;
+}
+#modal .close {
+  float: right;
+  font-size: 28px;
+  font-weight: bold;
+  color: #666;
+  cursor: pointer;
+  margin-top: -10px;
+}
+#modal .close:hover {
+  color: #000;
+}
+
+.tab-content-box {
+  padding: 15px;
+  border: 1px solid #dee2e6;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  background-color: #fdfdfd;
+}
+
+#printerSelect {
+  width: 100px;
+}
+
+.printerSelect {
+  width: 100px;
+}
+
+.rowGroup {
+  margin-bottom: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 16px;
+}
+
+.rowGroup input {
+  margin: 0 auto;
+}
+.connectorRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+#connectorPairsContainer {
+  position: relative;
+  min-height: 300px;
+}
+
+#connectorSVG { 
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0 
+}
+
+#connectorCanvas {
+  position: relative;
+  border: 2px solid black;
+  padding: 20px;
+  height: auto;             /* <-- legyen rugalmas */
+  overflow: visible;        /* ha kell */
+}
+
+/* Schematic stílusok */
+.schematic-page {
+  background-color: #f8f9fa;
+}
+
+.schematic-group {
+  background-color: #ffffff;
+}
+
+.schematic-row {
+  position: relative;
+  padding: 20px 0;
+}
+
+.schematic-box {
+  border: 2px solid #333;
+  border-radius: 8px;
+  padding: 15px;
+  width: 140px;
+  text-align: center;
+  position: relative;
+  z-index: 1;
+  background-color: white;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.from-box {
+  border-color: #0d6efd;
+  background-color: #e7f1ff;
+}
+
+.to-box {
+  border-color: #198754;
+  background-color: #e2f0e9;
+}
+
+.id-box {
+  border-color: #6c757d;
+  background-color: #e9ecef;
+  font-weight: bold;
+}
+
+.schematic-connector {
+  font-size: 24px;
+  color: #6c757d;
+  margin: 0 10px;
+}
+
+.schematic-text-top {
+  font-weight: bold;
+  margin-bottom: 5px;
+  min-height: 25px;
+}
+
+.schematic-line {
+  border-top: 1px solid #333;
+  margin: 8px 0;
+}
+
+.schematic-text-bottom {
+  font-style: italic;
+  min-height: 25px;
+}
+
+</style>
+<body>
+    
+    <h1>BarTender Nyomtatási Oldal</h1>
+<!-- Gombok -->
+<div class="bartender-buttons">
+  <button class="btn btn-success" id="addButton">➕ Új PN hozzáadása etiketthez</button>
+  <button class="btn btn-primary" id="editButton">✏️ Szerkesztés</button>
+  <button class="btn btn-info" id="printerButton">🖨️ Nyomtatók beállítása</button>
+</div>
+
+<div class="modal" id="modal">
+  <span class="close" id="closeModal">×</span>
+  <h2>Új bejegyzés</h2>
+
+  <!-- Közös mezők -->
+  <div class="row mb-3 align-items-end g-1">
+    <div class="col-md-3">
+      <label for="pnInput" class="form-label">PN</label>
+      <input id="pnInput" type="text" class="form-control" style="width:250px;"/>
+    </div>
+    <div class="col-md-3">
+      <label for="revInput" class="form-label">REV</label>
+      <input id="revInput" type="text" class="form-control" />
+    </div>
+    <div class="col-md-3">
+      <label for="ecnInput" class="form-label">ECN</label>
+      <input id="ecnInput" type="text" class="form-control" />
+    </div>
+    <div class="col-md-3 d-flex justify-content-end">
+      <button id="checkPNButton" class="btn btn-secondary mt-4">🔍 Ellenőrzés</button>
+    </div>
+
+
+
+  <div class="col-md-3">
+    <div class="form-check mt-4">
+      <input class="form-check-input" type="checkbox" id="useIdLabels" checked>
+      <label class="form-check-label" for="useIdLabels">ID Labelek</label>
+    </div>
+  </div>
+
+  <div class="col-md-3">
+    <div class="form-check mt-4">
+      <input class="form-check-input" type="checkbox" id="useFromTo" checked>
+      <label class="form-check-label" for="useFromTo">FROM - TO</label>
+    </div>
+  </div>
+
+  <div class="col-md-3">
+    <div class="form-check mt-4">
+      <input class="form-check-input" type="checkbox" id="useConnectors" checked>
+      <label class="form-check-label" for="useConnectors">Konnektorok</label>
+    </div>
+  </div>
+</div>
+
+
+
+
+
+
+<!-- Főfülek: Beállítás és Schematic -->
+<ul class="nav nav-tabs" id="mainTabSelector">
+  <li class="nav-item">
+    <a class="nav-link active" id="tab-settings" href="#">Beállítás</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" id="tab-schematic" href="#">Schematic</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" id="tab-summary" href="#">Summary</a>
+  </li>
+
+</ul>
+
+<!-- Fül tartalmak -->
+<div id="tabContent-settings" class="tab-content-box mt-3">
+  <!-- Belső tabrendszer -->
+  <ul class="nav nav-tabs mb-3" id="settingsTabSelector"></ul>
+  <div id="settingsTabContent" class="tab-content"></div>
+
+
+  <div class="mt-4 text-end">
+    <button class="btn btn-primary" id="saveLabelConfig" onclick="saveLabelConfig()">💾 Mentés</button>
+
+  </div>
+</div>
+
+<div id="tabContent-schematic" class="tab-content-box mt-3" style="display: none;">
+  <p>Itt lesz majd a Schematic tartalom...</p>
+</div>
+
+<div id="tabContent-summary" class="tab-content-box mt-3" style="display: none;">
+  <div id="summaryContent"></div>
+</div>
+</div>
+
+<!-- Nyomtatók beállításához modal -->
+<div class="modal" id="printerModal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);">
+  <div style="position: relative; margin: 40px auto; background-color: #fff; padding: 25px 30px; border-radius: 16px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1); width: 90%; max-width: 600px;">
+    <span class="close" id="closePrinterModal" style="float: right; font-size: 28px; font-weight: bold; color: #666; cursor: pointer; margin-top: -10px;">×</span>
+    
+    <h2>Nyomtató beállítása</h2>
+    
+    <div class="mb-3">
+  <label for="pnPrinterInput" class="form-label">PN</label>
+  <div class="input-group">
+    <input type="text" id="pnPrinterInput" class="form-control" placeholder="Add meg a PN-t">
+    <button class="btn btn-secondary" id="checkPrinterPNButton">🔍 Ellenőrzés</button>
+  </div>
+</div>
+
+<div class="mb-3">
+  <label for="printerSelectID" class="form-label">ID Label nyomtató</label>
+  <select id="printerSelectID" class="form-select">
+    <option value="">Betöltés...</option>
+  </select>
+</div>
+
+<div class="mb-3">
+  <label for="printerSelectFrom" class="form-label">FROM nyomtató</label>
+  <select id="printerSelectFrom" class="form-select">
+    <option value="">Betöltés...</option>
+  </select>
+</div>
+
+<div class="mb-3">
+  <label for="printerSelectTo" class="form-label">TO nyomtató</label>
+  <select id="printerSelectTo" class="form-select">
+    <option value="">Betöltés...</option>
+  </select>
+</div>
+
+
+<div class="text-end mt-4">
+  <button class="btn btn-secondary me-2" id="closePrinterModalBtn">Mégse</button>
+  <button class="btn btn-primary" id="savePrinterBtn">Mentés</button>
+</div>
+
+
+
+
+
+
+
+
+<script>
+  let resetChainToggleOnNext = false;
+  let connectorCharCode = 65; // 'A'
+  let connectorSequenceNumber = 1;
+  let chainCharCode = 65; // 'A' a láncolt betűkhöz
+  let currentChainSequence = 1;
+  let totalConnectorCount = 0;
+  // változó a sorok számának nyilvántartásához
+  let connectorPairIndex = 0;
+  let lastToInput = null;
+  let chainToggleLeft = true; // 🔁 váltás bal-jobb megjelenítés között
+  let connectorHistory = []; // ide mentjük a létrehozott DOM-elemeket
+  let connectorMapByGroup = []; // oldalIndex -> csoportIndex -> [{id, value}]
+  let currentConfig = null;
+  let btwFilesCache = [];
+  let btwFilesLastLoaded = 0;
+  const btwFilesCacheTTL = 60 * 1000; // 1 percig érvényes cache
+  let cachedBtwFiles = null;
+  
+  
+  // Globális állapotkezelő
+  const formState = {
+    fromToData: {}
+  };
+
+
+
+
+
+
+    $(document).ready(function() {
+        let pendingUpdates = [];
+
+        $("#addButton").click(function() {
+          resetAllFields();
+          currentMode = 'add';
+          $("#modal").show();
+          loadEtiketFiles();
+          document.getElementById('useConnectors').checked = true; // ELŐBB állítsd be!
+          renderSettingsTabs(); // UTÁNA hívd meg!
+        });
+
+
+        $("#editButton").click(function () {
+          resetAllFields();
+          currentMode = 'edit';
+          $("#modal").show();
+          loadEtiketFiles();
+          document.getElementById('useConnectors').checked = true;
+          renderSettingsTabs();
+          
+        });
+
+
+        $("#closeModal").click(function() {
+            $("#modal").hide();
+        });
+
+        // Gomb megnyitása
+        // Nyomtatók betöltése a selectbe
+        
+
+        // Modal megnyitása
+        // Modal megnyitása
+$("#printerButton").click(function() {
+  $("#printerModal").show();
+});
+
+// Modal bezárása
+$("#closePrinterModal, #closePrinterModalBtn").click(function() {
+  $("#printerModal").hide();
+});
+
+// PN ellenőrzése
+$("#checkPrinterPNButton").click(function() {
+  const pn = $("#pnPrinterInput").val().trim();
+  if (!pn) {
+    alert("Adj meg PN-t!");
+    return;
+  }
+
+  fetch('/check_pn_in_t_dump', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pn })
+  })
+  .then(res => res.json())
+  .then(data => {
+    const button = $("#checkPrinterPNButton");
+    if (data.found) {
+      button.removeClass("btn-secondary").addClass("btn-success");
+      button.html("✔ PN megtalálva");
+    } else {
+      button.removeClass("btn-secondary").addClass("btn-danger");
+      button.html("❌ PN nem található");
+    }
+  })
+  .catch(err => {
+    console.error("❌ Hiba PN ellenőrzés közben:", err);
+    alert("Hiba történt a PN ellenőrzése során.");
+  });
+});
+
+// Mentés gomb
+$("#savePrinterBtn").click(function() {
+  const pn = $("#pnPrinterInput").val().trim();
+  const printerID = $("#printerSelectID").val();
+  const printerFrom = $("#printerSelectFrom").val();
+  const printerTo = $("#printerSelectTo").val();
+
+  if (!pn || !printerID || !printerFrom || !printerTo) {
+    alert("PN és minden nyomtató kiválasztása kötelező!");
+    return;
+  }
+
+  fetch('/save_printer_to_pn', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      pn,
+      printer_id: printerID,
+      printer_from: printerFrom,
+      printer_to: printerTo
+    })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.status === 'success') {
+      alert("Sikeres mentés!");
+      $("#printerModal").hide();
+
+      // Visszaállítás az eredeti állapotra
+      $("#pnPrinterInput").val("");
+      $("#printerSelectID").val("");
+      $("#printerSelectFrom").val("");
+      $("#printerSelectTo").val("");
+      $("#checkPrinterPNButton")
+        .removeClass("btn-success btn-danger")
+        .addClass("btn-secondary")
+        .html("🔍 Ellenőrzés");
+    } else {
+      alert("Hiba: " + data.message);
+    }
+  })
+  .catch(err => {
+    console.error("❌ Hiba mentés közben:", err);
+    alert("Hiba történt a mentés során.");
+  });
+});
+
+                
+
+          // Például gombhoz:
+        
+
+
+        
+
+        $(document).on("click", ".checkBtn", function() {
+            let row = $(this).closest("tr");
+            let pnValue = row.find(".pnInput").val().trim().toLowerCase();
+            let statusIcon = row.find(".status-icon");
+            let updateBtn = row.find(".updateBtn");
+
+            $.post("/check_pn", { pn: pnValue }, function(data) {
+                if (data.found) {
+                    statusIcon.html("✔").addClass("green-check").removeClass("red-cross");
+                    updateBtn.prop("disabled", false);
+                } else {
+                    statusIcon.html("✖").addClass("red-cross").removeClass("green-check");
+                    updateBtn.prop("disabled", true);
+                }
+            });
+        });
+
+        $(document).on("click", ".updateBtn", function() {
+            let row = $(this).closest("tr");
+            let id = row.data("id");
+            let pn = row.find(".pnInput").val();
+            let etikett = row.find(".etiketSelect").val();
+
+            pendingUpdates = [{ id, pn, etikett }];
+
+            $("#confirmDialog").show();
+        });
+        
+
+        $("#confirmYes").click(function() {
+            $.post("/bartender_update_data", { updates: JSON.stringify(pendingUpdates) }, function(response) {
+                alert(response.message);
+                $("#confirmDialog").hide();
+                $("#editModal").hide();
+            });
+        });
+
+        $("#confirmNo").click(function() {
+            pendingUpdates = [];
+            $("#confirmDialog").hide();
+        });
+
+    });
+
+function loadEtiketFiles() {
+  getBtwFiles(function(files) {
+  let selects = ["#fromTemplateSelect", "#toTemplateSelect", "#idTemplateSelect"];
+  selects.forEach(id => {
+    let select = $(id);
+    select.empty();
+    files.forEach(file => {
+      select.append(`<option value="${file}">${file}</option>`);
+    });
+  });
+});
+
+}
+
+
+$("#saveBtn").click(function () {
+  let pn = $("#pnInput").val().trim();
+  let etiket_from = $("#fromSelect").val();
+  let text_from = $("#fromText").val();
+  let etiket_to = $("#toSelect").val();
+  let text_to = $("#toText").val();
+  let etiket_id = $("#idSelect").val();
+  let text_id = $("#idText").val();
+
+  if (!pn || !etiket_from || !etiket_to || !etiket_id) {
+    alert("Minden mező kitöltése kötelező!");
+    return;
+  }
+
+
+
+  $.post("/save_label_config", {
+    pn,
+    etiket_from,
+    text_from,
+    etiket_to,
+    text_to,
+    etiket_id,
+    text_id
+  }, function (response) {
+    alert(response.message || "Mentés sikeres!");
+    $("#modal").hide();
+  });
+});
+
+// FROM-TO adatok mentése
+function saveFromToData() {
+  const blocks = document.querySelectorAll('#labelBlocksContainer .row');
+  blocks.forEach(block => {
+    const page = block.dataset.page;
+    const group = block.dataset.group;
+    const key = `page-${page}-group-${group}`;
+    
+    formState.fromToData[key] = {
+      fromTemplate: block.querySelector('.fromTemplateSelect').value,
+      fromText1: block.querySelector('.fromText1').value,
+      fromText2: block.querySelector('.fromText2').value,
+      toTemplate: block.querySelector('.toTemplateSelect').value,
+      toText1: block.querySelector('.toText1').value,
+      toText2: block.querySelector('.toText2').value
+    };
+  });
+}
+
+// FROM-TO adatok betöltése
+function loadFromToData() {
+  const blocks = document.querySelectorAll('#labelBlocksContainer .row');
+  blocks.forEach(block => {
+    const page = block.dataset.page;
+    const group = block.dataset.group;
+    const key = `page-${page}-group-${group}`;
+    
+    if (formState.fromToData[key]) {
+      const data = formState.fromToData[key];
+      block.querySelector('.fromTemplateSelect').value = data.fromTemplate || '';
+      block.querySelector('.fromText1').value = data.fromText1 || '';
+      block.querySelector('.fromText2').value = data.fromText2 || '';
+      block.querySelector('.toTemplateSelect').value = data.toTemplate || '';
+      block.querySelector('.toText1').value = data.toText1 || '';
+      block.querySelector('.toText2').value = data.toText2 || '';
+    }
+  });
+}
+
+
+// Konnektor változások figyelése
+function watchConnectorChanges() {
+  const observer = new MutationObserver(mutations => {
+    let shouldUpdate = false;
+
+    mutations.forEach(mutation => {
+      if (mutation.type === 'childList') {
+        if (mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0) {
+          shouldUpdate = true;
+        }
+      }
+    });
+
+    if (shouldUpdate) {
+      // 🟢 Állapot mentése
+      const savedSelections = saveFromToSelections();
+
+      renderLabelBlocks();
+
+      // 🟢 Visszatöltés
+      restoreFromToSelections(savedSelections);
+
+      loadFromToData();
+
+      if (document.getElementById('useIdLabels')?.checked) {
+        renderIdLabelFields();
+      }
+      
+      if (document.getElementById('useFromTo')?.checked) {
+        const savedSelections = saveFromToSelections();
+        renderLabelBlocks(); // 🔥 Ez most már feltöltve kapja a konnektorokat
+        restoreFromToSelections(savedSelections);
+      }
+
+    }
+  });
+
+  const container = document.getElementById('connectorHierarchyContainer');
+  if (container) {
+    observer.observe(container, {
+      childList: true,
+      subtree: true
+    });
+  }
+}
+
+function getBtwFiles(callback) {
+  const now = Date.now();
+  if (btwFilesCache.length > 0 && (now - btwFilesLastLoaded) < btwFilesCacheTTL) {
+    callback(btwFilesCache);
+  } else {
+    $.get("/get_btw_files", function(data) {
+      btwFilesCache = data.files || [];
+      btwFilesLastLoaded = Date.now();
+      callback(btwFilesCache);
+    });
+  }
+}
+
+
+function getCurrentConnectorStructure() {
+  const structure = [];
+  const pageDivs = document.querySelectorAll('#connectorHierarchyContainer .border.bg-light');
+
+  pageDivs.forEach((pageDiv, pageIndex) => {
+    const pageObj = { page: pageIndex + 1, groups: [] };
+    const groupDivs = pageDiv.querySelectorAll('.connector-group-list > div');
+
+    groupDivs.forEach((groupDiv, groupIndex) => {
+      const groupObj = { group: groupIndex + 1, connectors: [] };
+      const connectorInputs = groupDiv.querySelectorAll('.connector-list .d-flex');
+
+      connectorInputs.forEach(inputRow => {
+        const id = inputRow.querySelector('.connector-id')?.value.trim() || '';
+        const value = inputRow.querySelector('.connector-value')?.value.trim() || '';
+        if (id) {
+          groupObj.connectors.push({ id, value });
+        }
+      });
+
+      pageObj.groups.push(groupObj);
+    });
+
+    structure.push(pageObj);
+  });
+  return structure;
+}
+
+
+function saveFromToSelections() {
+  const selections = {};
+  document.querySelectorAll('#labelBlocksContainer .row').forEach((block, index) => {
+    selections[index] = {
+      fromTemplate: block.querySelector('.fromTemplateSelect')?.value || '',
+      fromText1: block.querySelector('.fromText1')?.value || '',
+      fromText2: block.querySelector('.fromText2')?.value || '',
+      toTemplate: block.querySelector('.toTemplateSelect')?.value || '',
+      toText1: block.querySelector('.toText1')?.value || '',
+      toText2: block.querySelector('.toText2')?.value || '',
+      selectFrom1: block.querySelector('.connectorSelectFrom1')?.value || '',
+      selectFrom2: block.querySelector('.connectorSelectFrom2')?.value || '',
+      selectTo1: block.querySelector('.connectorSelectTo1')?.value || '',
+      selectTo2: block.querySelector('.connectorSelectTo2')?.value || '',
+    };
+  });
+  return selections;
+}
+
+
+function restoreFromToSelections(savedSelections) {
+  document.querySelectorAll('#labelBlocksContainer .row').forEach((block, index) => {
+    const data = savedSelections[index];
+    if (!data) return;
+
+    if (block.querySelector('.fromTemplateSelect')) block.querySelector('.fromTemplateSelect').value = data.fromTemplate;
+    if (block.querySelector('.fromText1')) block.querySelector('.fromText1').value = data.fromText1;
+    if (block.querySelector('.fromText2')) block.querySelector('.fromText2').value = data.fromText2;
+    if (block.querySelector('.toTemplateSelect')) block.querySelector('.toTemplateSelect').value = data.toTemplate;
+    if (block.querySelector('.toText1')) block.querySelector('.toText1').value = data.toText1;
+    if (block.querySelector('.toText2')) block.querySelector('.toText2').value = data.toText2;
+
+    if (block.querySelector('.connectorSelectFrom1')) block.querySelector('.connectorSelectFrom1').value = data.selectFrom1;
+    if (block.querySelector('.connectorSelectFrom2')) block.querySelector('.connectorSelectFrom2').value = data.selectFrom2;
+    if (block.querySelector('.connectorSelectTo1')) block.querySelector('.connectorSelectTo1').value = data.selectTo1;
+    if (block.querySelector('.connectorSelectTo2')) block.querySelector('.connectorSelectTo2').value = data.selectTo2;
+  });
+}
+
+
+
+
+function saveLabelConfig() {
+  const pn = document.getElementById('pnInput')?.value.trim();
+  const rev = document.getElementById('revInput')?.value.trim();
+  const ecn = document.getElementById('ecnInput')?.value.trim();
+  const id_template = document.querySelector('.idTemplateSelect')?.value || '';
+
+  if (!pn || !id_template || !rev || !ecn) {
+    alert("PN, REV, ECN es ID sablon kötelező!");
+    return;
+  }
+
+  const structure = getCurrentConnectorStructure();
+
+  const idLabels = [];
+  document.querySelectorAll('#idLabelBlocks .idLabelBlock').forEach((block, index) => {
+    const template = block.querySelector('.idTemplateSelect')?.value || '';
+    const printer = block.querySelector('.printerSelect')?.value || '';
+    const page = parseInt(block.querySelector('.connectorPageSelect')?.value || 0) + 1;
+    const group = parseInt(block.querySelector('.connectorGroupSelect')?.value || 0) + 1;
+
+    idLabels.push({
+      id_index: index + 1,
+      template,
+      printer,
+      page,
+      group
+    });
+  });
+
+  const pages = [];
+  const labelBlocks = document.querySelectorAll('#labelBlocksContainer .row');
+  let blockIndex = 0;
+
+  // Debug: várható blokkok száma
+  const expectedBlocks = structure.reduce((acc, page) => {
+    return acc + page.groups.reduce((sum, group) => {
+      return sum + Math.max(1, group.connectors.length - 1);
+    }, 0);
+  }, 0);
+
+  console.log("Label blokkok a DOM-ban:", labelBlocks.length);
+  console.log("Várt blokkszám a structure alapján:", expectedBlocks);
+
+  structure.forEach((page, pageIndex) => {
+    const pageObj = {
+      page: pageIndex + 1,
+      groups: [],
+      id_labels: idLabels.filter(label => label.page === pageIndex + 1)
+    };
+
+    page.groups.forEach((group, groupIndex) => {
+      const groupObj = {
+        group: groupIndex + 1,
+        connectors: group.connectors,
+        pairs: []
+      };
+
+      const pairCount = Math.max(1, group.connectors.length - 1);
+
+      for (let i = 0; i < pairCount; i++) {
+        const block = labelBlocks[blockIndex];
+        if (!block) {
+          console.warn(`Hiányzó blokk: page ${pageIndex + 1}, group ${groupIndex + 1}, pair ${i + 1}`);
+          blockIndex++;
+          continue;
+        }
+
+        const from = {
+          template: block.querySelector('.fromTemplateSelect')?.value?.trim() || '',
+          text1: block.querySelectorAll('.fromText1')[0]?.value?.trim() || '',
+          text2: block.querySelectorAll('.fromText2')[0]?.value?.trim() || ''
+        };
+
+        const to = {
+          template: block.querySelector('.toTemplateSelect')?.value?.trim() || '',
+          text1: block.querySelectorAll('.toText1')[0]?.value?.trim() || '',
+          text2: block.querySelectorAll('.toText2')[0]?.value?.trim() || ''
+        };
+
+        // Csak akkor mentsük, ha van benne érték
+        if (from.template || from.text1 || from.text2 || to.template || to.text1 || to.text2) {
+          groupObj.pairs.push({ from, to });
+        } else {
+          console.log(`Üres pár kihagyva (page ${pageIndex + 1}, group ${groupIndex + 1}, pair ${i + 1})`);
+        }
+
+        blockIndex++;
+      }
+
+      // FROM–TO csoportszinten (ha van legalább 1 pár)
+      if (groupObj.pairs.length > 0) {
+        groupObj.from = groupObj.pairs[0].from;
+        groupObj.to = groupObj.pairs[0].to;
+      }
+
+      pageObj.groups.push(groupObj);
+    });
+
+    pages.push(pageObj);
+  });
+
+  // Adat mentése szerverre
+  fetch('/save_label_config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      pn,
+      rev,
+      ecn,
+      id_template,
+      pages
+    })
+  })
+    .then(res => res.json())
+    .then(data => {
+      if (data.status === 'success') {
+        alert("Sikeres mentés!");
+        document.getElementById('pnInput').value = '';
+        document.querySelector('.idTemplateSelect').selectedIndex = 0;
+        document.getElementById('labelBlocksContainer').innerHTML = '';
+        document.getElementById('connectorHierarchyContainer').innerHTML = '';
+        document.getElementById('summaryContent').innerHTML = '';
+        document.getElementById('modal').style.display = 'none';
+      } else {
+        alert("Hiba: " + data.message);
+      }
+    })
+    .catch(error => {
+      console.error("Mentési hiba:", error);
+      alert("Hiba történt a mentés során");
+    });
+}
+
+
+
+
+
+
+
+// Fülváltás kezelése
+$("#tab-settings").click(function (e) {
+  e.preventDefault();
+  $("#tab-settings").addClass("active");
+  $("#tab-schematic, #tab-summary").removeClass("active");
+  $("#tabContent-settings").show();
+  $("#tabContent-schematic").hide();
+  $("#tabContent-summary").hide();
+});
+
+$("#tab-schematic").click(function (e) {
+  e.preventDefault();
+  $("#tab-schematic").addClass("active");
+  $("#tab-settings, #tab-summary").removeClass("active");
+  $("#tabContent-schematic").show();
+  $("#tabContent-settings").hide();
+  $("#tabContent-summary").hide();
+  renderSchematic(); // ← EZT ADD HOZZÁ
+});
+
+
+$("#tab-summary").click(function (e) {
+  e.preventDefault();
+  $("#tab-summary").addClass("active");
+  $("#tab-settings, #tab-schematic").removeClass("active");
+  $("#tabContent-summary").show();
+  $("#tabContent-settings, #tabContent-schematic").hide();
+  renderSummary(); // ← fülváltáskor generáljuk le
+});
+
+
+
+function renderLabelBlocks() {
+  const container = document.getElementById('labelBlocksContainer');
+  container.innerHTML = '';
+
+  const structure = getCurrentConnectorStructure();
+  if (!structure.length) return;
+
+  structure.forEach((page, pageIndex) => {
+    page.groups.forEach((group, groupIndex) => {
+      const connectors = group.connectors || [];
+      const pairCount = Math.max(1, connectors.length - 1); // n konnektor -> n-1 pár
+
+      for (let pairIndex = 0; pairIndex < pairCount; pairIndex++) {
+        const block = document.createElement('div');
+        block.className = 'row g-4 align-items-end border-bottom pb-3 mb-4';
+        block.dataset.page = pageIndex;
+        block.dataset.group = groupIndex;
+        block.dataset.pair = pairIndex;
+
+        const fromConnector = connectors[pairIndex] || {};
+        const toConnector = connectors[pairIndex + 1] || connectors[pairIndex] || {};
+
+        block.innerHTML = `
+          <div class="col-12 mb-2">
+            <strong>Oldal ${pageIndex + 1} – Csoport ${groupIndex + 1} – Pár ${pairIndex + 1}</strong>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-bold">FROM sablon</label>
+            <select class="form-select mb-2 fromTemplateSelect"></select>
+            <label class="form-label">FROM szöveg – felső sor</label>
+            <div class="input-group mb-2">
+              <select class="form-select connectorSelectFrom1"></select>
+              <input type="text" class="form-control fromText1" placeholder="felső sor" value="${fromConnector.value || fromConnector.id || ''}">
+            </div>
+            <label class="form-label">FROM szöveg – alsó sor</label>
+            <div class="input-group">
+              <select class="form-select connectorSelectFrom2"></select>
+              <input type="text" class="form-control fromText2" placeholder="alsó sor">
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-bold">TO sablon</label>
+            <select class="form-select mb-2 toTemplateSelect"></select>
+            <label class="form-label">TO szöveg – felső sor</label>
+            <div class="input-group mb-2">
+              <select class="form-select connectorSelectTo1"></select>
+              <input type="text" class="form-control toText1" placeholder="felső sor" value="${toConnector.value || toConnector.id || ''}">
+            </div>
+            <label class="form-label">TO szöveg – alsó sor</label>
+            <div class="input-group">
+              <select class="form-select connectorSelectTo2"></select>
+              <input type="text" class="form-control toText2" placeholder="alsó sor">
+            </div>
+          </div>
+        `;
+
+        container.appendChild(block);
+
+        // 🔄 Legördülő konnektorok feltöltése
+        [
+          '.connectorSelectFrom1', '.connectorSelectFrom2',
+          '.connectorSelectTo1', '.connectorSelectTo2'
+        ].forEach(selector => {
+          const select = block.querySelector(selector);
+          if (select) {
+            select.innerHTML = '<option value="">-- Válassz konnektort --</option>';
+            connectors.forEach(conn => {
+              if (conn.id) {
+                const opt = document.createElement('option');
+                opt.value = conn.id;
+                opt.textContent = conn.id;
+                select.appendChild(opt);
+              }
+            });
+          }
+        });
+
+        // 🧠 Automatikus kitöltés a konnektor ID alapján
+        setupAutoFill(block, '.connectorSelectFrom1', '.fromText1', connectors);
+        setupAutoFill(block, '.connectorSelectFrom2', '.fromText2', connectors);
+        setupAutoFill(block, '.connectorSelectTo1', '.toText1', connectors);
+        setupAutoFill(block, '.connectorSelectTo2', '.toText2', connectors);
+
+        // 🧾 Sablon opciók betöltése
+        loadEtiketFilesToGenerated();
+      }
+    });
+  });
+}
+
+
+
+
+
+// Segédfüggvények
+function setValue(container, selector, value) {
+  const element = container.querySelector(selector);
+  if (element) element.value = value || '';
+}
+
+function fillConnectorOptions(selectElement, connectors) {
+  if (!selectElement) return;
+  
+  selectElement.innerHTML = '<option value="">-- Válassz konnektort --</option>';
+  connectors.forEach(conn => {
+    if (conn.id) {
+      const option = document.createElement('option');
+      option.value = conn.id;
+      option.textContent = conn.id;
+      selectElement.appendChild(option);
+    }
+  });
+}
+
+function setupAutoFill(block, selectSelector, inputSelector, connectors) {
+  const select = block.querySelector(selectSelector);
+  const input = block.querySelector(inputSelector);
+  
+  if (!select || !input) return;
+  
+  select.addEventListener('change', () => {
+    const connectorId = select.value;
+    const connector = connectors.find(c => c.id === connectorId);
+    if (connector && connector.value) {
+      input.value = connector.value;
+    }
+  });
+}
+
+
+
+
+
+function loadEtiketFilesToGenerated() {
+  // Ha már cache-eltük, ne kérjük le újra
+  if (cachedBtwFiles) {
+    console.log("💾 Betöltés cache-ből:", cachedBtwFiles);
+    populateEtiketFiles(cachedBtwFiles);
+    return;
+  }
+
+  // Ha még nincs cache-elve, kérjük le
+  $.get("/get_btw_files", function(data) {
+    console.log("✅ /get_btw_files egyszer lekérve:", data.files);
+    cachedBtwFiles = data.files; // Eltároljuk cache-be
+    populateEtiketFiles(cachedBtwFiles);
+  });
+}
+
+function populateEtiketFiles(files) {
+  document.querySelectorAll('.fromTemplateSelect').forEach(sel => {
+    sel.innerHTML = '<option value="">-- Válassz sablont --</option>';
+    files.forEach(file => {
+      const opt = document.createElement('option');
+      opt.value = file;
+      opt.textContent = file;
+      sel.appendChild(opt);
+    });
+  });
+
+  document.querySelectorAll('.toTemplateSelect').forEach(sel => {
+    sel.innerHTML = '<option value="">-- Válassz sablont --</option>';
+    files.forEach(file => {
+      const opt = document.createElement('option');
+      opt.value = file;
+      opt.textContent = file;
+      sel.appendChild(opt);
+    });
+  });
+
+  document.querySelectorAll('.idTemplateSelect').forEach(sel => {
+    sel.innerHTML = '<option value="">-- Válassz sablont --</option>';
+    files.forEach(file => {
+      const opt = document.createElement('option');
+      opt.value = file;
+      opt.textContent = file;
+      sel.appendChild(opt);
+    });
+  });
+}
+
+
+
+function syncToFrom(fromTextArea) {
+    const fromBlock = fromTextArea.closest('.label-block');
+    const toTextArea = fromBlock.querySelector('.to-text');
+
+    const fromLines = fromTextArea.value.split('\n');
+
+    if (fromLines.length >= 2) {
+        const first = fromLines[0].trim();
+        const separator = fromLines[1].trim() || '---';
+        const third = fromLines[2] ? fromLines[2].trim() : '';
+        toTextArea.value = `${third}\n${separator}\n${first}`;
+    }
+}
+
+document.getElementById('checkPNButton').addEventListener('click', () => {
+  const pn = document.getElementById('pnInput').value.trim();
+  const rev = document.getElementById('revInput')?.value.trim() || '';
+  const ecn = document.getElementById('ecnInput')?.value.trim() || '';
+
+  if (!pn) {
+    alert("Adj meg egy PN értéket!");
+    return;
+  }
+
+  const url = currentMode === 'add' ? '/check_pn_in_t_dump' : '/get_label_data';
+  const payload = currentMode === 'add'
+    ? { pn }
+    : { pn, rev, ecn };
+
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(res => res.json())
+  .then(data => {
+    console.log("👉 Ellenőrzés válasz:", data);
+    const button = document.getElementById('checkPNButton');
+
+    if (currentMode === 'add') {
+      if (data.found) {
+        button.classList.remove('btn-secondary', 'btn-danger');
+        button.classList.add('btn-success');
+        button.textContent = "✔ PN megtalálva (t_dump)";
+      } else {
+        button.classList.remove('btn-secondary', 'btn-success');
+        button.classList.add('btn-danger');
+        button.textContent = "❌ PN nem található (t_dump)";
+      }
+    } else if (currentMode === 'edit') {
+      if (data.status === 'success') {
+        button.classList.remove('btn-secondary', 'btn-danger');
+        button.classList.add('btn-success');
+        button.textContent = "✔ PN betöltve (etiket data)";
+        console.log("🔽 PN betöltése indul:", pn);
+        loadLabelConfig(pn, rev, ecn);
+      } else {
+        console.warn("⚠️ Nem sikerült betölteni, status:", data.status);
+        console.warn("👉 Válasz üzenet:", data.message);
+        button.classList.remove('btn-secondary', 'btn-success');
+        button.classList.add('btn-danger');
+        button.textContent = "❌ PN nem található (etiket data)";
+      }
+    }
+  })
+  .catch(err => {
+    console.error("❌ Hiba a PN ellenőrzése közben:", err);
+    alert("Hiba történt a PN ellenőrzése során.");
+  });
+});
+
+
+
+
+
+
+
+
+window.addEventListener('DOMContentLoaded', () => {
+  // 🔹 ID mezők megjelenítése (ha van)
+  const checkbox = document.getElementById('useIdLabels');
+  const idFields = document.getElementById('idFields');
+  if (checkbox && idFields) {
+    idFields.style.display = checkbox.checked ? 'flex' : 'none';
+  }
+
+  // 🔹 Ide jöhet más DOMContentLoaded-re vonatkozó inicializálás is
+});
+
+
+
+function renderSettingsTabs() {
+  const container = document.getElementById('settingsTabSelector');
+  const content = document.getElementById('settingsTabContent');
+  if (!container || !content) return;
+  
+  container.innerHTML = '';
+  content.innerHTML = '';
+
+  const tabs = [];
+
+  // ID Label tab
+  if (document.getElementById('useIdLabels').checked) {
+    tabs.push({
+      id: 'tab-id',
+      label: 'ID Label',
+      content: `
+        <div class="mb-3">
+          <label class="form-label">ID labelek száma</label>
+          <input type="number" id="labelCountInput" class="form-control" min="1" value="1">
+        </div>
+        <div id="idLabelBlocks"></div>
+      `
+    });
+  }
+
+  // FROM - TO tab
+  tabs.push({
+    id: 'tab-fromto',
+    label: 'FROM - TO',
+    content: `<div id="labelBlocksContainer"></div>`
+  });
+
+  // Konnektor tab
+  if (document.getElementById('useConnectors').checked) {
+    tabs.push({
+      id: 'tab-connector',
+      label: 'Konnektorok',
+      content: `
+        <div id="connectorHierarchyContainer"></div>
+        <div class="mt-3 text-end">
+          <button class="btn btn-secondary" onclick="addConnectorPage()">➕ Új oldal hozzáadása</button>
+        </div>
+      `
+    });
+  }
+
+  // Tabs render
+  tabs.forEach((tab, index) => {
+  const isActive = index === 0 ? 'active' : '';
+  container.innerHTML += `
+    <li class="nav-item">
+      <a class="nav-link ${isActive}" data-bs-toggle="tab" href="#${tab.id}">${tab.label}</a>
+    </li>`;
+  content.innerHTML += `
+    <div class="tab-pane fade show ${isActive}" id="${tab.id}">${tab.content}</div>`;
+});
+
+// Fülek tartalmának utólagos betöltése
+setTimeout(() => {
+  // ID Label fül
+  if (document.getElementById('useIdLabels').checked) {
+    renderIdLabelFields();
+  }
+
+  // Konnektor fül
+  if (document.getElementById('useConnectors')?.checked && currentConfig?.summary) {
+    // Töröljük a meglévő tartalmat
+    // Töröljük a meglévő oldalakat
+    const container = document.getElementById('connectorHierarchyContainer');
+    if (!container) {
+      console.warn('Nem található a connectorHierarchyContainer! Lehet, hogy a tab/modul még nincs renderelve.');
+      return;
+    }
+    container.innerHTML = '';
+
+
+    // Újraépítjük a konnektor struktúrát
+    currentConfig.summary.forEach(page => {
+      addConnectorPage();
+
+      const pageDivs = container.querySelectorAll('.border.bg-light');
+      const pageDiv = pageDivs[pageDivs.length - 1];
+      if (!pageDiv) {
+        console.warn("Nem sikerült létrehozni az oldalt!");
+        return;
+      }
+
+      page.groups.forEach(group => {
+        const groupList = pageDiv.querySelector('.connector-group-list');
+        if (!groupList) {
+          console.warn("connector-group-list nem található ebben az oldalban!");
+          return;
+        }
+        addConnectorGroup(groupList, group.group);
+
+        const groupDiv = groupList.lastElementChild;
+        if (!groupDiv) {
+          console.warn("Nem sikerült létrehozni a csoportot!");
+          return;
+        }
+        const connectorList = groupDiv.querySelector('.connector-list');
+        if (!connectorList) {
+          console.warn("connector-list nem található ebben a csoportban!");
+          return;
+        }
+
+        group.connectors?.forEach(connector => {
+          addConnectorInput(connectorList, connector.id, connector.value);
+        });
+      });
+    });
+  }
+
+  
+
+  // FROM - TO fül eseménykezelő hozzáadása
+  const fromToTabLink = document.querySelector('a[href="#tab-fromto"]');
+  if (fromToTabLink) {
+    fromToTabLink.addEventListener('click', () => {
+      console.log("FROM - TO fülre kattintottak, renderLabelBlocks...");
+      const savedSelections = saveFromToSelections();
+      renderLabelBlocks();
+      restoreFromToSelections(savedSelections);
+    });
+  }
+}, 300);
+}
+
+
+function renderIdLabelFields() {
+  document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('useConnectors').checked = true;
+});
+  const container = document.getElementById('idLabelBlocks');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const labelCountInput = document.getElementById('labelCountInput');
+  let count = parseInt(labelCountInput?.value, 10) || 1;
+
+  const idLabels = currentConfig?.summary?.flatMap(page => page.id_labels || []) || [];
+
+  // 🟢 Ha edit módban vagyunk és van betöltött adat, csak első alkalommal állítjuk be
+  if (idLabels.length > 0 && currentMode === 'edit' && !labelCountInput.dataset.initialSet) {
+    count = idLabels.length;
+    labelCountInput.value = count;
+    labelCountInput.dataset.initialSet = "true"; // Csak egyszer állítjuk be
+  }
+
+  // Mindig újraolvasva, hogy user is írhat
+  count = parseInt(labelCountInput.value, 10) || 1;
+
+  const allPages = document.querySelectorAll('#connectorHierarchyContainer .border.bg-light');
+
+  for (let i = 0; i < count; i++) {
+    const row = document.createElement('div');
+    row.className = 'row g-3 align-items-end mb-3 idLabelBlock';
+    row.innerHTML = `
+      <div class="col-md-3">
+        <label class="form-label">ID sablon</label>
+        <select class="form-select idTemplateSelect" style="width: 300px;"></select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Nyomtató</label>
+        <select class="form-select printerSelect" style="width: 300px;>
+          <option value="">-- Válassz nyomtatót --</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Oldal</label>
+        <select class="form-select connectorPageSelect"></select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Csoport</label>
+        <select class="form-select connectorGroupSelect"></select>
+      </div>
+    `;
+    container.appendChild(row);
+
+    const pageSelect = row.querySelector('.connectorPageSelect');
+    pageSelect.innerHTML = '';
+    allPages.forEach((pageDiv, pageIndex) => {
+      const opt = document.createElement('option');
+      opt.value = pageIndex;
+      opt.textContent = `Oldal ${pageIndex + 1}`;
+      pageSelect.appendChild(opt);
+    });
+
+    pageSelect.addEventListener('change', function() {
+      const groupSelect = row.querySelector('.connectorGroupSelect');
+      updateGroupOptions(this, groupSelect);
+    });
+
+    const groupSelect = row.querySelector('.connectorGroupSelect');
+    if (allPages.length > 0) {
+      pageSelect.value = "0";
+      updateGroupOptions(pageSelect, groupSelect);
+    }
+
+    // ID sablon fájlok betöltése
+    $.get("/get_btw_files", function(data) {
+      const select = row.querySelector('.idTemplateSelect');
+      select.innerHTML = '';
+      data.files.forEach(file => {
+        const opt = document.createElement('option');
+        opt.value = file;
+        opt.textContent = file;
+        select.appendChild(opt);
+      });
+
+      if (idLabels[i]) {
+        const label = idLabels[i];
+
+        if (label.template) {
+          select.value = label.template;
+        }
+
+        if (label.printer) {
+          row.querySelector('.printerSelect').value = label.printer;
+        }
+
+        if (label.page !== undefined) {
+          pageSelect.value = label.page - 1;
+          updateGroupOptions(pageSelect, groupSelect);
+
+          if (label.group !== undefined) {
+            groupSelect.value = label.group - 1;
+          }
+        }
+      }
+    });
+  }
+
+  // ✅ Csak egyszer adjuk hozzá a listener-t (ha nincs)
+  if (!labelCountInput.dataset.listenerAdded) {
+    labelCountInput.addEventListener('input', () => {
+      renderIdLabelFields();
+    });
+    labelCountInput.dataset.listenerAdded = "true";
+  }
+  formState.summaryData = currentConfig?.summary || [];
+}
+
+
+function loadPrinters() {
+  $.get("/get_printers", function(data) {
+    if (data.printers) {
+      populatePrinterSelect("#printerSelectID", data.printers);
+      populatePrinterSelect("#printerSelectFrom", data.printers);
+      populatePrinterSelect("#printerSelectTo", data.printers);
+    } else {
+      alert("Nem sikerült betölteni a nyomtatókat!");
+    }
+  }).fail(function() {
+    alert("Hiba történt a nyomtatók lekérésekor.");
+  });
+}
+
+function populatePrinterSelect(selector, printers) {
+  const select = $(selector);
+  select.empty();
+  select.append(`<option value="">-- Válassz nyomtatót --</option>`);
+  printers.forEach(function(printer) {
+    select.append(`<option value="${printer}">${printer}</option>`);
+  });
+}
+
+// Például modál megnyitásakor hívd:
+loadPrinters();
+
+
+// 🧩 Új Konnektor rendszer: oldal – csoport – konnektor inputok
+
+
+function addConnectorPage(multiple = 1) {
+  for (let i = 0; i < multiple; i++) {
+    const container = document.getElementById('connectorHierarchyContainer');
+    const pageDiv = document.createElement('div');
+    pageDiv.className = 'border rounded p-3 mb-3 bg-light';
+    pageDiv.style.position = 'relative';
+
+    let groupCounter = 1;
+
+    const groupList = document.createElement('div');
+    groupList.className = 'connector-group-list';
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'd-flex align-items-center justify-content-between';
+
+    const leftTitleGroup = document.createElement('div');
+    leftTitleGroup.className = 'd-flex align-items-center';
+
+    const title = document.createElement('h5');
+    title.className = 'page-title'; // ✨ ezt hozzáadjuk, hogy később könnyen megtaláljuk
+    title.textContent = `Oldal ?`;
+
+    leftTitleGroup.appendChild(title);
+
+    const deletePageBtn = document.createElement('button');
+    deletePageBtn.className = 'btn btn-sm btn-danger';
+    deletePageBtn.textContent = '🗑️';
+    deletePageBtn.onclick = () => {
+        pageDiv.remove();
+        renumberPages();
+        if (document.getElementById('useFromTo')?.checked) {
+          const savedSelections = saveFromToSelections();
+          renderLabelBlocks();
+          restoreFromToSelections(savedSelections);
+        }
+        if (document.getElementById('useIdLabels')?.checked) {
+          renderIdLabelFields();
+        }
+      };
+
+
+
+
+    titleRow.appendChild(leftTitleGroup);
+    titleRow.appendChild(deletePageBtn);
+
+    // Mennyiség mező + gombok
+    const amountGroupDiv = document.createElement('div');
+    amountGroupDiv.className = 'mb-2';
+
+    const amountInput = document.createElement('input');
+    amountInput.type = 'number';
+    amountInput.min = 1;
+    amountInput.value = 1;
+    amountInput.className = 'form-control form-control-sm d-inline-block';
+    amountInput.style.width = '60px';
+
+    const addGroupBtn = document.createElement('button');
+    addGroupBtn.className = 'btn btn-sm btn-secondary ms-2';
+    addGroupBtn.textContent = '➕ Csoport(ok)';
+    addGroupBtn.onclick = () => {
+      const count = parseInt(amountInput.value) || 1;
+      for (let g = 0; g < count; g++) {
+        addConnectorGroup(groupList, groupCounter++);
+      }
+    };
+
+    const createPageBtn = document.createElement('button');
+    createPageBtn.className = 'btn btn-sm btn-outline-success ms-2';
+    createPageBtn.textContent = '✅ Létrehozás';
+    createPageBtn.onclick = () => {
+      pageDiv.classList.add('border-success');
+      toggleInputs(pageDiv, true);
+      addGroupBtn.disabled = true;
+      amountInput.disabled = true;
+      createPageBtn.disabled = true;
+      editPageBtn.disabled = false;
+    };
+
+    const editPageBtn = document.createElement('button');
+    editPageBtn.className = 'btn btn-sm btn-outline-warning ms-2';
+    editPageBtn.textContent = '✏️ Módosítás';
+    editPageBtn.disabled = true;
+    editPageBtn.onclick = () => {
+      pageDiv.classList.remove('border-success');
+      toggleInputs(pageDiv, false);
+      addGroupBtn.disabled = false;
+      amountInput.disabled = false;
+      createPageBtn.disabled = false;
+      editPageBtn.disabled = true;
+    };
+
+    amountGroupDiv.appendChild(amountInput);
+    amountGroupDiv.appendChild(addGroupBtn);
+    amountGroupDiv.appendChild(createPageBtn);
+    amountGroupDiv.appendChild(editPageBtn);
+
+    pageDiv.appendChild(titleRow);
+    pageDiv.appendChild(amountGroupDiv);
+    pageDiv.appendChild(groupList);
+    container.appendChild(pageDiv);
+
+
+
+  
+}
+renumberPages();
+if (document.getElementById('useFromTo')?.checked) {
+  const savedSelections = saveFromToSelections();
+  renderLabelBlocks();
+  restoreFromToSelections(savedSelections);
+  }
+if (document.getElementById('useIdLabels')?.checked) {
+  renderIdLabelFields();
+}
+
+
+watchConnectorChanges();
+
+}
+
+
+
+function addConnectorGroup(groupContainer, groupNumber) {
+  const groupDiv = document.createElement('div');
+  groupDiv.className = 'border p-2 mb-2 bg-white rounded';
+
+  const groupTitle = document.createElement('h6');
+  groupTitle.className = 'text-primary';
+  groupTitle.textContent = `Csoport ${groupNumber}`;
+
+  const connectorList = document.createElement('div');
+  connectorList.className = 'connector-list mb-2';
+
+  const amountInput = document.createElement('input');
+  amountInput.type = 'number';
+  amountInput.min = 1;
+  amountInput.value = 2;
+  amountInput.className = 'form-control form-control-sm d-inline-block me-2';
+  amountInput.style.width = '60px';
+
+  const addConnectorBtn = document.createElement('button');
+  addConnectorBtn.className = 'btn btn-sm btn-outline-primary me-2';
+  addConnectorBtn.textContent = '➕ Konnektor(ok)';
+  addConnectorBtn.onclick = () => {
+    const count = parseInt(amountInput.value) || 1;
+    for (let i = 0; i < count; i++) {
+      addConnectorInput(connectorList);
+    }
+  };
+
+  const createGroupBtn = document.createElement('button');
+  createGroupBtn.className = 'btn btn-sm btn-outline-success me-2';
+  createGroupBtn.textContent = '✅ Létrehozás';
+  createGroupBtn.onclick = () => {
+    groupDiv.classList.add('border-success');
+    toggleInputs(groupDiv, true);
+    amountInput.disabled = true;
+    addConnectorBtn.disabled = true;
+    createGroupBtn.disabled = true;
+    editGroupBtn.disabled = false;
+  };
+
+  const editGroupBtn = document.createElement('button');
+  editGroupBtn.className = 'btn btn-sm btn-outline-warning me-2';
+  editGroupBtn.textContent = '✏️ Módosítás';
+  editGroupBtn.disabled = true;
+  editGroupBtn.onclick = () => {
+    groupDiv.classList.remove('border-success');
+    toggleInputs(groupDiv, false);
+    amountInput.disabled = false;
+    addConnectorBtn.disabled = false;
+    createGroupBtn.disabled = false;
+    editGroupBtn.disabled = true;
+  };
+
+  const deleteGroupBtn = document.createElement('button');
+  deleteGroupBtn.className = 'btn btn-sm btn-outline-danger';
+  deleteGroupBtn.textContent = '🗑️ Csoport törlése';
+  deleteGroupBtn.onclick = () => {
+  groupDiv.remove();
+  if (document.getElementById('useFromTo')?.checked) {
+    const savedSelections = saveFromToSelections();
+    renderLabelBlocks();
+    restoreFromToSelections(savedSelections);
+  }
+  if (document.getElementById('useIdLabels')?.checked) {
+    renderIdLabelFields();
+  }
+};
+
+
+  groupDiv.appendChild(groupTitle);
+  groupDiv.appendChild(connectorList);
+  groupDiv.appendChild(amountInput);
+  groupDiv.appendChild(addConnectorBtn);
+  groupDiv.appendChild(createGroupBtn);
+  groupDiv.appendChild(editGroupBtn);
+  groupDiv.appendChild(deleteGroupBtn);
+
+  groupContainer.appendChild(groupDiv);
+if (document.getElementById('useFromTo')?.checked) {
+  const savedSelections = saveFromToSelections();
+  renderLabelBlocks();
+  restoreFromToSelections(savedSelections);
+  }
+
+  if (document.getElementById('useIdLabels')?.checked) {
+  renderIdLabelFields();
+}
+}
+
+
+
+
+function addConnectorInput(container, idValue = '', valValue = '') {
+  const inputRow = document.createElement('div');
+  inputRow.className = 'd-flex align-items-center mb-2 gap-2';
+
+  const idLabel = document.createElement('label');
+  idLabel.textContent = "Konnektor:";
+  idLabel.style.minWidth = '90px';
+  
+  const idInput = document.createElement('input');
+  idInput.type = 'text';
+  idInput.className = 'form-control me-2 connector-id';
+  idInput.placeholder = 'azonosító';
+  idInput.value = idValue; // Érték beállítása itt történik
+
+  const valLabel = document.createElement('label');
+  valLabel.textContent = "Konnektor név:";
+  valLabel.style.minWidth = '120px';
+  
+  const valInput = document.createElement('input');
+  valInput.type = 'text';
+  valInput.className = 'form-control me-2 connector-value';
+  valInput.placeholder = 'név';
+  valInput.value = valValue; // Érték beállítása itt történik
+
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'btn btn-sm btn-danger';
+  removeBtn.textContent = '🗑️';
+  removeBtn.onclick = () => inputRow.remove();
+
+  inputRow.appendChild(idLabel);
+  inputRow.appendChild(idInput);
+  inputRow.appendChild(valLabel);
+  inputRow.appendChild(valInput);
+  inputRow.appendChild(removeBtn);
+
+  container.appendChild(inputRow);
+}
+
+
+function loadConnectorStructure(structure = []) {
+  const container = document.getElementById('connectorHierarchyContainer');
+  container.innerHTML = ''; // előző törlése
+
+  structure.forEach(pageData => {
+    const pageDiv = document.createElement('div');
+    pageDiv.className = 'border rounded p-3 mb-3 bg-light';
+    pageDiv.style.position = 'relative';
+
+    const groupList = document.createElement('div');
+    groupList.className = 'connector-group-list';
+
+    const title = document.createElement('h5');
+    title.textContent = `Oldal`;
+
+    const addGroupBtn = document.createElement('button');
+    addGroupBtn.className = 'btn btn-sm btn-secondary mb-2';
+    addGroupBtn.textContent = '➕ Új csoport';
+    addGroupBtn.onclick = () => addConnectorGroup(groupList);
+
+    const deletePageBtn = document.createElement('button');
+    deletePageBtn.className = 'btn btn-sm btn-danger position-absolute';
+    deletePageBtn.style.top = '10px';
+    deletePageBtn.style.right = '10px';
+    deletePageBtn.textContent = '🗑️';
+    deletePageBtn.onclick = () => {
+        pageDiv.remove();
+        renumberPages();
+        if (document.getElementById('useFromTo')?.checked) {
+          const savedSelections = saveFromToSelections();
+          renderLabelBlocks();
+          restoreFromToSelections(savedSelections);
+        }
+        if (document.getElementById('useIdLabels')?.checked) {
+          renderIdLabelFields();
+        }
+      };
+
+    pageDiv.appendChild(title);
+    pageDiv.appendChild(addGroupBtn);
+    pageDiv.appendChild(deletePageBtn);
+    pageDiv.appendChild(groupList);
+    container.appendChild(pageDiv);
+
+    // Csoportok hozzáadása
+    pageData.forEach(group => {
+      const groupDiv = document.createElement('div');
+      groupDiv.className = 'border p-2 mb-2 bg-white rounded';
+
+      const groupLabel = document.createElement('label');
+      groupLabel.className = 'form-label';
+      groupLabel.textContent = 'Csoport neve:';
+      const groupInput = document.createElement('input');
+      groupInput.type = 'text';
+      groupInput.className = 'form-control mb-2';
+      groupInput.value = group.name || '';
+
+      const connectorList = document.createElement('div');
+      connectorList.className = 'connector-list mb-2';
+
+      (group.connectors || []).forEach(text => {
+        const inputRow = document.createElement('div');
+        inputRow.className = 'd-flex align-items-center mb-1';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'form-control me-2';
+        input.value = text;
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'btn btn-sm btn-danger';
+        removeBtn.textContent = '🗑️';
+        removeBtn.onclick = () => inputRow.remove();
+
+        inputRow.appendChild(input);
+        inputRow.appendChild(removeBtn);
+        connectorList.appendChild(inputRow);
+      });
+
+      const addConnectorBtn = document.createElement('button');
+      addConnectorBtn.className = 'btn btn-sm btn-outline-primary me-2';
+      addConnectorBtn.textContent = '➕ Konnektor';
+      addConnectorBtn.onclick = () => addConnectorInput(connectorList);
+
+      const deleteGroupBtn = document.createElement('button');
+      deleteGroupBtn.className = 'btn btn-sm btn-outline-danger';
+      deleteGroupBtn.textContent = '🗑️ Csoport törlése';
+      deleteGroupBtn.onclick = () => {
+      groupDiv.remove();
+      if (document.getElementById('useFromTo')?.checked) {
+        const savedSelections = saveFromToSelections();
+        renderLabelBlocks();
+        restoreFromToSelections(savedSelections);
+      }
+      if (document.getElementById('useIdLabels')?.checked) {
+        renderIdLabelFields();
+      }
+    };
+
+
+      groupDiv.appendChild(groupLabel);
+      groupDiv.appendChild(groupInput);
+      groupDiv.appendChild(connectorList);
+      groupDiv.appendChild(addConnectorBtn);
+      groupDiv.appendChild(deleteGroupBtn);
+
+      groupList.appendChild(groupDiv);
+    });
+  });
+}
+function toggleInputs(container, disable = true) {
+  const inputs = container.querySelectorAll('input');
+  const buttons = container.querySelectorAll('button');
+
+  inputs.forEach(input => input.disabled = disable);
+  buttons.forEach(button => {
+    const isDeleteBtn = button.textContent.includes('🗑️');
+    if (!isDeleteBtn) button.disabled = disable;
+  });
+}
+
+
+function fillFromToFieldsFromConnectors() {
+  const blocks = document.querySelectorAll('#labelBlocksContainer .row');
+  const groups = document.querySelectorAll('#connectorHierarchyContainer .connector-group-list > div');
+
+  blocks.forEach((block, index) => {
+    const groupDiv = groups[index];
+    if (!groupDiv) return;
+
+    const connectorInputs = Array.from(groupDiv.querySelectorAll('.connector-list input'))
+                                .map(inp => inp.value.trim())
+                                .filter(v => v !== '');
+
+    const fromText1 = block.querySelector('.fromText1');
+    const fromText2 = block.querySelector('.fromText2');
+    const toText1 = block.querySelector('.toText1');
+    const toText2 = block.querySelector('.toText2');
+
+    fromText1.value = connectorInputs[0] || '';
+    fromText2.value = connectorInputs[1] || '';
+
+    toText1.value = connectorInputs[connectorInputs.length - 1] || '';
+    toText2.value = connectorInputs[connectorInputs.length - 2] || '';
+  });
+}
+
+function renumberPages() {
+  const pageDivs = document.querySelectorAll('#connectorHierarchyContainer .border.bg-light');
+  pageDivs.forEach((pageDiv, index) => {
+    const title = pageDiv.querySelector('.page-title');
+    if (title) {
+      title.textContent = `Oldal ${index + 1}`;
+    }
+  });
+}
+
+
+function renderSummary() {
+  const container = document.getElementById('summaryContent');
+  container.innerHTML = '';
+
+  const pageDivs = document.querySelectorAll('#connectorHierarchyContainer .border.bg-light');
+  const idLabelRows = document.querySelectorAll('#idLabelBlocks .row');
+
+  pageDivs.forEach((pageDiv, pageIndex) => {
+    const pageTitle = document.createElement('h5');
+    pageTitle.textContent = `Oldal ${pageIndex + 1}`;
+    container.appendChild(pageTitle);
+
+    const groupDivs = pageDiv.querySelectorAll('.connector-group-list > div');
+
+    groupDivs.forEach((groupDiv, groupIndex) => {
+      const groupTitle = document.createElement('h6');
+      groupTitle.className = 'ms-3 mt-2';
+      groupTitle.textContent = `Csoport ${groupIndex + 1}`;
+      container.appendChild(groupTitle);
+
+      // FROM–TO label keresés ehhez a csoporthoz
+      const labelIndex = Array.from(pageDiv.querySelectorAll('.connector-group-list > div')).indexOf(groupDiv) +
+                         Array.from(pageDivs).slice(0, pageIndex).reduce((acc, p) => acc + p.querySelectorAll('.connector-group-list > div').length, 0);
+      const labelBlock = document.querySelectorAll('#labelBlocksContainer .row')[labelIndex];
+
+      if (labelBlock) {
+        const from = labelBlock.querySelector('.fromText1')?.value || '';
+        const from2 = labelBlock.querySelector('.fromText2')?.value || '';
+        const to = labelBlock.querySelector('.toText1')?.value || '';
+        const to2 = labelBlock.querySelector('.toText2')?.value || '';
+        const fromTemplate = labelBlock.querySelector('.fromTemplateSelect')?.value || '';
+        const toTemplate = labelBlock.querySelector('.toTemplateSelect')?.value || '';
+
+        const info = document.createElement('div');
+        info.className = 'ms-4';
+        info.innerHTML = `
+          <div><strong>FROM:</strong> ${from} / ${from2} – <em>${fromTemplate}</em></div>
+          <div><strong>TO:</strong> ${to} / ${to2} – <em>${toTemplate}</em></div>
+        `;
+        container.appendChild(info);
+      }
+    });
+  });
+
+  // ID labelek összesítése
+  if (idLabelRows.length > 0) {
+    const idTitle = document.createElement('h5');
+    idTitle.className = 'mt-4';
+    idTitle.textContent = `ID Label összesítés`;
+    container.appendChild(idTitle);
+
+    idLabelRows.forEach((row, i) => {
+      const idTemplate = row.querySelector('.idTemplateSelect')?.value || '-';
+      const printer = row.querySelector('.printerSelect')?.value || '-';
+      const page = row.querySelector('.connectorPageSelect')?.selectedIndex + 1 || '-';
+      const group = row.querySelector('.connectorGroupSelect')?.selectedIndex + 1 || '-';
+
+      const line = document.createElement('div');
+      line.className = 'ms-3';
+      line.innerHTML = `
+        <strong>ID ${i + 1}</strong>: ${idTemplate}, nyomtató: ${printer}, oldal: ${page}, csoport: ${group}
+      `;
+      container.appendChild(line);
+    });
+  }
+}
+
+// Mentés gomb eseménykezelő
+document.getElementById('saveLabelConfig').addEventListener('click', () => {
+  saveLabelConfig(); // A korábban megírt saveLabelConfig függvényt használjuk
+});
+
+// PN betöltése
+function loadLabelConfig(pn, rev, ecn) {
+  fetch('/load_label_config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pn, rev, ecn })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.status !== 'success') return;
+    
+    // Elmentjük a globális állapotba
+    currentConfig = data.data;
+    console.log("Betöltött konfig:", currentConfig);
+
+    const config = data.data;
+    console.log("Betöltött konfig:", config);
+
+    // Alapadatok betöltése
+    // Alapadatok betöltése
+    document.getElementById('pnInput').value = pn;       
+    document.getElementById('revInput').value = config.rev;
+    document.getElementById('ecnInput').value = config.ecn;
+
+    
+    // Töröljük a meglévő oldalakat
+    const container = document.getElementById('connectorHierarchyContainer');
+    container.innerHTML = '';
+
+    // Oldalak hozzáadása
+    config.summary.forEach(page => {
+      console.log("Addconnectorpage");
+      addConnectorPage(); // új oldal hozzáadása
+
+      // Az utolsó hozzáadott oldal
+      const pageDivs = container.querySelectorAll('.border.bg-light');
+      const pageDiv = pageDivs[pageDivs.length - 1];
+
+      // Csoportok hozzáadása ehhez az oldalhoz
+      page.groups.forEach(group => {
+        const groupList = pageDiv.querySelector('.connector-group-list');
+        addConnectorGroup(groupList, group.group);
+
+        // Az utolsó csoport
+        const groupDiv = groupList.lastElementChild;
+        const connectorList = groupDiv.querySelector('.connector-list');
+
+        // Konnektorok hozzáadása
+        group.connectors.forEach(connector => {
+          addConnectorInput(connectorList, connector.id, connector.value);
+        });
+      });
+    });
+    console.log("initSettingsAfterLoad");
+    // Inicializáljuk a beállításokat
+    initSettingsAfterLoad(config);
+  })
+  .catch(error => {
+    console.error("Hiba a betöltés során:", error);
+    alert("Hiba a PN betöltése közben.");
+  });
+}
+
+function initSettingsAfterLoad(config) {
+  if (!config) return;
+
+  // Checkboxok beállítása
+  const hasIdLabels = config.summary?.some(page => page.id_labels && page.id_labels.length > 0);
+  document.getElementById('useIdLabels').checked = hasIdLabels;
+
+  document.getElementById('useConnectors').checked = 
+    config.summary?.some(p => p.groups?.length > 0) || false;
+
+  // Fülek újrarenderelése
+  renderSettingsTabs();
+
+  // ID template beállítása
+  setTimeout(() => {
+    const idTemplateSelect = document.getElementById('idTemplateSelect');
+    if (idTemplateSelect && config.id_template) {
+      idTemplateSelect.value = config.id_template;
+    }
+  }, 500);
+
+  // 🟢 FROM–TO mezők betöltése a summary alapján
+  setTimeout(() => {
+    const savedSelections = saveFromToSelections(); // ha van korábbi érték
+    renderLabelBlocks();
+    restoreFromToSelections(savedSelections);
+
+    // Summary adatok alapján feltöltés
+    // Summary adatok alapján feltöltés
+    const labelBlocks = document.querySelectorAll('#labelBlocksContainer .row');
+
+    let blockIndex = 0;
+    config.summary.forEach(page => {
+      page.groups.forEach(group => {
+        const pairs = group.pairs || [];
+        pairs.forEach(pair => {
+          const block = labelBlocks[blockIndex];
+          if (block) {
+            setValue(block, '.fromTemplateSelect', pair.from?.template);
+            setValue(block, '.fromText1', pair.from?.text1);
+            setValue(block, '.fromText2', pair.from?.text2);
+
+            setValue(block, '.toTemplateSelect', pair.to?.template);
+            setValue(block, '.toText1', pair.to?.text1);
+            setValue(block, '.toText2', pair.to?.text2);
+          }
+          blockIndex++;
+        });
+      });
+    });
+
+  }, 800);
+}
+
+
+
+
+function renderSummaryFromData(summaryArray) {
+  const container = document.getElementById('summaryContent');
+  container.innerHTML = '';
+
+  if (!Array.isArray(summaryArray) || summaryArray.length === 0) {
+    container.innerHTML = '<p>Nincs elérhető összegző adat.</p>';
+    return;
+  }
+
+  summaryArray.forEach(page => {
+    const pageTitle = document.createElement('h5');
+    pageTitle.textContent = `Oldal ${page.page}`;
+    container.appendChild(pageTitle);
+
+    // Csoportok renderelése
+    page.groups?.forEach(group => {
+      const groupTitle = document.createElement('h6');
+      groupTitle.className = 'ms-3 mt-2';
+      groupTitle.textContent = `Csoport ${group.group}`;
+      container.appendChild(groupTitle);
+
+      const info = document.createElement('div');
+      info.className = 'ms-4';
+      info.innerHTML = `
+        <div><strong>FROM:</strong> ${group.from.text1} / ${group.from.text2} – <em>${group.from.template}</em></div>
+        <div><strong>TO:</strong> ${group.to.text1} / ${group.to.text2} – <em>${group.to.template}</em></div>
+      `;
+      container.appendChild(info);
+    });
+
+    // ID labelek renderelése (ehhez az oldalhoz tartozók)
+    if (page.id_labels?.length > 0) {
+      const idTitle = document.createElement('h6');
+      idTitle.className = 'ms-3 mt-3';
+      idTitle.textContent = `ID Labelek (Oldal ${page.page})`;
+      container.appendChild(idTitle);
+
+      page.id_labels.forEach(label => {
+        const line = document.createElement('div');
+        line.className = 'ms-4';
+        line.innerHTML = `
+          <strong>ID ${label.id_index}</strong>: ${label.template}, nyomtató: ${label.printer || '-'}, oldal: ${page.page}, csoport: ${label.group}
+        `;
+        container.appendChild(line);
+      });
+    }
+  });
+}
+// Oldal betöltésekor indítjuk a figyelőt
+document.addEventListener('DOMContentLoaded', () => {
+  
+
+  watchConnectorChanges();
+  
+  // Edit módban is működjön
+  if (currentMode === 'edit') {
+    // Inicializáljuk az állapotot a betöltött adatokkal
+    currentConfig.summary.forEach((page, pageIndex) => {
+      page.groups.forEach((group, groupIndex) => {
+        const key = `page-${pageIndex}-group-${groupIndex}`;
+        formState.fromToData[key] = {
+          fromTemplate: group.from?.template,
+          fromText1: group.from?.text1,
+          fromText2: group.from?.text2,
+          toTemplate: group.to?.template,
+          toText1: group.to?.text1,
+          toText2: group.to?.text2
+        };
+      });
+    });
+  }
+});
+
+
+function updateGroupOptions(pageSelect, groupSelect) {
+  const selectedPageIndex = parseInt(pageSelect.value);
+  const allPages = document.querySelectorAll('#connectorHierarchyContainer .border.bg-light');
+
+  groupSelect.innerHTML = '';
+
+  if (selectedPageIndex >= 0 && selectedPageIndex < allPages.length) {
+    const page = allPages[selectedPageIndex];
+    const groups = page.querySelectorAll('.connector-group-list > div');
+
+    groups.forEach((groupDiv, groupIndex) => {
+      const opt = document.createElement('option');
+      opt.value = groupIndex;
+      opt.textContent = `Csoport ${groupIndex + 1}`;
+      groupSelect.appendChild(opt);
+    });
+  }
+}
+
+
+
+function renderSchematic() {
+  const container = document.getElementById('tabContent-schematic');
+  container.innerHTML = '';
+
+  // Összegzés (ID labelek) – oldal + csoport bontásban
+  const summary = [];
+
+  document.querySelectorAll('.idLabelBlock').forEach((block, index) => {
+    const template = block.querySelector('.idTemplateSelect')?.value || '';
+    const printer = block.querySelector('.printerSelect')?.value || '';
+    const page = parseInt(block.querySelector('.connectorPageSelect')?.value || '0') + 1;
+    const group = parseInt(block.querySelector('.connectorGroupSelect')?.value || '0') + 1;
+
+    let pageEntry = summary.find(p => p.page === page);
+    if (!pageEntry) {
+      pageEntry = { page, groups: [] };
+      summary.push(pageEntry);
+    }
+
+    let groupEntry = pageEntry.groups.find(g => g.group === group);
+    if (!groupEntry) {
+      groupEntry = { group, id_labels: [] };
+      pageEntry.groups.push(groupEntry);
+    }
+
+    groupEntry.id_labels.push({
+      id_index: index + 1,
+      template,
+      printer
+    });
+  });
+
+  const structure = getCurrentConnectorStructure();
+  if (!structure.length) {
+    container.innerHTML = '<p>Nincs elérhető konnektorstruktúra.</p>';
+    return;
+  }
+
+  const fromToBlocks = document.querySelectorAll('#labelBlocksContainer .row');
+  let blockIndex = 0;
+
+  structure.forEach((page, pageIndex) => {
+    const pageDiv = document.createElement('div');
+    pageDiv.className = 'schematic-page mb-5 p-3 border rounded';
+    pageDiv.innerHTML = `<h4 class="mb-3">Oldal ${pageIndex + 1}</h4>`;
+    container.appendChild(pageDiv);
+
+    const summaryPage = summary.find(p => p.page === pageIndex + 1);
+
+    page.groups.forEach((group, groupIndex) => {
+      const groupDiv = document.createElement('div');
+      groupDiv.className = 'schematic-group mb-4 p-2 border rounded';
+      groupDiv.innerHTML = `<h5 class="mb-2">Csoport ${group.group}</h5>`;
+      pageDiv.appendChild(groupDiv);
+
+      // ID dobozok konténer
+      const idContainer = document.createElement('div');
+      idContainer.className = 'schematic-id-container mb-3 d-flex flex-wrap gap-2';
+      groupDiv.appendChild(idContainer);
+
+      // FROM–TO dobozok konténer
+      const fromToContainer = document.createElement('div');
+      fromToContainer.className = 'schematic-fromto-container d-flex flex-wrap gap-2';
+      groupDiv.appendChild(fromToContainer);
+
+      // ID-k (ha vannak)
+      const summaryGroup = summaryPage?.groups?.find(g => g.group === group.group);
+      if (summaryGroup?.id_labels?.length > 0) {
+        summaryGroup.id_labels.forEach(() => {
+          const idBox = document.createElement('div');
+          idBox.className = 'schematic-box id-box text-center';
+          idBox.textContent = 'ID';
+          idContainer.appendChild(idBox);
+        });
+      }
+
+      // FROM–TO-k
+      const pairCount = Math.max(1, (group.connectors?.length || 0) - 1);
+      for (let pairIndex = 0; pairIndex < pairCount; pairIndex++) {
+        const fromTo = fromToBlocks[blockIndex];
+        if (!fromTo) continue;
+
+        const fromTop = fromTo.querySelector('.fromText1')?.value || '';
+        const fromBottom = fromTo.querySelector('.fromText2')?.value || '';
+        const toTop = fromTo.querySelector('.toText1')?.value || '';
+        const toBottom = fromTo.querySelector('.toText2')?.value || '';
+
+        const pairWrapper = document.createElement('div');
+        pairWrapper.className = 'schematic-pair-wrapper d-flex';
+        pairWrapper.style.display = 'flex';
+        pairWrapper.style.gap = '16px';
+        pairWrapper.style.marginRight = '24px'; // ha a párok között is kell rés
+
+
+        // FROM box
+        const fromBox = document.createElement('div');
+        fromBox.className = 'schematic-box from-box';
+        fromBox.innerHTML = `
+          <div class="schematic-text-top">${fromTop || '&nbsp;'}</div>
+          <div class="schematic-line"></div>
+          <div class="schematic-text-bottom">${fromBottom || '&nbsp;'}</div>
+        `;
+
+        // TO box
+        const toBox = document.createElement('div');
+        toBox.className = 'schematic-box to-box';
+        toBox.innerHTML = `
+          <div class="schematic-text-top">${toTop || '&nbsp;'}</div>
+          <div class="schematic-line"></div>
+          <div class="schematic-text-bottom">${toBottom || '&nbsp;'}</div>
+        `;
+
+        pairWrapper.appendChild(fromBox);
+        pairWrapper.appendChild(toBox);
+
+        // 🔄 spacer minden 2. pár után
+        if ((pairIndex + 1) % 2 === 0) {
+          const spacer = document.createElement('div');
+          spacer.style.width = '34px';
+          spacer.style.minHeight = '1px';
+          spacer.style.background = 'transparent'; // vagy 'red' teszthez
+          pairWrapper.appendChild(spacer);
+        }
+
+        fromToContainer.appendChild(pairWrapper);
+
+
+        blockIndex++;
+      }
+
+
+    });
+  });
+}
+
+
+function resetAllFields() {
+  // Alap input mezők ürítése
+  document.getElementById('pnInput').value = '';
+  document.getElementById('revInput').value = '';
+  document.getElementById('ecnInput').value = '';
+
+  // Sablon select(ek) első opcióra
+  document.querySelectorAll('.idTemplateSelect').forEach(sel => sel.selectedIndex = 0);
+  document.querySelectorAll('.fromTemplateSelect').forEach(sel => sel.selectedIndex = 0);
+  document.querySelectorAll('.toTemplateSelect').forEach(sel => sel.selectedIndex = 0);
+
+  // Minden label blokkok törlése
+  const labelBlocks = document.getElementById('labelBlocksContainer');
+  if (labelBlocks) labelBlocks.innerHTML = '';
+
+  // Konnektorok törlése
+  const connectorContainer = document.getElementById('connectorHierarchyContainer');
+  if (connectorContainer) connectorContainer.innerHTML = '';
+
+  // ID label blokkok törlése
+  const idLabelBlocks = document.getElementById('idLabelBlocks');
+  if (idLabelBlocks) idLabelBlocks.innerHTML = '';
+
+  // Summary törlése
+  const summaryContent = document.getElementById('summaryContent');
+  if (summaryContent) summaryContent.innerHTML = '';
+
+  // Checkboxok vissza alapértelmezett állapotba (ha szükséges)
+  document.getElementById('useIdLabels').checked = true;
+  document.getElementById('useFromTo').checked = true;
+  document.getElementById('useConnectors').checked = false;
+
+  // Ha bármilyen globális állapot (currentConfig, AppState stb.) van, nullázd:
+  currentConfig = null;
+}
+
+
+document.getElementById('closeModal').addEventListener('click', () => {
+  resetAllFields();
+  document.getElementById('modal').style.display = 'none';
+});
+
+['useIdLabels', 'useFromTo', 'useConnectors'].forEach(id => {
+  document.getElementById(id).addEventListener('change', renderSettingsTabs);
+});
+
+function resetCheckButton() {
+  const btn = document.getElementById('checkPNButton');
+  btn.classList.remove('btn-success', 'btn-danger');
+  btn.classList.add('btn-secondary');
+  btn.textContent = "🔍 Ellenőrzés";
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  ['pnInput', 'revInput', 'ecnInput'].forEach(id => {
+    const input = document.getElementById(id);
+    if (input) {
+      input.addEventListener('input', resetCheckButton);
+    }
+  });
+
+  document.getElementById('addButton').addEventListener('click', resetCheckButton);
+  document.getElementById('editButton').addEventListener('click', resetCheckButton);
+});
+
+
+
+
+
+</script>
+
+
+</body>
+</html>
+{% endblock %}

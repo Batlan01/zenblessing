@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+*.rar
+*.zip
+.env
+instance/

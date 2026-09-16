@@ -1,0 +1,353 @@
+{% extends "hu/base.html" %}
+{% block title %}VNC – Távoli eszközök{% endblock %}
+
+{% block extra_head %}
+<style>
+/* ── VNC Dashboard ─────────────────────────────────────────── */
+.vnc-page { padding: 1.5rem; }
+
+.vnc-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin-bottom: 1.25rem;
+}
+.vnc-page-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  background: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+.vnc-page-title i { color: #38bdf8; }
+.vnc-page-sub { font-size: .8rem; color: #94a3b8; margin-top: .15rem; }
+
+/* summary pill */
+.vnc-summary-row {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+.vnc-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 99px;
+  padding: 4px 12px;
+  font-size: .78rem;
+  color: #cbd5e1;
+}
+.vnc-pill strong { color: #f1f5f9; }
+.vnc-pill .dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #16a34a;
+  box-shadow: 0 0 5px #16a34a;
+}
+
+.btn-refresh {
+  display: inline-flex; align-items: center; gap: .4rem;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.13);
+  color: #94a3b8;
+  border-radius: 8px;
+  padding: 5px 14px;
+  font-size: .8rem;
+  cursor: pointer;
+  transition: all .15s;
+}
+.btn-refresh:hover { background: rgba(255,255,255,.11); color: #e2e8f0; border-color: rgba(255,255,255,.22); }
+
+/* ── Grid ──────────────────────────────────────────────────── */
+.vnc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+/* ── Kártya ────────────────────────────────────────────────── */
+.vnc-card {
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 14px;
+  padding: 1.1rem 1.1rem .9rem;
+  text-decoration: none !important;
+  color: #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: .7rem;
+  transition: background .15s, border-color .2s, transform .15s, box-shadow .15s;
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+}
+.vnc-card:hover {
+  background: rgba(15, 23, 42, 0.88);
+  border-color: rgba(56, 189, 248, .35);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,.35), 0 0 0 1px rgba(56,189,248,.12);
+  color: #f1f5f9;
+}
+.vnc-card.offline {
+  opacity: .45;
+  pointer-events: none;
+  filter: grayscale(.4);
+}
+/* accent top border animáció */
+.vnc-card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, #38bdf8, #818cf8);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform .22s ease;
+  border-radius: 14px 14px 0 0;
+}
+.vnc-card:hover::after { transform: scaleX(1); }
+
+/* ── fejléc sor ─────────────────────────────────────────────── */
+.vnc-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+}
+.vnc-card-icon {
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  background: rgba(56,189,248,.12);
+  border: 1px solid rgba(56,189,248,.20);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1rem;
+  color: #38bdf8;
+  flex-shrink: 0;
+}
+.vnc-badge {
+  font-size: .68rem;
+  font-weight: 700;
+  letter-spacing: .6px;
+  padding: 3px 9px;
+  border-radius: 99px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.vnc-badge.checking { background: rgba(100,116,139,.18); color: #94a3b8; }
+.vnc-badge.online   { background: rgba(22,163,74,.16);   color: #4ade80; border: 1px solid rgba(22,163,74,.25); }
+.vnc-badge.offline  { background: rgba(220,38,38,.15);   color: #f87171; border: 1px solid rgba(220,38,38,.25); }
+
+/* ── tartalom ──────────────────────────────────────────────── */
+.vnc-card-body { flex: 1; }
+.vnc-card-name {
+  font-size: .95rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: .25rem;
+}
+.vnc-card-location {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .75rem;
+  color: #64748b;
+}
+.vnc-card-location i { font-size: .65rem; }
+
+/* ── lábléc ────────────────────────────────────────────────── */
+.vnc-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: .65rem;
+  border-top: 1px solid rgba(255,255,255,.07);
+  font-size: .75rem;
+  color: #64748b;
+}
+.vnc-status-row {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+}
+.s-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #475569;
+  flex-shrink: 0;
+}
+.s-dot.online  { background: #4ade80; box-shadow: 0 0 5px #4ade80; }
+.s-dot.offline { background: #f87171; }
+.s-dot.checking { animation: blink 1.2s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+.vnc-arrow {
+  color: #38bdf8;
+  opacity: 0;
+  transition: opacity .15s, transform .15s;
+  transform: translateX(-5px);
+  font-size: .8rem;
+}
+.vnc-card:hover .vnc-arrow { opacity: 1; transform: translateX(0); }
+
+/* host chip */
+.vnc-host-chip {
+  font-family: ui-monospace, monospace;
+  font-size: .7rem;
+  color: #475569;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 5px;
+  padding: 1px 6px;
+  margin-top: .3rem;
+  display: inline-block;
+}
+
+/* ── Üres állapot ──────────────────────────────────────────── */
+.vnc-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #475569;
+  font-size: .9rem;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="vnc-page">
+
+  <!-- Fejléc -->
+  <div class="vnc-page-header">
+    <div>
+      <div class="vnc-page-title">
+        <i class="fa-solid fa-display"></i>
+        VNC – Távoli eszközök
+      </div>
+      <div class="vnc-page-sub">Valós idejű grafikus felügyelet</div>
+    </div>
+
+    <div class="vnc-summary-row">
+      <div class="vnc-pill">
+        <span class="dot"></span>
+        <strong id="cnt-online">–</strong>&nbsp;/ {{ devices|length }} online
+      </div>
+      <button class="btn-refresh" onclick="doRefresh(true)">
+        <i class="fa-solid fa-rotate-right fa-sm"></i> Frissítés
+      </button>
+      <span id="last-refresh" style="font-size:.72rem;color:#475569;"></span>
+    </div>
+  </div>
+
+  <!-- Kártya rács -->
+  <div class="vnc-grid" id="vnc-grid">
+    {% for did, dev in devices.items() %}
+    <a class="vnc-card"
+       href="{{ url_for('vnc.viewer', lang=lang, device_id=did) }}"
+       id="card-{{ did }}">
+
+      <div class="vnc-card-head">
+        <div class="vnc-card-icon">
+          <i class="fa-solid {{ dev.icon }}"></i>
+        </div>
+        <span class="vnc-badge checking" id="badge-{{ did }}">
+          <i class="fa-solid fa-circle-notch fa-spin fa-xs me-1"></i>…
+        </span>
+      </div>
+
+      <div class="vnc-card-body">
+        <div class="vnc-card-name">{{ dev.name }}</div>
+        <div class="vnc-card-location">
+          <i class="fa-solid fa-location-dot"></i>
+          {{ dev.location }}
+        </div>
+        <div class="vnc-host-chip">{{ dev.host }}:{{ dev.vnc_port }}</div>
+      </div>
+
+      <div class="vnc-card-foot">
+        <div class="vnc-status-row">
+          <span class="s-dot checking" id="dot-{{ did }}"></span>
+          <span id="lbl-{{ did }}">Ellenőrzés…</span>
+        </div>
+        <i class="fa-solid fa-arrow-right vnc-arrow"></i>
+      </div>
+
+    </a>
+    {% endfor %}
+
+    {% if not devices %}
+    <div class="vnc-empty">
+      <i class="fa-solid fa-plug-circle-xmark fa-2x mb-2 d-block"></i>
+      Nincsenek konfigurált eszközök.
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function doRefresh(manual = false) {
+  if (manual) {
+    // Spinning ikon visszaállítása
+    document.querySelectorAll('.vnc-badge').forEach(el => {
+      el.className = 'vnc-badge checking';
+      el.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin fa-xs me-1"></i>…';
+    });
+    document.querySelectorAll('.s-dot').forEach(el => el.className = 's-dot checking');
+  }
+
+  try {
+    const res  = await fetch("{{ url_for('vnc.api_status', lang=lang) }}");
+    const data = await res.json();
+    let online = 0;
+
+    for (const [did, s] of Object.entries(data)) {
+      const badge = document.getElementById(`badge-${did}`);
+      const dot   = document.getElementById(`dot-${did}`);
+      const lbl   = document.getElementById(`lbl-${did}`);
+      const card  = document.getElementById(`card-${did}`);
+      if (!badge) continue;
+
+      const isOn = s.online || s.vnc_reachable;
+      if (isOn) online++;
+
+      const cls = isOn ? 'online' : 'offline';
+
+      badge.className   = `vnc-badge ${cls}`;
+      badge.textContent = isOn ? 'Online' : 'Offline';
+
+      dot.className   = `s-dot ${cls}`;
+      lbl.textContent = !isOn          ? 'Nem elérhető'
+                      : s.ws_running   ? 'Bridge aktív'
+                      :                  'Csatlakozásra kész';
+
+      card.classList.toggle('offline', !isOn);
+    }
+
+    document.getElementById('cnt-online').textContent = online;
+    document.getElementById('last-refresh').textContent =
+      'Frissítve: ' + new Date().toLocaleTimeString('hu-HU');
+
+  } catch(e) {
+    console.error('VNC status refresh failed', e);
+  }
+}
+
+doRefresh();
+setInterval(doRefresh, 12_000);
+</script>
+{% endblock %}

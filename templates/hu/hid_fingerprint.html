@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>RFID olvasó tanítás / felismerés (billentyűzet-mód, k-NN + DTW + code/location)</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <style>
+    :root{--bg:#0b1220;--panel:#101826;--txt:#e5e7eb;--muted:#9ca3af;--ok:#10b981;--bad:#ef4444;--warn:#f59e0b}
+    html,body{height:100%}
+    body{margin:0;background:linear-gradient(180deg,#0b1020,#0b1220);color:var(--txt);font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial}
+    .wrap{max-width:980px;margin:48px auto;padding:0 16px}
+    .card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:18px 20px;margin-bottom:16px}
+    .big{font-size:32px;font-weight:700;margin:0 0 6px}
+    .muted{color:var(--muted)}
+    .mono{font-family: ui-monospace, Menlo, Consolas, "Liberation Mono", monospace}
+    .btn-row{gap:.5rem;flex-wrap:wrap}
+    .status{min-height:1.6rem}
+    #scanBox{font-size:22px;height:56px}
+    pre{white-space:pre-wrap}
+    .ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+    .pill{display:inline-block;border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:.2rem .6rem}
+    .badge{vertical-align:middle}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="big">RFID olvasó tanítás / felismerés</div>
+      <div class="muted">Mostantól figyeljük a <em>billentyűkódokat</em> (Digit vs Numpad, Enter vs KeypadEnter), a <em>billentyű-helyet</em> (location), a <em>CR/LF</em> mintát és az időzítést (DTW) is.</div>
+    </div>
+
+    <!-- 1) Tanítás -->
+    <div class="card">
+      <div class="d-flex align-items-center justify-content-between">
+        <div>
+          <div><strong>1) Tanítás:</strong> kattints egy gombra, majd <span class="pill">olvasd be</span> és <span class="pill">Enter</span>.</div>
+          <div class="small muted">Javasolt 5–10 minta/olvasó. Használd ugyanazt a kártyát.</div>
+        </div>
+        <div class="d-flex btn-row">
+          <button id="btnLearnA" class="btn btn-sm btn-primary">Olvasó A tanítása</button>
+          <button id="btnLearnB" class="btn btn-sm btn-secondary">Olvasó B tanítása</button>
+          <button id="btnClear"  class="btn btn-sm btn-outline-warning">Minták törlése</button>
+        </div>
+      </div>
+      <div class="mt-3">
+        <input id="scanBox" class="form-control" placeholder="IDE olvass be… Enter zár"/>
+        <div id="trainStatus" class="status muted mt-1">Válassz tanítási gombot, majd olvass be.</div>
+      </div>
+    </div>
+
+    <!-- 2) Automatikus felismerés -->
+    <div class="card">
+      <div class="d-flex align-items-center justify-content-between">
+        <div>
+          <strong>2) Automatikus felismerés:</strong> kattints, majd olvass be.
+          <span id="autoBadge" class="ms-2 badge bg-secondary" style="font-size:0.85rem;">nincs eredmény</span>
+        </div>
+        <div class="d-flex btn-row">
+          <button id="btnAuto" class="btn btn-sm btn-success">Automatikus felismerés</button>
+        </div>
+      </div>
+      <div id="autoStatus" class="status mt-2"></div>
+    </div>
+
+    <!-- Mintaszám + utolsó minta + napló -->
+    <div class="card">
+      <div class="mb-2"><strong>Minták & napló</strong></div>
+      <div class="row">
+        <div class="col-md-5">
+          <div class="small muted">A minták száma: <span id="cntA">0</span></div>
+          <div class="small muted">B minták száma: <span id="cntB">0</span></div>
+          <hr/>
+          <div class="small muted">Utolsó minta (összefoglaló)</div>
+          <pre id="lastFeat" class="mono muted"></pre>
+        </div>
+        <div class="col-md-7">
+          <div class="small muted">Napló</div>
+          <pre id="log" class="mono muted" style="min-height:220px"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ===== Utils =====
+    const $ = s => document.querySelector(s);
+    const log = (m)=>{ const el=$("#log"); el.textContent = `[${new Date().toLocaleTimeString()}] ${m}\n` + el.textContent; };
+    const showJSON = (el,obj)=> el.textContent = JSON.stringify(obj, null, 2);
+    const mean=a=> a.reduce((s,x)=>s+x,0)/(a.length||1);
+    const median=a=>{ const b=[...a].sort((x,y)=>x-y); const n=b.length; return n? (n%2? b[(n-1)/2] : (b[n/2-1]+b[n/2])/2) : 0; };
+    const stdev=a=>{ const m=mean(a); const v=mean(a.map(x=>(x-m)*(x-m))); return Math.sqrt(v); };
+    function histo(arr, bins){ const c=Array(bins.length-1).fill(0); for(const x of arr){ for(let i=0;i<bins.length-1;i++){ if(x>=bins[i] && x<bins[i+1]){ c[i]++; break; } } } const n=arr.length||1; return c.map(v=>v/n); }
+    const l1=(a,b)=>{ const n=Math.max(a.length,b.length); let s=0; for(let i=0;i<n;i++) s+=Math.abs((a[i]||0)-(b[i]||0)); return s; };
+
+    // ===== DTW a normalizált dts-re =====
+    function dtw(a, b){
+      const n=a.length, m=b.length; if(!n||!m) return 1e9;
+      const dp = Array.from({length:n+1}, ()=>Array(m+1).fill(Infinity));
+      dp[0][0]=0;
+      for(let i=1;i<=n;i++){
+        for(let j=1;j<=m;j++){
+          const cost = Math.abs(a[i-1]-b[j-1]);
+          dp[i][j] = cost + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+        }
+      }
+      return dp[n][m]/(n+m);
+    }
+
+    // ===== Rögzítés: “olvasd be + Enter” (keydown-only, de code/location is) =====
+    function captureOnce(inputEl, cb){
+      const seq=[]; let started=false, idleTimer=null;
+      function onKey(e){
+        const t = performance.now();
+        // csak char/Enter/Tab; rögzítjük a code-ot és location-t is
+        if (e.key.length===1 || e.key==="Enter" || e.key==="Tab"){
+          if (!started){ started=true; seq.length=0; }
+          seq.push({key:e.key, code:e.code, loc:e.location, t});
+          if (e.key==="Enter"){ cleanup(); cb(seq); return; }
+          resetIdle();
+        }
+      }
+      function resetIdle(){ clearTimeout(idleTimer); idleTimer=setTimeout(()=>{ cleanup(); cb(seq); }, 600); }
+      function cleanup(){ clearTimeout(idleTimer); inputEl.removeEventListener("keydown", onKey, true); }
+      inputEl.addEventListener("keydown", onKey, true);
+      inputEl.focus();
+    }
+
+    // ===== Feature extraction (code/location + CR/LF minta + timing) =====
+    function extractFeatures(seq){
+      if (!seq.length) return null;
+      const keys = seq.map(x=>x.key);
+      const codes = seq.map(x=>x.code);
+      const locs = seq.map(x=>x.loc);
+      const times= seq.map(x=>x.t);
+
+      // Enter / KeypadEnter / CR/LF minták (Enter=LF, néha CR+LF két eseményként jön: 'Enter' egyszer, CR/LF külön nem, de a scanner küldhet Tab-ot)
+      const hasEnter = keys.includes("Enter");
+      const lastCode = codes[codes.length-1] || "";
+      const keypadEnter = (lastCode==="NumpadEnter" || lastCode==="Enter" && locs[locs.length-1]===3);
+      const enterKind = keypadEnter ? "KeypadEnter" : hasEnter ? "Enter" : "None";
+
+      // Numeric row vs Numpad arány
+      let cntDigitRow=0, cntNumpad=0;
+      for (const c of codes){
+        if (/^Digit[0-9]$/.test(c)) cntDigitRow++;
+        else if (/^Numpad[0-9]$/.test(c)) cntNumpad++;
+      }
+      const nChars = seq.filter(x=>x.key.length===1).length || 1;
+      const ratioNumpad   = cntNumpad / nChars;
+      const ratioDigitRow = cntDigitRow / nChars;
+
+      // CR/LF jelleg (heurisztika: ha Tab az utótag, az is eltérés)
+      const hasTab = keys.includes("Tab");
+      const crlfSig = hasTab ? "TAB" : enterKind; // egyszerű jel a suffixról
+
+      // idők
+      const dts=[]; for(let i=1;i<times.length;i++) dts.push(times[i]-times[i-1]);
+      const total = times[times.length-1] - times[0];
+      const avg = mean(dts)||0, med = median(dts)||0, sd = stdev(dts)||0;
+      const bins=[0,8,15,25,40, 1e9]; const hist=histo(dts,bins);
+      const first3 = mean(dts.slice(0,3))||0, last3 = mean(dts.slice(-3))||0;
+
+      // normalizált dts (relatív ritmus)
+      const dtsNorm = dts.map(x=> avg>0 ? x/avg : 0).slice(0,64);
+
+      // rövid kód-szekvencia ujjlenyomat (Digit vs Numpad tájolás)
+      const codeSig = codes.map(c=> c.replace(/^Digit/,"D").replace(/^Numpad/,"N")).join(",");
+
+      return {
+        // viselkedés
+        hasEnter, enterKind, keypadEnter, hasTab, crlfSig,
+        ratioNumpad, ratioDigitRow,
+        codeSig,
+        // timing
+        n: keys.length, total, avg, med, sd, hist, first3, last3, dtsNorm
+      };
+    }
+
+    // ===== minták tárolása =====
+    function loadSamples(){
+      try{
+        return {
+          A: JSON.parse(localStorage.getItem("reader_samples_A2")||"[]"),
+          B: JSON.parse(localStorage.getItem("reader_samples_B2")||"[]"),
+        };
+      }catch(e){ return {A:[],B:[]}; }
+    }
+    function saveSamples(which, arr){
+      localStorage.setItem("reader_samples_"+which+"2", JSON.stringify(arr));
+      refreshCounts();
+    }
+    function clearAll(){
+      localStorage.removeItem("reader_samples_A2");
+      localStorage.removeItem("reader_samples_B2");
+      refreshCounts();
+    }
+    function refreshCounts(){
+      const S = loadSamples();
+      $("#cntA").textContent = S.A.length;
+      $("#cntB").textContent = S.B.length;
+    }
+
+    // ===== távolság minta ↔ minta =====
+    function codeSigDistance(a,b){
+      if (!a || !b) return 1;
+      // egyszerű szerkesztési távolság-szerűség: L1 különbség azonos pozíciók között + hosszkorrekció
+      const A=a.split(","), B=b.split(",");
+      const n=Math.max(A.length,B.length); let diff=0;
+      for(let i=0;i<n;i++){
+        const x=A[i]||"", y=B[i]||"";
+        if (x!==y) diff+=1;
+      }
+      return diff/n;
+    }
+
+    function distFeatureToSample(f, s){
+      // súlyok: code/location/suffix elsődleges, időzítés másodlagos
+      const w = {
+        enter:0.8,    // Enter vs KeypadEnter / Tab különbség
+        numsrc:0.8,   // Numpad vs Digit arány
+        codesig:0.8,  // kód-szekvencia
+        timing:0.6,   // DTW + statok
+      };
+
+      // Enter/suffix jel különbség
+      let d_enter = 0;
+      d_enter += (f.enterKind===s.enterKind ? 0 : 1);
+      d_enter += (f.crlfSig===s.crlfSig ? 0 : 0.5);
+
+      // numpad vs digit arány
+      const d_numsrc = Math.abs(f.ratioNumpad - s.ratioNumpad) + Math.abs(f.ratioDigitRow - s.ratioDigitRow);
+
+      // kód-szekvencia különbség
+      const d_code = codeSigDistance(f.codeSig, s.codeSig);
+
+      // timing (kombinált)
+      const s_avg=10, s_med=10, s_sd=10, s_total=30, s_ends=10;
+      let d_tim = 0;
+      d_tim += Math.abs(f.avg - s.avg)/s_avg;
+      d_tim += Math.abs(f.med - s.med)/s_med;
+      d_tim += Math.abs(f.sd  - s.sd )/s_sd;
+      d_tim += Math.abs(f.total - s.total)/s_total;
+      d_tim += l1(f.hist, s.hist);
+      d_tim += Math.abs(f.first3 - s.first3)/s_ends;
+      d_tim += Math.abs(f.last3  - s.last3 )/s_ends;
+      d_tim += dtw(f.dtsNorm, s.dtsNorm); // relatív ritmus
+
+      return w.enter*d_enter + w.numsrc*d_numsrc + w.codesig*d_code + w.timing*d_tim;
+    }
+
+    // ===== UI =====
+    const trainStatus = $("#trainStatus");
+    const autoStatus  = $("#autoStatus");
+    function setTrain(msg, cls="muted"){ trainStatus.className="status "+cls; trainStatus.textContent=msg; }
+    function setAuto(msg, cls="muted"){
+      autoStatus.className="status "+cls;
+      autoStatus.textContent=msg;
+      const b = document.getElementById("autoBadge");
+      if (b){
+        b.textContent = msg.replace(/\(.*$/, "").trim() || "eredmény";
+        b.className = "ms-2 badge " + (cls==="ok" ? "bg-success" : cls==="bad" ? "bg-danger" : "bg-secondary");
+      }
+    }
+
+    function learn(which){
+      const label = which==="A" ? "Olvasó A" : "Olvasó B";
+      setTrain(label + ": várakozás bemenetre… (olvass be és Enter)", "warn");
+      captureOnce($("#scanBox"), (seq)=>{
+        const f = extractFeatures(seq);
+        if (!f){ setTrain("Nem jött be olvasat.", "bad"); return; }
+        const S = loadSamples();
+        S[which].push(f);
+        saveSamples(which, S[which]);
+        setTrain(`${label}: minta felvéve (összes: ${S[which].length}).`, "ok");
+        showJSON($("#lastFeat"), {
+          enter:f.enterKind, suffix:f.crlfSig,
+          ratioNumpad:+f.ratioNumpad.toFixed(2),
+          ratioDigitRow:+f.ratioDigitRow.toFixed(2),
+          avg:Math.round(f.avg), total:Math.round(f.total),
+          codeSig:f.codeSig
+        });
+        log(`${label} minta: enter=${f.enterKind}, suffix=${f.crlfSig}, numpad=${f.ratioNumpad.toFixed(2)}, digitrow=${f.ratioDigitRow.toFixed(2)}, avg≈${Math.round(f.avg)}ms, total≈${Math.round(f.total)}ms, codeSig=${f.codeSig}`);
+        $("#scanBox").value="";
+      });
+    }
+
+    function autoDetect(){
+      const S = loadSamples();
+      if (!S.A.length || !S.B.length){
+        setAuto("Előbb vegyél fel mintákat mindkét olvasóra (≥5-5 ajánlott)!", "bad"); return;
+      }
+      setAuto("Felismerés: várakozás bemenetre… (olvass be és Enter)", "warn");
+      captureOnce($("#scanBox"), (seq)=>{
+        const f = extractFeatures(seq);
+        if (!f){ setAuto("Nem jött be olvasat.", "bad"); return; }
+        showJSON($("#lastFeat"), {
+          enter:f.enterKind, suffix:f.crlfSig,
+          ratioNumpad:+f.ratioNumpad.toFixed(2),
+          ratioDigitRow:+f.ratioDigitRow.toFixed(2),
+          avg:Math.round(f.avg), total:Math.round(f.total),
+          codeSig:f.codeSig
+        });
+
+        const all=[];
+        for (const s of S.A) all.push({cls:"A", d:distFeatureToSample(f,s)});
+        for (const s of S.B) all.push({cls:"B", d:distFeatureToSample(f,s)});
+        all.sort((x,y)=>x.d-y.d);
+
+        const k = Math.min(5, all.length);
+        let voteA=0, voteB=0, dA=0, dB=0, nA=0, nB=0;
+        for (let i=0;i<k;i++){
+          if (all[i].cls==="A"){ voteA++; dA+=all[i].d; nA++; }
+          else { voteB++; dB+=all[i].d; nB++; }
+        }
+        const avgA = nA? dA/nA : Infinity;
+        const avgB = nB? dB/nB : Infinity;
+        const winner = (voteA>voteB)? "Olvasó A" : (voteB>voteA)? "Olvasó B" : (avgA<avgB? "Olvasó A":"Olvasó B");
+        const margin = Math.abs(avgA-avgB);
+        const conf = margin >= 1.2 ? "magas" : margin >= 0.6 ? "közepes" : "alacsony";
+
+        setAuto(`${winner} (k=${k}, szavazat A:${voteA} B:${voteB}, átlagd A:${avgA.toFixed(2)} B:${avgB.toFixed(2)}, különbség=${margin.toFixed(2)}, bizalom: ${conf})`, "ok");
+        log(`AUTO kNN: ${all.slice(0,k).map(x=>`${x.cls}:${x.d.toFixed(2)}`).join("  ")} | enter=${f.enterKind} suffix=${f.crlfSig} numpad=${f.ratioNumpad.toFixed(2)} digitrow=${f.ratioDigitRow.toFixed(2)} codeSig=${f.codeSig} → ${winner} [${conf}]`);
+        $("#scanBox").value="";
+      });
+    }
+
+    // init
+    window.addEventListener("load", ()=>{
+      refreshCounts();
+      $("#btnLearnA").addEventListener("click", ()=>learn("A"));
+      $("#btnLearnB").addEventListener("click", ()=>learn("B"));
+      $("#btnClear").addEventListener("click", ()=>{ clearAll(); setTrain("Minták törölve.","warn"); $("#lastFeat").textContent=""; });
+      $("#btnAuto").addEventListener("click", autoDetect);
+      $("#scanBox").focus();
+    });
+  </script>
+</body>
+</html>

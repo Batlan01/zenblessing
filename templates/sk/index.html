@@ -1,0 +1,231 @@
+{% extends "hu/base.html" %}
+{% block page_title %}Eszközök állapota{% endblock %}
+{% block page_title_mobile_inner %}Eszközök{% endblock %}
+{% block page_header_right %}
+  <a href="{{ url_for('main.index', lang='hu') }}"><img src="{{ url_for('static', filename='flags/hu.png') }}" width="32" height="20"></a>
+  <a href="{{ url_for('main.index', lang='sk') }}"><img src="{{ url_for('static', filename='flags/sk.png') }}" width="32" height="20"></a>
+{% endblock %}
+
+{% block content %}
+...
+
+<!-- ── Desktop tábla ── -->
+<div class="card shadow-sm d-none d-md-block">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <h5 class="mb-0">Eszközök állapota</h5>
+    <small class="text-muted" id="last-refresh">—</small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table id="devices-table" class="table table-sm table-hover align-middle mb-0">
+        <thead class="table-light position-sticky top-0">
+          <tr>
+            <th>Eszköz</th>
+            <th>IP</th>
+            <th>Állapot</th>
+            <th>Hőmérséklet</th>
+            <th>Uptime</th>
+            <th>CPU</th>
+            <th>RAM</th>
+            <th>I/O</th>
+            <th>SD kártya</th>
+            <th>Böngésző</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="10" class="text-center py-4 text-muted" id="loading-row">Betöltés…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── Mobil kártyanézet ── -->
+<div class="d-md-none">
+  <div class="d-flex align-items-center justify-content-between mb-2 px-1">
+    <span class="fw-semibold text-body-secondary small">Eszközök állapota</span>
+    <small class="text-muted" id="last-refresh-mobile">—</small>
+  </div>
+  <div id="device-cards" class="d-flex flex-column gap-2">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body py-4 text-center text-muted" id="loading-cards">
+        <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+        Betöltés…
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="error-box" class="alert alert-danger mt-3 d-none" role="alert"></div>
+
+<style>
+  .device-card { border-radius: .75rem; border: 1px solid rgba(0,0,0,.08); }
+  .device-card .metric-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: #6c757d; }
+  .device-card .metric-value { font-size: .9rem; font-weight: 600; }
+  .device-card .device-name  { font-size: 1rem; font-weight: 700; }
+  .device-card .device-ip    { font-size: .78rem; color: #6c757d; }
+</style>
+
+<script>
+  const T_THRESH = { warn: 60, crit: 80 };
+  const CPU_THRESH = { warn: 70, crit: 90 };
+
+  function badge(text, type) {
+    return `<span class="badge rounded-pill bg-${type}">${text}</span>`;
+  }
+
+  function statusBadge(state) {
+    const s = String(state || '').toLowerCase();
+    if (s.includes('up') || s.includes('online')) return badge('Online', 'success');
+    if (s.includes('down') || s.includes('offline')) return badge('Offline', 'danger');
+    return badge(state || 'Ismeretlen', 'secondary');
+  }
+
+  function qualityBadge(q) {
+    const s = String(q || '').toLowerCase();
+    if (s.includes('good')) return badge('Jó', 'success');
+    if (s.includes('warn')) return badge('Figyelmeztetés', 'warning');
+    if (s.includes('bad') || s.includes('fail') || s.includes('error')) return badge('Hiba', 'danger');
+    return badge(q || '—', 'secondary');
+  }
+
+  function browserBadge(state) {
+    const s = String(state || '').toLowerCase();
+    if (s.includes('running'))  return badge('Fut', 'success');
+    if (s.includes('disabled') || s.includes('stopped')) return badge('Leállítva', 'secondary');
+    if (s.includes('unknown'))  return badge('Ismeretlen', 'secondary');
+    if (!state)                 return '—';
+    return badge(state, 'info');
+  }
+
+  function classForMetric(value, th) {
+    const v = Number(value);
+    if (Number.isNaN(v)) return '';
+    if (v >= th.crit) return 'text-danger fw-semibold';
+    if (v >= th.warn) return 'text-warning';
+    return '';
+  }
+
+  /* ── Desktop tábla ── */
+  function renderRows(list) {
+    const tbody = document.querySelector('#devices-table tbody');
+    tbody.innerHTML = '';
+    if (!list || list.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="10" class="text-center py-4 text-muted">Nincs megjeleníthető adat.</td></tr>`;
+      return;
+    }
+    for (const d of list) {
+      const tClass = classForMetric(d.temperature, T_THRESH);
+      const cClass = classForMetric(d.cpu_usage, CPU_THRESH);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="text-truncate" style="max-width:200px" title="${d.name || ''}">${d.name || '—'}</td>
+        <td>${d.ip || '—'}</td>
+        <td>${statusBadge(d.status)}</td>
+        <td class="${tClass}">${d.temperature != null ? d.temperature + '°C' : '—'}</td>
+        <td>${d.uptime || '—'}</td>
+        <td class="${cClass}">${d.cpu_usage != null ? d.cpu_usage + '%' : '—'}</td>
+        <td>${d.ram_usage != null ? d.ram_usage : '—'}</td>
+        <td>${d.io_stats || '—'}</td>
+        <td>${qualityBadge(d.sd_health)}</td>
+        <td>${browserBadge(d.program_status)}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  /* ── Mobil kártyák ── */
+  function renderCards(list) {
+    const container = document.getElementById('device-cards');
+    container.innerHTML = '';
+    if (!list || list.length === 0) {
+      container.innerHTML = `<div class="card border-0 shadow-sm"><div class="card-body text-center text-muted py-4">Nincs megjeleníthető adat.</div></div>`;
+      return;
+    }
+    for (const d of list) {
+      const tClass = classForMetric(d.temperature, T_THRESH);
+      const cClass = classForMetric(d.cpu_usage, CPU_THRESH);
+      const isOnline = String(d.status || '').toLowerCase().includes('up') || String(d.status || '').toLowerCase().includes('online');
+
+      const card = document.createElement('div');
+      card.className = 'card device-card shadow-sm border-0';
+      card.innerHTML = `
+        <div class="card-body py-3 px-3">
+          <!-- Fejléc: név + státusz -->
+          <div class="d-flex align-items-start justify-content-between mb-2">
+            <div>
+              <div class="device-name text-truncate" style="max-width:200px" title="${d.name || ''}">${d.name || '—'}</div>
+              <div class="device-ip">${d.ip || ''} ${d.uptime ? '· ' + d.uptime : ''}</div>
+            </div>
+            <div class="d-flex flex-column align-items-end gap-1">
+              ${statusBadge(d.status)}
+              ${browserBadge(d.program_status)}
+            </div>
+          </div>
+          <!-- Metrikák -->
+          <div class="row row-cols-3 g-2 mt-0">
+            <div class="col">
+              <div class="metric-label">Hőmérséklet</div>
+              <div class="metric-value ${tClass}">${d.temperature != null ? d.temperature + '°C' : '—'}</div>
+            </div>
+            <div class="col">
+              <div class="metric-label">CPU</div>
+              <div class="metric-value ${cClass}">${d.cpu_usage != null ? d.cpu_usage + '%' : '—'}</div>
+            </div>
+            <div class="col">
+              <div class="metric-label">RAM</div>
+              <div class="metric-value">${d.ram_usage != null ? d.ram_usage : '—'}</div>
+            </div>
+            <div class="col">
+              <div class="metric-label">SD kártya</div>
+              <div>${qualityBadge(d.sd_health)}</div>
+            </div>
+            <div class="col">
+              <div class="metric-label">I/O</div>
+              <div class="metric-value">${d.io_stats || '—'}</div>
+            </div>
+          </div>
+        </div>
+        <!-- Bal oldali státusz sáv -->
+        <div class="position-absolute top-0 start-0 h-100 rounded-start" style="width:4px;background:${isOnline ? 'var(--bs-success)' : 'var(--bs-danger)'};"></div>
+      `;
+      card.style.position = 'relative';
+      card.style.overflow = 'hidden';
+      container.appendChild(card);
+    }
+  }
+
+  function showError(msg) {
+    const box = document.getElementById('error-box');
+    box.textContent = msg;
+    box.classList.remove('d-none');
+    setTimeout(() => box.classList.add('d-none'), 6000);
+  }
+
+  function updateTimestamps() {
+    const t = 'Frissítve: ' + new Date().toLocaleTimeString();
+    const el1 = document.getElementById('last-refresh');
+    const el2 = document.getElementById('last-refresh-mobile');
+    if (el1) el1.textContent = t;
+    if (el2) el2.textContent = t;
+  }
+
+  async function loadDeviceData() {
+    try {
+      const res = await fetch('/api/devices');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      renderRows(data);
+      renderCards(data);
+      updateTimestamps();
+    } catch (e) {
+      showError('Nem sikerült betölteni az eszközadatokat. ' + e.message);
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadDeviceData();
+    setInterval(loadDeviceData, 5000);
+  });
+</script>
+{% endblock %}

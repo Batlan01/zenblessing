@@ -1,0 +1,1420 @@
+{% extends (lang ~ '/base.html') %}
+{% block title %}[QC] Bartender Template Kontrol{% endblock %}
+{% set active = 'bartender_gallery' %}
+{% block page_title %}[QC] Bartender Template Kontrol{% endblock %}
+
+{% block page_header_right %}
+  <a href="{{ url_for('qc_bartender.gallery_page', lang='hu') }}" title="Magyar">
+    <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar" width="32" height="20">
+  </a>
+  <a class="ms-2" href="{{ url_for('qc_bartender.gallery_page', lang='sk') }}" title="Slovenský">
+    <img src="{{ url_for('static', filename='flags/sk.png') }}" alt="Slovenský" width="32" height="20">
+  </a>
+{% endblock %}
+
+{% block extra_head %}
+<script src="https://code.jquery.com/jquery-3.7.1.min.js" crossorigin="anonymous"></script>
+<style>
+  .gallery-grid { display:flex; flex-direction:column; gap:28px; margin-top:20px; }
+
+  .pn-section { border:1px solid #e0e0e0; border-radius:12px; overflow:hidden; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+  .pn-section.confirmed { border-color:#a3cfbb; background:#f0faf4; }
+
+  .pn-header { display:flex; align-items:center; gap:16px; padding:14px 20px; background:#f8f9fa; border-bottom:1px solid #e0e0e0; cursor:pointer; user-select:none; }
+  .pn-section.confirmed .pn-header { background:#d1e7dd; border-bottom-color:#a3cfbb; }
+  .pn-header:hover { filter: brightness(.97); }
+
+  .pn-badge { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.95rem; font-weight:700; color:#0d6efd; }
+  .pn-meta { display:flex; gap:10px; flex-wrap:wrap; font-size:.82rem; color:#6c757d; }
+  .pn-meta span { white-space:nowrap; }
+  .pn-toggle-icon { margin-left:auto; font-size:1.1rem; color:#aaa; transition:transform .2s; }
+  .pn-section.open .pn-toggle-icon { transform:rotate(180deg); }
+
+  .pn-cards { display:flex; flex-wrap:wrap; gap:16px; padding:18px 20px 10px; }
+  .pn-cards.collapsed { display:none; }
+
+  /* ── Confirm footer ── */
+  .pn-confirm-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px 14px;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .confirmed-info {
+    font-size: .82rem;
+    color: #0f5132;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn-confirm {
+    border: none;
+    border-radius: 8px;
+    padding: 7px 18px;
+    font-size: .85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter .15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn-confirm.not-confirmed { background:#198754; color:#fff; }
+  .btn-confirm.not-confirmed:hover { filter: brightness(1.08); }
+  .btn-confirm.is-confirmed  { background:#e2e3e5; color:#495057; }
+  .btn-confirm.is-confirmed:hover  { filter: brightness(.96); }
+  .btn-confirm:disabled, .btn-confirm[disabled] {
+    opacity: .45;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
+  /* ── Template kártyák ── */
+  .template-card { position:relative; border:1px solid #ddd; border-radius:8px; padding:10px 12px; width:240px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.07); font-size:.88rem; }
+
+  /* ── Etikett szintű kipipálás ── */
+  .template-card[data-check-key] { cursor:pointer; transition:border-color .15s, box-shadow .15s, background .15s; }
+  .template-card[data-check-key]:hover { border-color:#0d6efd; box-shadow:0 2px 6px rgba(13,110,253,.18); }
+  .template-card.checked { border-color:#198754; background:#f0faf4; }
+  .template-card.checked:hover { border-color:#198754; box-shadow:0 2px 6px rgba(25,135,84,.2); }
+  .template-card .check-mark { position:absolute; top:6px; right:8px; color:#198754; font-size:1.05rem; display:none; }
+  .template-card.checked .check-mark { display:block; }
+  .template-card .check-info { display:none; font-size:.72rem; color:#0f5132; margin-top:5px; border-top:1px dashed #a3cfbb; padding-top:4px; }
+  .template-card.checked .check-info { display:block; }
+  .template-card.busy { opacity:.55; pointer-events:none; }
+  .pn-label-progress { font-size:.78rem; font-weight:600; color:#6c757d; white-space:nowrap; }
+  .pn-label-progress.done { color:#0f5132; }
+
+  /* ── Etikett lista nyomtatás gomb ── */
+  .btn-print-list {
+    border: 1px solid #0d6efd;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: .85rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: transparent;
+    color: #0d6efd;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: background .15s, color .15s;
+  }
+  .btn-print-list:hover { background:#0d6efd; color:#fff; }
+  .preview-lines { margin:4px 0 0; padding-left:1rem; }
+  .preview-lines li { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.83rem; line-height:1.35; color:#333; }
+  .badge-kind { font-size:.7rem; padding:2px 6px; border-radius:4px; font-weight:600; letter-spacing:.02em; text-transform:uppercase; }
+  .badge-from    { background:#cff4fc; color:#055160; }
+  .badge-to      { background:#d1e7dd; color:#0f5132; }
+  .badge-id      { background:#e2e3e5; color:#383d41; }
+  .badge-con     { background:#fff3cd; color:#664d03; }
+  .badge-special { background:#f8d7da; color:#842029; }
+
+  .skeleton-card { width:240px; height:90px; border-radius:8px; background:linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%); background-size:200% 100%; animation:shimmer 1.2s infinite; }
+  @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+  /* ── Keresősáv ── */
+  .search-bar { display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; }
+  .search-field { display:flex; flex-direction:column; gap:3px; }
+  .search-field label { font-size:.72rem; font-weight:600; color:#6c757d; text-transform:uppercase; letter-spacing:.04em; margin:0; }
+  .search-field input { width:180px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.88rem; }
+  .search-field input.has-value { border-color:#0d6efd; box-shadow:0 0 0 2px rgba(13,110,253,.15); }
+  .search-actions { display:flex; gap:6px; align-items:flex-end; }
+
+  .match-badge { display:inline-flex; align-items:center; gap:5px; font-size:.78rem; font-weight:600; padding:3px 10px; border-radius:20px; white-space:nowrap; }
+  .match-badge.exact { background:#d1e7dd; color:#0f5132; }
+  .match-badge.like  { background:#fff3cd; color:#664d03; }
+  .gallery-toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:.5rem; }
+  .status-bar { font-size:.85rem; color:#6c757d; }
+  .pn-error { padding:10px 20px; font-size:.85rem; color:#842029; }
+  .pn-empty { padding:10px 20px; font-size:.85rem; color:#6c757d; font-style:italic; }
+  .gallery-empty-state { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px 20px; color:#adb5bd; gap:12px; }
+  .gallery-empty-state i { font-size:2.5rem; }
+  .gallery-empty-state p { font-size:.95rem; margin:0; }
+
+  /* ── PN böngésző modal ── */
+  #pnBrowserModal .modal-dialog { max-width: 980px; }
+
+  #pnBrowserModal .modal-body   { padding:0; max-height:72vh; overflow-y:auto; }
+  .pn-browser-search { position:sticky; top:0; z-index:10; background:#fff; padding:12px 16px; border-bottom:1px solid #e0e0e0; }
+  .pn-browser-table { width:100%; border-collapse:collapse; font-size:.88rem; }
+  .pn-browser-table thead th { position:sticky; top:0; background:#f8f9fa; padding:8px 12px; font-weight:600; font-size:.76rem; text-transform:uppercase; letter-spacing:.04em; color:#6c757d; border-bottom:2px solid #dee2e6; white-space:nowrap; }
+  .pn-browser-table tbody tr { cursor:pointer; transition:background .1s; border-bottom:1px solid #f0f0f0; }
+  .pn-browser-table tbody tr:hover { background:#f0f5ff !important; }
+  .pn-browser-table tbody tr.row-confirmed { background:#d1fae5; }
+  .pn-browser-table tbody td { padding:8px 12px; }
+  .pn-browser-table .td-pn { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-weight:700; color:#0d6efd; }
+  .td-confirmed { font-size:.78rem; color:#0f5132; font-weight:600; }
+  .td-revoked   { font-size:.78rem; color:#b45309; font-weight:600; }
+  .pn-browser-table tbody tr.row-revoked { background:#fff7ed; }
+  .pn-section.revoked { border-color:#fcd34d; background:#fffbeb; }
+  .pn-section.revoked .pn-header { background:#fef3c7; border-bottom-color:#fcd34d; }
+  .btn-confirm.is-revoked { background:#fff3cd; color:#92400e; border:1px solid #fcd34d; }
+  .btn-confirm.is-revoked:hover { filter: brightness(.96); }
+  .pn-browser-spinner { text-align:center; padding:24px; color:#6c757d; }
+
+  /* ── Hiba bejelentés gomb ── */
+  .btn-report {
+    border: 1px solid #dc3545;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: .85rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: transparent;
+    color: #dc3545;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: background .15s, color .15s;
+  }
+  .btn-report:hover { background:#dc3545; color:#fff; }
+  #bugReportTextarea { min-height:120px; resize:vertical; font-size:.88rem; }
+  .th-sortable {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .th-sortable:hover { background: #f0f4ff; }
+  .sort-icon { font-size: .7rem; opacity: .6; margin-left: 3px; }
+
+  /* ── QC Lock banner ── */
+  .qc-lock-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 20px;
+    font-size: .83rem;
+    font-weight: 600;
+    border-top: 1px solid transparent;
+  }
+  .qc-lock-banner.lk-warning { background:#fff3cd; color:#664d03; border-color:#fcd34d; }
+  .qc-lock-banner.lk-success  { background:#d1e7dd; color:#0f5132; border-color:#a3cfbb; }
+  .qc-lock-banner.lk-info     { background:#cff4fc; color:#055160; border-color:#9ecfdf; }
+
+  /* ── PN verziólista (összes REV/ECN) ── */
+  .pn-versions { padding:0 20px 12px; }
+  .pn-ver-title { font-size:.78rem; font-weight:700; color:#6c757d; text-transform:uppercase; letter-spacing:.03em; margin:4px 0 8px; }
+  .pn-ver-row { display:flex; align-items:center; gap:12px; padding:6px 10px; border:1px solid #eee; border-radius:8px; margin-bottom:6px; cursor:pointer; transition:background .1s,border-color .1s; flex-wrap:wrap; }
+  .pn-ver-row:hover { background:#f0f5ff; border-color:#cfe0ff; }
+  .pn-ver-row.cur { background:#eef2f7; border-color:#cbd5e1; cursor:default; }
+  .pn-ver-ecn { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.83rem; font-weight:600; color:#334155; }
+  .pn-ver-badge { font-size:.72rem; font-weight:600; padding:2px 8px; border-radius:12px; white-space:nowrap; }
+  .pn-ver-date { font-size:.76rem; color:#94a3b8; margin-left:auto; }
+  .pn-ver-cur { font-size:.72rem; color:#0d6efd; font-weight:600; white-space:nowrap; }
+  .pn-ver-loading { font-size:.8rem; color:#94a3b8; padding:4px 0; }
+
+  /* ── Elavult lezárás gomb ── */
+  .btn-supersede {
+    border: 1px solid #6c757d;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: .82rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: transparent;
+    color: #6c757d;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: background .15s, color .15s;
+  }
+  .btn-supersede:hover { background:#6c757d; color:#fff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <h1 class="mb-1">[QC] Bartender Template Kontrol</h1>
+  <p class="text-muted mb-4" style="font-size:.9rem">
+    Keress PN / REV / ECN alapján a sablonok megtekintéséhez.
+  </p>
+
+  <div class="search-bar mb-3">
+    <div class="search-field">
+      <label for="filterPN">PN</label>
+      <input type="search" id="filterPN" class="form-control form-control-sm" placeholder="pl. 9320-5807" autofocus>
+    </div>
+    <div class="search-field">
+      <label for="filterREV">REV</label>
+      <input type="search" id="filterREV" class="form-control form-control-sm" placeholder="pl. A">
+    </div>
+    <div class="search-field">
+      <label for="filterECN">ECN</label>
+      <input type="search" id="filterECN" class="form-control form-control-sm" placeholder="pl. FINI">
+    </div>
+    <div class="search-actions">
+      <button id="searchBtn" class="btn btn-primary btn-sm">
+        <i class="fa-solid fa-magnifying-glass me-1"></i>Keresés
+      </button>
+      <button id="clearBtn" class="btn btn-outline-secondary btn-sm d-none">
+        <i class="fa-solid fa-xmark me-1"></i>Törlés
+      </button>
+      <button id="allPNBtn" class="btn btn-outline-primary btn-sm">
+        <i class="fa-solid fa-list me-1"></i>Összes PN
+      </button>
+    </div>
+  </div>
+
+  <div class="gallery-toolbar">
+    <span id="matchBadge" class="match-badge d-none"></span>
+    <button id="loadMoreBtn"    class="btn btn-outline-primary btn-sm d-none">Továbbiak betöltése</button>
+    <button id="expandAllBtn"   class="btn btn-outline-secondary btn-sm d-none">Összes kinyitása</button>
+    <button id="collapseAllBtn" class="btn btn-outline-secondary btn-sm d-none">Összes bezárása</button>
+
+    <button id="fixedViewBtn" class="btn btn-outline-success btn-sm">
+      <i class="fa-solid fa-wrench me-1"></i>Javítások
+      <span id="fixedBadge" class="badge rounded-pill bg-danger ms-1" style="display:none">0</span>
+    </button>
+
+    <span class="status-bar ms-auto" id="statusBar"></span>
+  </div>
+
+  <div id="pageMsg" class="alert d-none mb-3"></div>
+
+  <div id="emptyState" class="gallery-empty-state">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <p>Töltsd ki legalább az egyik mezőt, majd kattints a Keresés gombra.</p>
+  </div>
+
+  <div id="galleryGrid" class="gallery-grid d-none"></div>
+
+  <div id="loadingIndicator" class="text-center py-4 d-none">
+    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+    <span class="ms-2 text-muted">Betöltés…</span>
+  </div>
+</div>
+
+<!-- ── PN Böngésző Modal ── -->
+<div class="modal fade" id="pnBrowserModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <div class="d-flex align-items-center gap-3 flex-grow-1">
+          <h5 class="modal-title mb-0"><i class="fa-solid fa-list me-2"></i>Összes PN</h5>
+          <span id="pnBrowserStats" class="ms-2" style="font-size:.85rem;color:#6c757d;white-space:nowrap"></span>
+          <div class="form-check form-switch d-flex align-items-center gap-2 mb-0 ms-3">
+            <input class="form-check-input mt-0" type="checkbox" id="hideConfirmedChk" role="switch">
+            <label class="form-check-label" for="hideConfirmedChk" style="font-size:.82rem;cursor:pointer;color:#495057;white-space:nowrap">
+              <i class="fa-solid fa-eye-slash me-1 opacity-75"></i>Ellenőrzöttek elrejtése
+            </label>
+          </div>
+        </div>
+        <button type="button" class="btn-close ms-2" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="pn-browser-search">
+          <input type="search" id="pnBrowserSearch" class="form-control form-control-sm" placeholder="Szűrés PN alapján…">
+        </div>
+        <table class="pn-browser-table">
+          <thead>
+            <tr id="pnBrowserHead">
+              <th data-sort="pn" class="th-sortable">PN <span class="sort-icon">⇅</span></th>
+              <th data-sort="rev" class="th-sortable">REV <span class="sort-icon">⇅</span></th>
+              <th data-sort="ecn" class="th-sortable">ECN <span class="sort-icon">⇅</span></th>
+              <th data-sort="updated" class="th-sortable">Frissítve <span class="sort-icon">⇅</span></th>
+              <th data-sort="updated_by" class="th-sortable">Által <span class="sort-icon">⇅</span></th>
+              <th data-sort="confirmed_by" class="th-sortable">✓ Ellenőrizte <span class="sort-icon">⇅</span></th>
+              <th data-sort="revoked_by" class="th-sortable">↩ Visszavonta <span class="sort-icon">⇅</span></th>
+              <th data-sort="email_sent" class="th-sortable">✉ Email <span class="sort-icon">⇅</span></th>
+            </tr>
+          </thead>
+          <tbody id="pnBrowserBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Ellenőrzés megerősítő Modal ── -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2 border-0">
+        <h5 class="modal-title"><i class="fa-solid fa-circle-check text-success me-2"></i>Ellenőrzés megerősítése</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pt-0">
+        <p class="mb-1">Biztos, hogy ellenőrizted a következő PN sablonokat?</p>
+        <p class="fw-bold mb-0" id="confirmModalPNLabel" style="font-family:monospace"></p>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Nem</button>
+        <button type="button" class="btn btn-success btn-sm" id="confirmModalYesBtn">
+          <i class="fa-solid fa-check me-1"></i>Igen, ellenőriztem
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Hiba bejelentő Modal ── -->
+<div class="modal fade" id="bugReportModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:480px">
+    <div class="modal-content">
+      <div class="modal-header py-2 border-0">
+        <h5 class="modal-title">
+          <i class="fa-solid fa-bug text-danger me-2"></i>Hiba bejelentése
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pt-0">
+        <p class="mb-1" style="font-size:.88rem">PN: <strong id="bugReportPNLabel" style="font-family:monospace"></strong></p>
+        <label class="form-label form-label-sm mb-1 mt-2">Hiba leírása <span class="text-danger">*</span></label>
+        <textarea class="form-control" id="bugReportTextarea"
+                  placeholder="Írd le pontosan mi a probléma – pl. hibás sablon, rossz felirat, hiányzó etikett…"></textarea>
+        <div class="mt-1 text-danger" id="bugReportErr" style="font-size:.82rem"></div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Mégse</button>
+        <button type="button" class="btn btn-danger btn-sm" id="bugReportSendBtn">
+          <i class="fa-solid fa-paper-plane me-1"></i>Hiba elküldése
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Hiba bejelentés megerősítő Modal ── -->
+<div class="modal fade" id="bugConfirmModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2 border-0">
+        <h5 class="modal-title">
+          <i class="fa-solid fa-triangle-exclamation text-warning me-2"></i>Biztosan elküldjük?
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body pt-0">
+        <p class="mb-1" style="font-size:.85rem">PN: <strong id="bugConfirmPNLabel" style="font-family:monospace"></strong></p>
+        <div class="mt-2 p-2 rounded" style="background:#fff3cd;font-size:.83rem;color:#664d03;border:1px solid #fcd34d">
+          <i class="fa-solid fa-quote-left me-1 opacity-50"></i>
+          <span id="bugConfirmPreview"></span>
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Nem, visszamegyek</button>
+        <button type="button" class="btn btn-danger btn-sm" id="bugConfirmYesBtn">
+          <i class="fa-solid fa-paper-plane me-1"></i>Igen, elküldöm
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const PAGE_SIZE         = 20;
+const BROWSER_PAGE_SIZE = 0;   // 0 = összes PN
+
+let __total=0,__offset=0,__loading=false;
+let __filters={pn:"",rev:"",ecn:""};
+let __matchType="";
+let __bLoading=false,__bSearch="",__bTimer=null;
+let __confirmTarget=null;  // {pn,rev,ecn,$section}
+let __bugTarget=null;      // {pn,rev,ecn}
+// ── PN Böngésző ─────────────────────────────────────────────────────────────
+let __bAllItems = [];   // összes betöltött sor megőrzése
+let __bSort = { col: "updated", dir: "desc" };   // alapértelmezett rendezés
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function escHtml(s){return $("<div>").text(String(s??"")).html();}
+function isConTemplate(tpl){return /\b1L\b/i.test(String(tpl||""))&&!/\b2L\b|\b3L\b|\b4L\b/i.test(tpl);}
+function sideOf(tpl){const t=String(tpl||"");if(isConTemplate(t))return"con";if(/\bfrom\b/i.test(t))return"from";if(/\bto\b/i.test(t))return"to";if(/\bid\b/i.test(t))return"id";return"other";}
+function kindBadge(tpl,isSpecial){
+  if(isSpecial) return '<span class="badge-kind badge-special">special</span>';
+  const s=sideOf(tpl);
+  const labels={from:"FROM",to:"TO",id:"ID",con:"CON",other:""};
+  const cls={from:"badge-from",to:"badge-to",id:"badge-id",con:"badge-con",other:""};
+  return labels[s]?`<span class="badge-kind ${cls[s]}">${labels[s]}</span>`:"";
+}
+function extractConValue(raw){
+  let s = String(raw || "").trim().replace(/^CON[:\s-]*/i, "").trim();
+  const emIdx = s.indexOf("—");
+  if (emIdx !== -1) return s.slice(emIdx + 1).trim();
+  const hypIdx = s.indexOf(" - ");
+  if (hypIdx !== -1) return s.slice(hypIdx + 3).trim();
+  return s;
+}
+
+// ── Template kártya ───────────────────────────────────────────────────────────
+function makeGalleryCard({template,lines,perUnit,isSpecial,countLabel,forceCon,checkKey}){
+  const badge=isSpecial
+    ?'<span class="badge-kind badge-special">special</span>'
+    :(forceCon?'<span class="badge-kind badge-con">CON</span>':kindBadge(template,false));
+  const shownLines=isConTemplate(template)?(lines||[]).map(v=>extractConValue(v)):(lines||[]);
+  const linesHtml=shownLines.length
+    ?`<ul class="preview-lines">${shownLines.map(ln=>`<li>${escHtml(ln)}</li>`).join("")}</ul>`
+    :"";
+  const suffix=countLabel||"egység";
+  const perUnitHtml=perUnit>1?`<div class="per-unit" style="font-size:.75rem;color:#888;margin-top:4px">${perUnit}× / ${suffix}</div>`:"";
+  const $card=$(`<div class="template-card"><span class="check-mark"><i class="fa-solid fa-circle-check"></i></span><div class="d-flex align-items-start justify-content-between gap-1">${badge}</div>${linesHtml}${perUnitHtml}<div class="check-info"></div></div>`);
+  $card.attr("data-tpl",template||"");
+  if(checkKey)$card.attr("data-check-key",checkKey).attr("title","Kattints az etikett kipipálásához");
+  return $card;
+}
+
+function updateMatchBadge(mt){
+  const $b=$("#matchBadge");$b.removeClass("exact like d-none");
+  if(mt==="exact")$b.addClass("exact").html('<i class="fa-solid fa-circle-check"></i> Pontos találat');
+  else if(mt==="like")$b.addClass("like").html('<i class="fa-solid fa-circle-info"></i> Hasonló találatok – nincs pontos egyezés');
+  else $b.addClass("d-none");
+}
+
+// ── Preview ───────────────────────────────────────────────────────────────────
+async function loadPreviewForPN(pnItem,$section){
+  const $cards=$section.find(".pn-cards");
+  $cards.empty();
+  for(let i=0;i<3;i++) $cards.append('<div class="skeleton-card"></div>');
+  try{
+    const res=await fetch("/api/bartender/gallery_preview",{
+      method:"POST",credentials:"same-origin",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({pn:pnItem.pn,rev:pnItem.rev||"",ecn:pnItem.ecn||""})
+    });
+    $cards.empty();
+    if(!res.ok){const j=await res.json().catch(()=>({}));$cards.html(`<div class="pn-error">⚠ ${escHtml(j.error||"Hiba")}</div>`);return;}
+    const data=await res.json();
+    // ── [QC DEBUG] backend nyers válasz – ideiglenes diagnosztika ──────────────
+    console.group(`[QC DEBUG] preview ${pnItem.pn} / ${pnItem.rev||""} / ${pnItem.ecn||""}`);
+    console.log("teljes válasz:", data);
+    console.log("templates (sablon → db):", data.templates);
+    console.log("con_label_templates:", data.con_label_templates);
+    console.log("special_labels:", data.special_labels);
+    console.log("line_preview:", data.line_preview);
+    console.log("cards (FROM/TO):", data.cards);
+    // ──────────────────────────────────────────────────────────────────────────
+    const specialSet=new Set((data.special_labels||[]).map(x=>String((x&&x.template)||x||"").trim()));
+    const rendered=new Set();const $frag=$("<div>");
+    let totalCount=0;
+
+    const cardCountMap={};
+    for(const card of(data.cards||[])){
+      const tpl=(card.template||"").trim();
+      if(!tpl)continue;
+      const key=tpl+"|"+(card.lines||[]).join("|");
+      cardCountMap[key]=(cardCountMap[key]||0)+1;
+    }
+
+    for(const card of(data.cards||[])){
+      const tpl=(card.template||"").trim();
+      const key=tpl+"|"+(card.lines||[]).join("|");
+      if(!tpl||rendered.has(key))continue;rendered.add(key);
+      const cnt=cardCountMap[key]||1;
+      totalCount+=cnt;
+      const lbl=(card.kind==="ft")?"kábel":undefined;
+      $frag.append(makeGalleryCard({template:tpl,lines:card.lines||[],perUnit:cnt,isSpecial:false,countLabel:lbl,checkKey:"c|"+key}));
+    }
+    const conLabelSet=new Set((data.con_label_templates||[]).map(t=>String(t||"").trim()));
+    for(const [tpl,perUnit] of Object.entries(data.templates||{})){
+      const isCon=isConTemplate(tpl)||conLabelSet.has(tpl);
+      // Egy sablon lehet EGYSZERRE konnektor- és speciális etikett is
+      // (pl. ugyanaz a .btw mindkét szerepben). Ilyenkor csak akkor hagyjuk ki
+      // a konnektor-kártyák renderelésekor, ha NEM konnektor sablon – különben
+      // a rajta lévő konnektorok (pl. MAINS IN_PE, EARTH RAIL) eltűnnének.
+      const willSkip=specialSet.has(tpl)&&!isCon;
+      console.log(`[QC DEBUG] sablon="${tpl}" db=${perUnit} | isCon=${isCon} special=${specialSet.has(tpl)} → ${willSkip?"KIHAGYVA":"renderel"}`, (data.line_preview&&data.line_preview[tpl])||[]);
+      if(willSkip)continue;
+      const linesRaw=(data.line_preview&&data.line_preview[tpl])||[];
+      const forceCon=!isConTemplate(tpl)&&conLabelSet.has(tpl);
+      if(isCon){
+        const vals=linesRaw.map(v=>String(v||"").trim()).filter(Boolean);
+        // Azonos értékű konnektor-etiketteket NEM dobjuk el, hanem ×N
+        // számlálóval összevonjuk, hogy MINDEN létrehozott konnektor-etikett
+        // megjelenjen a QC-n (pl. C→A2 és D→A2 esetén: "CON A2 ×2").
+        const valCounts={};const valOrder=[];
+        for(const v of(vals.length?vals:[""])){
+          if(!(v in valCounts)){valCounts[v]=0;valOrder.push(v);}
+          valCounts[v]+=1;
+        }
+        for(const v of valOrder){
+          const key=tpl+"|"+v;if(rendered.has(key))continue;rendered.add(key);
+          const cnt=valCounts[v];
+          totalCount+=cnt;
+          $frag.append(makeGalleryCard({template:tpl,lines:[v],perUnit:cnt,isSpecial:false,forceCon,countLabel:"konnektor",checkKey:"n|"+key}));
+        }
+      } else {
+        const key=tpl+"|"+linesRaw.join("|");if(rendered.has(key))continue;rendered.add(key);
+        const pu=parseInt(perUnit,10)||1;
+        totalCount+=pu;
+        $frag.append(makeGalleryCard({template:tpl,lines:linesRaw,perUnit:pu,isSpecial:false,checkKey:"t|"+key}));
+      }
+    }
+    (data.special_labels||[]).forEach((item,idx)=>{
+      const tpl=String((item&&item.template)||item||"").trim();
+      const lines=Array.isArray(item&&item.lines)?item.lines:[];
+      if(!tpl)return;
+      const key="sp|"+idx+"|"+tpl;if(rendered.has(key))return;rendered.add(key);
+      const qty=parseInt((item&&item.qty)||1,10);
+      totalCount+=qty;
+      $frag.append(makeGalleryCard({template:tpl,lines,perUnit:qty,isSpecial:true,checkKey:"s|"+idx+"|"+tpl+"|"+lines.join("|")}));
+    });
+
+    console.log(`[QC DEBUG] VÉGEREDMÉNY: ${$frag.children().length} kártya, totalCount=${totalCount}`);
+    console.groupEnd();
+    const count=$frag.children().length;
+    $cards.html(count?$frag.children():'<div class="pn-empty">Nincs generált sablon.</div>');
+    $section.find(".pn-tpl-count").text(totalCount?`${totalCount} sablon`:"");
+
+    // Mentett etikett-pipák betöltése (DB-ből, minden felhasználónak közös)
+    try{ await loadLabelChecksForSection(pnItem,$section); }catch(e){}
+
+    if(data.confirmed_by){
+      applyConfirmed($section, data.confirmed_by, data.confirmed_at||"");
+    } else if(data.revoked_by){
+      applyRevoked($section, data.revoked_by, data.revoked_at||"");
+    }
+    // Verziólista (összes REV/ECN) betöltése a PN-hez
+    try{ loadVersionsForPN(pnItem,$section); }catch(e){}
+  }catch(err){
+    $cards.empty();$cards.html(`<div class="pn-error">⚠ ${escHtml(err.message)}</div>`);
+  }
+}
+
+// ── Etikett szintű kipipálás ──────────────────────────────────────────────────
+function setCardChecked($card, checked, by, at){
+  $card.toggleClass("checked", !!checked);
+  $card.find(".check-info").html(
+    checked
+      ?`<i class="fa-solid fa-user-check me-1"></i>${escHtml(by||"")}${at?" · "+escHtml(String(at).slice(0,16)):""}`
+      :""
+  );
+}
+
+function updateLabelProgress($section){
+  const $cards=$section.find(".template-card[data-check-key]");
+  const total=$cards.length;
+  const done=$cards.filter(".checked").length;
+  const $p=$section.find(".pn-label-progress");
+  if(!total){$p.text("").removeClass("done");return;}
+  $p.text(`✓ ${done} / ${total} etikett`).toggleClass("done",done===total);
+}
+
+async function loadLabelChecksForSection(pnItem,$section){
+  try{
+    const qs=new URLSearchParams({pn:pnItem.pn,rev:pnItem.rev||"",ecn:pnItem.ecn||""});
+    const res=await fetch("/api/bartender/qc_label_checks?"+qs,{credentials:"same-origin"});
+    const j=await res.json().catch(()=>null);
+    const map=(j&&j.items)||{};
+    $section.find(".template-card[data-check-key]").each(function(){
+      const $c=$(this);
+      const info=map[$c.attr("data-check-key")||""];
+      setCardChecked($c, !!info, info&&info.checked_by, info&&info.checked_at);
+    });
+  }catch(e){}
+  updateLabelProgress($section);
+}
+
+$(document).on("click",".template-card[data-check-key]",async function(){
+  const $card=$(this);
+  if($card.hasClass("busy"))return;
+  const $section=$card.closest(".pn-section");
+  const item=$section.data("pn-item")||{};
+  const key=$card.attr("data-check-key")||"";
+  if(!key||!item.pn)return;
+  const want=!$card.hasClass("checked");
+  $card.addClass("busy");
+  try{
+    const res=await fetch("/api/bartender/qc_label_check",{
+      method:"POST",credentials:"same-origin",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({pn:item.pn,rev:item.rev||"",ecn:item.ecn||"",label_key:key,checked:want})
+    });
+    const j=await res.json().catch(()=>({}));
+    if(j.ok){
+      setCardChecked($card, j.checked, j.checked_by, j.checked_at);
+      updateLabelProgress($section);
+    } else {
+      showMsg(j.error||"Hiba történt","error");
+    }
+  }catch(err){showMsg("Hálózati hiba: "+err.message,"error");}
+  finally{$card.removeClass("busy");}
+});
+
+// ── Etikett lista nyomtatása (kizárólag a sablonok listája) ───────────────────
+function printLabelList($section){
+  const item=$section.data("pn-item")||{};
+  const rows=[];
+  $section.find(".template-card").each(function(){
+    const $c=$(this);
+    rows.push({
+      tpl:$c.attr("data-tpl")||"",
+      badge:($c.find(".badge-kind").first().text()||"").trim(),
+      lines:$c.find(".preview-lines li").map(function(){return $(this).text();}).get(),
+      cnt:($c.find(".per-unit").text()||"").trim(),
+      checked:$c.hasClass("checked")
+    });
+  });
+  if(!rows.length){showMsg("Nincs nyomtatható etikett ehhez a projekthez.","warning");return;}
+  const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const trs=rows.map((r,i)=>`<tr>
+    <td class="num">${i+1}.</td>
+    <td class="chk">${r.checked?"☑":"☐"}</td>
+    <td>${esc(r.badge)}</td>
+    <td class="tpl">${esc(r.tpl)}</td>
+    <td class="lines">${r.lines.map(esc).join("<br>")}</td>
+    <td class="cnt">${esc(r.cnt)}</td>
+  </tr>`).join("");
+  const html=`<!DOCTYPE html><html lang="hu"><head><meta charset="utf-8">
+<title>Etikett lista – ${esc(item.pn)}</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;font-size:12px;margin:24px;color:#111}
+  h1{font-size:16px;margin:0 0 2px}
+  .sub{font-size:11px;color:#555;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse}
+  th,td{border:1px solid #999;padding:4px 8px;text-align:left;vertical-align:top}
+  th{background:#eee;font-size:11px;text-transform:uppercase}
+  td.num{width:28px;text-align:right}
+  td.chk{width:30px;text-align:center;font-size:15px}
+  td.lines{font-family:Consolas,Menlo,monospace;font-size:11px}
+  td.cnt{width:80px;white-space:nowrap}
+  @media print { body{margin:8mm} }
+</style></head><body>
+<h1>Etikett lista – ${esc(item.pn)}</h1>
+<div class="sub">REV: ${esc(item.rev||"—")} &nbsp;·&nbsp; ECN: ${esc(item.ecn||"—")} &nbsp;·&nbsp; ${rows.length} etikett &nbsp;·&nbsp; Nyomtatva: ${esc(new Date().toLocaleString())}</div>
+<table><thead><tr><th></th><th>✓</th><th>Típus</th><th>Sablon</th><th>Tartalom</th><th>Db</th></tr></thead><tbody>${trs}</tbody></table>
+<script>window.onload=function(){window.print();};<\/script>
+</body></html>`;
+  const w=window.open("","_blank");
+  if(!w){showMsg("A böngésző blokkolta a nyomtatási ablakot – engedélyezd a felugró ablakokat.","warning");return;}
+  w.document.open();w.document.write(html);w.document.close();
+}
+
+// ── PN verziólista (összes REV/ECN egy státusz-áttekintésben) ───────────────────
+const __VER_STATUS = {
+  confirmed: ["#d1e7dd","#0f5132","Ellenőrizve"],
+  fixed:     ["#cff4fc","#055160","Javítva"],
+  reported:  ["#f8d7da","#842029","Hiba bejelentve"],
+  none:      ["#e9ecef","#495057","Nincs ellenőrizve"],
+};
+async function loadVersionsForPN(pnItem,$section){
+  const $box=$section.find(".pn-versions");
+  if(!$box.length)return;
+  const $supBtn=$section.find(".btn-supersede-old");
+  $supBtn.hide();
+  $box.html('<div class="pn-ver-loading">Verziók betöltése…</div>');
+  try{
+    const res=await fetch("/api/bartender/pn_versions?pn="+encodeURIComponent(pnItem.pn),{credentials:"same-origin"});
+    const data=await res.json().catch(()=>null);
+    const items=(data&&data.items)||[];
+    // Csak akkor mutatjuk, ha tényleg több verzió van – egyébként nincs mit nézni
+    if(items.length<=1){$box.empty();$supBtn.hide();return;}
+    const curRev=pnItem.rev||"",curEcn=pnItem.ecn||"";
+    // "Elavult" gomb csak akkor, ha van AZ AKTUÁLISNÁL ÚJABB verzió is
+    // (a legfrissebb verziót nem érdemes elavultnak jelölni).
+    const newest=items[0]||{};
+    const hasNewer=!((newest.rev||"")===curRev&&(newest.ecn||"")===curEcn);
+    $supBtn.toggle(hasNewer);
+    const rowsHtml=items.map(v=>{
+      const isCur=(v.rev||"")===curRev&&(v.ecn||"")===curEcn;
+      const st=__VER_STATUS[v.status]||__VER_STATUS.none;
+      return `<div class="pn-ver-row${isCur?" cur":""}" data-rev="${escHtml(v.rev||"")}" data-ecn="${escHtml(v.ecn||"")}">
+        <span class="pn-ver-ecn">REV ${escHtml(v.rev||"—")} / ECN ${escHtml(v.ecn||"—")}</span>
+        <span class="pn-ver-badge" style="background:${st[0]};color:${st[1]}">${st[2]}</span>
+        <span class="pn-ver-date">${escHtml((v.updated||"").slice(0,16))}${v.updated_by?" · "+escHtml(v.updated_by):""}</span>
+        ${isCur?'<span class="pn-ver-cur">● ez a verzió</span>':""}
+      </div>`;
+    }).join("");
+    $box.html(`<div class="pn-ver-title"><i class="fa-solid fa-layer-group me-1"></i>A PN összes verziója (${items.length}) – kattints egy sorra a megnyitáshoz</div>${rowsHtml}`);
+  }catch(e){$box.empty();$supBtn.hide();}
+}
+
+// HELYBEN váltás a verziók között: a kattintott REV/ECN-re cseréljük ugyanazt a
+// kártyát (előnézet + verziólista + státusz), galéria-újratöltés nélkül. Így a
+// "Javítások" nézetből is működik, és nincs only_fixed szűrő-ütközés.
+function switchSectionVersion($section, newRev, newEcn){
+  const item=$section.data("pn-item")||{};
+  newRev=String(newRev||"");newEcn=String(newEcn||"");
+  if((item.rev||"")===newRev && (item.ecn||"")===newEcn) return;
+
+  // a korábbi verzió QC-lockját elengedjük
+  try{ qcReleaseLock(_qcLockKey(item.pn, item.rev||"", item.ecn||"")); }catch(e){}
+  _qcSetLockBanner($section, null, "");
+
+  const newItem=Object.assign({},item,{
+    rev:newRev, ecn:newEcn,
+    confirmed_by:"", confirmed_at:"", revoked_by:"", revoked_at:"",
+    fix_kind:"", newer_ver:""
+  });
+  $section.data("pn-item",newItem);
+
+  // fejléc REV/ECN frissítése (2 <strong>: [0]=REV, [1]=ECN)
+  const $strong=$section.find(".pn-header .pn-meta strong");
+  $strong.eq(0).text(newRev||"—");
+  $strong.eq(1).text(newEcn||"—");
+
+  // státusz reset → az előnézet újratöltése állítja vissza a helyes confirmed/revoked-ot
+  applyNotConfirmed($section);
+  $section.addClass("open").find(".pn-cards").removeClass("collapsed");
+  $section.data("loaded",true);
+  loadPreviewForPN(newItem,$section);
+  qcAcquireLock($section, newItem.pn, newItem.rev||"", newItem.ecn||"");
+}
+
+$(document).on("click",".pn-ver-row:not(.cur)",function(e){
+  e.stopPropagation();
+  const $row=$(this);
+  // attr() (nem .data()) – a .data() a számjegyes ECN-t számmá alakítaná
+  switchSectionVersion($row.closest(".pn-section"),
+                       $row.attr("data-rev")||"", $row.attr("data-ecn")||"");
+});
+
+// ── Ellenőrzés UI frissítése ──────────────────────────────────────────────────
+function applyConfirmed($section, confirmedBy, confirmedAt){
+  $section.removeClass("revoked").addClass("confirmed");
+  $section.find(".btn-confirm")
+    .removeClass("not-confirmed is-revoked")
+    .addClass("is-confirmed")
+    .html('<i class="fa-solid fa-circle-check"></i> Ellenőrizve');
+  $section.find(".confirmed-info")
+    .html(`<i class="fa-solid fa-user-check"></i> ${escHtml(confirmedBy)}${confirmedAt?' · '+escHtml(confirmedAt.slice(0,16)):""}`);
+
+}
+
+function applyRevoked($section, revokedBy, revokedAt){
+  $section.removeClass("confirmed").addClass("revoked");
+  $section.find(".btn-confirm")
+    .removeClass("is-confirmed not-confirmed")
+    .addClass("is-revoked")
+    .html('<i class="fa-solid fa-circle-check"></i> Ellenőrzés');
+  const info = revokedBy
+    ? `<i class="fa-solid fa-rotate-left" style="color:#b45309"></i> <span style="color:#b45309">${escHtml(revokedBy)}${revokedAt?' · '+escHtml(revokedAt.slice(0,16)):''}</span>`
+    : '';
+  $section.find(".confirmed-info").html(info);
+
+}
+
+function applyNotConfirmed($section){
+  $section.removeClass("confirmed revoked");
+  $section.find(".btn-confirm")
+    .removeClass("is-confirmed is-revoked")
+    .addClass("not-confirmed")
+    .html('<i class="fa-solid fa-circle-check"></i> Ellenőrzés');
+  $section.find(".confirmed-info").html("");
+}
+
+// ── PN szekció ────────────────────────────────────────────────────────────────
+function buildPNSection(item, autoExpand){
+  const isConf = !!item.confirmed_by;
+  const isRevoked = !isConf && !!item.revoked_by;
+  const sectionClass = isConf ? 'confirmed' : (isRevoked ? 'revoked' : '');
+  const btnClass     = isConf ? 'is-confirmed' : (isRevoked ? 'is-revoked' : 'not-confirmed');
+  const confirmBarInfo = isConf
+    ? `<i class="fa-solid fa-user-check"></i> ${escHtml(item.confirmed_by)}${item.confirmed_at?' · '+escHtml(item.confirmed_at.slice(0,16)):''}`
+    : isRevoked
+      ? `<i class="fa-solid fa-rotate-left" style="color:#b45309"></i> <span style="color:#b45309">${escHtml(item.revoked_by)}${item.revoked_at?' · '+escHtml(item.revoked_at.slice(0,16)):''}</span>`
+      : '';
+  const $section=$(`
+    <div class="pn-section ${autoExpand?'open':''} ${sectionClass}">
+      <div class="pn-header">
+        <span class="pn-badge">${escHtml(item.pn)}</span>
+        <div class="pn-meta">
+          <span>REV: <strong>${escHtml(item.rev||"—")}</strong></span>
+          <span>ECN: <strong>${escHtml(item.ecn||"—")}</strong></span>
+          ${item.updated?`<span>📅 ${escHtml(item.updated)}</span>`:""}
+          ${item.updated_by?`<span>👤 ${escHtml(item.updated_by)}</span>`:""}
+          ${item.fix_kind==='superseded'?`<span style="color:#664d03;font-weight:600;background:#fff3cd;border:1px solid #fcd34d;border-radius:10px;padding:1px 8px">↗ újabb ECN-ben javítva${item.newer_ver?' ('+escHtml(item.newer_ver)+')':''}</span>`:""}
+          <span class="pn-tpl-count text-muted"></span>
+          <span class="pn-label-progress"></span>
+        </div>
+        <span class="pn-toggle-icon">▾</span>
+      </div>
+      <div class="pn-cards ${autoExpand?'':'collapsed'}"></div>
+      <div class="pn-versions"></div>
+      <div class="pn-confirm-bar">
+        <span class="confirmed-info">${confirmBarInfo}</span>
+        <button class="btn-supersede btn-supersede-old" style="display:none" title="A bejelentett hiba egy újabb ECN-ben lett javítva – ez a régi verzió lezárható">
+          <i class="fa-solid fa-clock-rotate-left"></i> Elavult – újabb ECN-ben javítva
+        </button>
+        <button class="btn-print-list btn-print-labels" title="Az etikett lista nyomtatása kézi ellenőrzéshez">
+          <i class="fa-solid fa-print"></i> Nyomtatás
+        </button>
+        <button class="btn-report btn-report-bug">
+          <i class="fa-solid fa-bug"></i> Hiba bejelentése
+        </button>
+        <button class="btn-confirm ${btnClass}">
+          <i class="fa-solid fa-circle-check"></i> Ellenőrzés
+        </button>
+      </div>
+    </div>`);
+
+  $section.data("pn-item",item);
+
+
+
+  $section.find(".pn-header").on("click",function(){
+    const isOpen=$section.hasClass("open");
+    $section.toggleClass("open",!isOpen);
+    $section.find(".pn-cards").toggleClass("collapsed",isOpen);
+
+    if(!isOpen){
+      // Kinyitás: preview betöltése + lock megszerzése
+      if(!$section.data("loaded")){
+        $section.data("loaded",true);
+        loadPreviewForPN(item,$section);
+      }
+      qcAcquireLock($section, item.pn, item.rev||"", item.ecn||"");
+    } else {
+      // Bezárás: lock elengedése
+      const key = _qcLockKey(item.pn, item.rev||"", item.ecn||"");
+      qcReleaseLock(key);
+      _qcSetLockBanner($section, null, "");
+    }
+  });
+
+  $section.find(".btn-confirm").on("click",function(e){
+    e.stopPropagation();
+    const isConf=$section.hasClass("confirmed");
+    if(isConf){
+      __confirmTarget={pn:item.pn,rev:item.rev||"",ecn:item.ecn||"",$section,undo:true};
+      $("#confirmModalPNLabel").text(`${item.pn} (REV: ${item.rev||"—"}, ECN: ${item.ecn||"—"})`);
+      $("#confirmModalYesBtn").text("Igen, visszavonom");
+      $("#confirmModal .modal-title").html('<i class="fa-solid fa-rotate-left text-warning me-2"></i>Ellenőrzés visszavonása');
+    } else {
+      __confirmTarget={pn:item.pn,rev:item.rev||"",ecn:item.ecn||"",$section,undo:false};
+      $("#confirmModalPNLabel").text(`${item.pn} (REV: ${item.rev||"—"}, ECN: ${item.ecn||"—"})`);
+      $("#confirmModalYesBtn").html('<i class="fa-solid fa-check me-1"></i>Igen, ellenőriztem');
+      $("#confirmModal .modal-title").html('<i class="fa-solid fa-circle-check text-success me-2"></i>Ellenőrzés megerősítése');
+    }
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("confirmModal")).show();
+  });
+
+  $section.find(".btn-print-labels").on("click",async function(e){
+    e.stopPropagation();
+    // Ha a szekció még nem volt kinyitva, előbb betöltjük az etiketteket
+    if(!$section.data("loaded")){
+      $section.data("loaded",true);
+      $section.addClass("open").find(".pn-cards").removeClass("collapsed");
+      const cur=$section.data("pn-item")||item;
+      await loadPreviewForPN(cur,$section);
+    }
+    printLabelList($section);
+  });
+
+  $section.find(".btn-report-bug").on("click",function(e){
+    e.stopPropagation();
+    __bugTarget={pn:item.pn,rev:item.rev||"",ecn:item.ecn||"",updated_by:item.updated_by||""};
+    $("#bugReportPNLabel").text(`${item.pn} (REV: ${item.rev||"—"}, ECN: ${item.ecn||"—"})`);
+    $("#bugReportTextarea").val("");
+    $("#bugReportErr").text("");
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("bugReportModal")).show();
+    setTimeout(()=>$("#bugReportTextarea").focus(), 300);
+  });
+
+  $section.find(".btn-supersede-old").on("click",async function(e){
+    e.stopPropagation();
+    const ok=window.confirm(
+      `Biztosan lezárod ezt a verziót mint elavultat (a hiba egy újabb ECN-ben lett javítva)?\n\n`+
+      `${item.pn} (REV: ${item.rev||"—"}, ECN: ${item.ecn||"—"})\n\n`+
+      `Ezután kikerül a nyitott javítások közül, és az edit oldalon sem mutatja rossznak.`
+    );
+    if(!ok)return;
+    try{
+      const res=await fetch("/api/bartender/qc_supersede",{
+        method:"POST",credentials:"same-origin",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({pn:item.pn,rev:item.rev||"",ecn:item.ecn||""})
+      });
+      const j=await res.json().catch(()=>({}));
+      if(j.ok){
+        applyConfirmed($section, j.confirmed_by||"", "");
+        showMsg("Verzió lezárva (elavult – újabb ECN-ben javítva).","success");
+        try{ setTimeout(updateFixedBadge,300); }catch(_){}
+        try{ loadVersionsForPN(item,$section); }catch(_){}
+      } else {
+        showMsg(j.error||"Hiba történt","error");
+      }
+    }catch(err){showMsg("Hálózati hiba: "+err.message,"error");}
+  });
+
+  if(autoExpand){
+    $section.data("loaded",true);
+    setTimeout(()=>{
+      loadPreviewForPN(item,$section);
+      qcAcquireLock($section, item.pn, item.rev||"", item.ecn||"");
+    },0);
+  }
+  return $section;
+}
+
+// ── Gallery ───────────────────────────────────────────────────────────────────
+function showEmptyState(v){$("#emptyState").toggleClass("d-none",!v);$("#galleryGrid").toggleClass("d-none",v);}
+
+function resetGallery(){
+  // Minden aktív QC lockot elengedünk gallery reset előtt
+  Object.keys(__qcLocks).forEach(key => qcReleaseLock(key));
+  __offset=0;__total=0;__matchType="";
+  $("#galleryGrid").empty();
+  $("#loadMoreBtn,#expandAllBtn,#collapseAllBtn").addClass("d-none");
+  $("#statusBar").text("");
+  $("#matchBadge").addClass("d-none");
+}
+
+async function loadGallery(reset){
+  if(__loading)return;__loading=true;
+  if(reset){__offset=0;$("#galleryGrid").empty();$("#loadMoreBtn").addClass("d-none");}
+  $("#loadingIndicator").removeClass("d-none");
+  const qs=new URLSearchParams({limit:PAGE_SIZE,offset:__offset});
+  if(__filters.pn)qs.set("pn",__filters.pn);if(__filters.rev)qs.set("rev",__filters.rev);if(__filters.ecn)qs.set("ecn",__filters.ecn);
+  if(__onlyFixed)qs.set("only_fixed","1");
+  try{
+    const res=await fetch(`/api/bartender/gallery?${qs}`,{credentials:"same-origin"});
+    if(!res.ok){showMsg((await res.json().catch(()=>({}))).error||"Hiba.","error");return;}
+    const data=await res.json();
+    __total=data.total||0;__matchType=data.match_type||"none";
+    const isFirstPage=__offset===0;
+    if(isFirstPage)updateMatchBadge(__matchType);
+    (data.items||[]).forEach((item,idx)=>$("#galleryGrid").append(buildPNSection(item,isFirstPage&&idx===0)));
+    __offset+=(data.items||[]).length;
+    $("#statusBar").text(`${Math.min(__offset,__total)} / ${__total} találat`);
+    $("#loadMoreBtn").toggleClass("d-none",__offset>=__total);
+    $("#expandAllBtn,#collapseAllBtn").toggleClass("d-none",__total===0);
+    if(__total===0&&isFirstPage){$("#galleryGrid").html('<div class="pn-empty" style="padding:40px 0">Nincs találat.</div>');updateMatchBadge("none");}
+  }catch(err){showMsg("Hálózati hiba: "+err.message,"error");}
+  finally{$("#loadingIndicator").addClass("d-none");__loading=false;try{updateFixedBadge();}catch(e){}}
+}
+
+// ── PN Browser ────────────────────────────────────────────────────────────────
+function browserRender(items) {
+  const filtered = __hideConfirmed ? items.filter(i => !i.confirmed_by) : items;
+  const rows = filtered.map(item => `
+    <tr class="${item.confirmed_by ? 'row-confirmed' : (item.revoked_by ? 'row-revoked' : '')}"
+        data-pn="${escHtml(item.pn)}" data-rev="${escHtml(item.rev||'')}" data-ecn="${escHtml(item.ecn||'')}">
+      <td class="td-pn">${escHtml(item.pn)}</td>
+      <td>${escHtml(item.rev||"—")}</td>
+      <td>${escHtml(item.ecn||"—")}</td>
+      <td style="font-size:.78rem;color:#888">${escHtml(item.updated||"")}</td>
+      <td style="font-size:.78rem;color:#888">${escHtml(item.updated_by||"")}</td>
+      <td class="td-confirmed">${item.confirmed_by ? `<i class="fa-solid fa-circle-check text-success me-1"></i>${escHtml(item.confirmed_by)}` : '—'}</td>
+      <td class="td-revoked">${item.revoked_by ? `<i class="fa-solid fa-rotate-left text-warning me-1"></i>${escHtml(item.revoked_by)}` : '—'}</td>
+      <td>${item.email_sent ? '<span class="text-success fw-semibold">igen</span>' : '<span class="text-muted">—</span>'}</td>
+    </tr>`).join("");
+
+  const confirmedCount = items.filter(i => i.confirmed_by).length;
+  const revokedCount   = items.filter(i => !i.confirmed_by && i.revoked_by).length;
+  const totalCount     = items.length;
+  let statsHtml = `<span class="badge bg-success me-1">${confirmedCount}</span>`
+                + `<span class="text-muted">/ ${totalCount} lekontrollált</span>`;
+  if (revokedCount > 0) {
+    statsHtml += ` <span class="badge bg-warning text-dark ms-2">${revokedCount}</span>`
+               + `<span class="text-muted"> visszavont</span>`;
+  }
+  $("#pnBrowserStats").html(statsHtml);
+  $("#pnBrowserBody").html(rows || `<tr><td colspan="8" style="text-align:center;padding:24px;color:#aaa">Nincs találat</td></tr>`);
+
+  $("#pnBrowserHead th").each(function(){
+    const col = $(this).data("sort");
+    if (!col) return;
+    $(this).find(".sort-icon").text(
+      __bSort.col === col ? (__bSort.dir === "asc" ? "↑" : "↓") : "⇅"
+    );
+  });
+}
+
+function browserSort(items) {
+  const col = __bSort.col, dir = __bSort.dir;
+  return [...items].sort((a, b) => {
+    let va = a[col] ?? "", vb = b[col] ?? "";
+    if (typeof va === "boolean") va = va ? 1 : 0;
+    if (typeof vb === "boolean") vb = vb ? 1 : 0;
+    const aEmpty = va === "" || va === "—";
+    const bEmpty = vb === "" || vb === "—";
+    if (aEmpty && !bEmpty) return 1;
+    if (!aEmpty && bEmpty) return -1;
+    const cmp = String(va).localeCompare(String(vb), undefined, {numeric: true});
+    return dir === "asc" ? cmp : -cmp;
+  });
+}
+
+async function browserLoad() {
+  if (__bLoading) return; __bLoading = true;
+  $("#pnBrowserBody").html(`<tr><td colspan="8" class="pn-browser-spinner"><div class="spinner-border spinner-border-sm text-primary" role="status"></div><span class="ms-2">Betöltés…</span></td></tr>`);
+  const qs = new URLSearchParams({limit: 0, offset: 0});
+  if (__bSearch) qs.set("pn", __bSearch);
+  try {
+    const res  = await fetch(`/api/bartender/gallery?${qs}`, {credentials: "same-origin"});
+    const data = await res.json();
+    __bAllItems = data.items || [];
+    browserRender(browserSort(__bAllItems));
+  } catch(err) {
+    $("#pnBrowserBody").html(`<tr><td colspan="8" style="color:#842029;padding:12px">Hiba: ${escHtml(err.message)}</td></tr>`);
+  } finally { __bLoading = false; }
+}
+
+$(document).on("click", "#pnBrowserHead th.th-sortable", function(){
+  const col = $(this).data("sort");
+  if (!col) return;
+  if (__bSort.col === col) {
+    __bSort.dir = __bSort.dir === "asc" ? "desc" : "asc";
+  } else {
+    __bSort.col = col;
+    __bSort.dir = col === "updated" ? "desc" : "asc";
+  }
+  browserRender(browserSort(__bAllItems));
+});
+
+// ── Confirm ───────────────────────────────────────────────────────────────────
+async function doConfirm(pn,rev,ecn,undo){
+  const method=undo?"DELETE":"POST";
+  const res=await fetch("/api/bartender/qc_confirm",{
+    method,credentials:"same-origin",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({pn,rev,ecn})
+  });
+  try{ setTimeout(function(){ updateFixedBadge(); }, 300); }catch(e){}
+  return res.json();
+}
+
+function showMsg(text,level){
+  const levelMap={error:"alert-danger",warning:"alert-warning",success:"alert-success",info:"alert-info"};
+  const box=document.getElementById("pageMsg");
+  box.className="alert "+(levelMap[level]||"alert-info");
+  box.textContent=text;clearTimeout(box.__timer);
+  box.__timer=setTimeout(()=>box.classList.add("d-none"),6000);
+}
+
+function triggerSearch(){
+  __filters.pn=$("#filterPN").val().trim();__filters.rev=$("#filterREV").val().trim();__filters.ecn=$("#filterECN").val().trim();
+  ["PN","REV","ECN"].forEach(k=>$("#filter"+k).toggleClass("has-value",!!__filters[k.toLowerCase()]));
+  if(!__filters.pn&&!__filters.rev&&!__filters.ecn){resetGallery();showEmptyState(true);$("#clearBtn").addClass("d-none");return;}
+  $("#clearBtn").removeClass("d-none");showEmptyState(false);loadGallery(true);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ELLENŐRZÖTT PN SZŰRŐ
+// ══════════════════════════════════════════════════════════════════════════════
+let __hideConfirmed = false;
+
+function applyConfirmedFilter(){
+  __hideConfirmed = $("#hideConfirmedChk").prop("checked");
+  // Csak a browser táblát frissítjük – a gallery érintetlen marad
+  if(__bAllItems.length) browserRender(browserSort(__bAllItems));
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// QC LOCK SYSTEM
+// Megakadályozza, hogy két felhasználó egyszerre ellenőrizzen ugyanazt a PN-t.
+// ══════════════════════════════════════════════════════════════════════════════
+const QC_LOCK_HB_MS = 60_000;  // heartbeat 60 másodpercenként
+
+// Per-PN lock state: "pn||rev||ecn" kulcsra indexelve
+const __qcLocks = {};
+
+function _qcLockKey(pn, rev, ecn){
+  return `${pn}||${rev||""}||${ecn||""}`;
+}
+
+function _qcSetLockBanner($section, variant, html){
+  let $banner = $section.find(".qc-lock-banner");
+  if(!variant){
+    $banner.remove();
+    return;
+  }
+  if(!$banner.length){
+    $banner = $('<div class="qc-lock-banner"></div>');
+    $section.find(".pn-confirm-bar").before($banner);
+  }
+  $banner
+    .removeClass("lk-warning lk-success lk-info")
+    .addClass("lk-" + variant)
+    .html(html);
+}
+
+function _qcSetConfirmDisabled($section, disabled){
+  $section.find(".btn-confirm").prop("disabled", disabled);
+}
+
+async function qcAcquireLock($section, pn, rev, ecn){
+  const key = _qcLockKey(pn, rev, ecn);
+  // Ha már van aktív lock ennél a section-nél, ne indítsunk újat
+  if(__qcLocks[key]?.token) return;
+
+  try{
+    const res = await fetch("/api/bartender/qc_lock",{
+      method: "POST", credentials: "same-origin",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({pn, rev: rev||"", ecn: ecn||""})
+    });
+    const d = await res.json().catch(()=>null);
+    if(!d) return;  // hálózati hiba → ne blokkolj
+
+    if(d.acquired){
+      // Sikeresen megszereztük a lockoт
+      if(__qcLocks[key]?.retryTimer) clearInterval(__qcLocks[key].retryTimer);
+      __qcLocks[key] = {
+        token:      d.lock_token,
+        pn,
+        rev:        rev||"",
+        ecn:        ecn||"",
+        hbTimer:    d.lock_token ? setInterval(()=>_qcHeartbeat(key), QC_LOCK_HB_MS) : null,
+        retryTimer: null,
+      };
+      _qcSetLockBanner($section, "success",
+        `<i class="fa-solid fa-circle-check me-1"></i>Az ellenőrzési jog nálad van.`
+      );
+      _qcSetConfirmDisabled($section, false);
+    } else {
+      // Más felhasználóé a lock
+      const who = escHtml(d.locked_by || "valaki más");
+      _qcSetLockBanner($section, "warning",
+        `<i class="fa-solid fa-lock me-1"></i>Most <strong>${who}</strong> ellenőrzi ezt a PN-t. Az Ellenőrzés gomb zárolva.`
+      );
+      _qcSetConfirmDisabled($section, true);
+
+      // 30 másodpercenként automatikusan újrapróbáljuk
+      if(!__qcLocks[key]?.retryTimer){
+        __qcLocks[key] = {
+          token:      null,
+          pn, rev: rev||"", ecn: ecn||"",
+          hbTimer:    null,
+          retryTimer: setInterval(()=>_qcRetryAcquire($section, key, pn, rev, ecn), 30_000),
+        };
+      }
+    }
+  } catch(e){
+    // Hálózati hiba → ne blokkolj, csendesen kezeljük
+    console.warn("[QC LOCK] acquire error:", e);
+  }
+}
+
+async function _qcRetryAcquire($section, key, pn, rev, ecn){
+  // Ha a section már nincs a DOM-ban (pl. gallery reset), leállítjuk
+  if(!$.contains(document, $section[0])){
+    qcReleaseLock(key);
+    return;
+  }
+  // Ha a section be van zárva (nem open), ne próbálkozzunk
+  if(!$section.hasClass("open")) return;
+
+  try{
+    const res = await fetch("/api/bartender/qc_lock",{
+      method: "POST", credentials: "same-origin",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({pn, rev: rev||"", ecn: ecn||""})
+    });
+    const d = await res.json().catch(()=>null);
+    if(!d) return;
+
+    if(d.acquired){
+      if(__qcLocks[key]?.retryTimer) clearInterval(__qcLocks[key].retryTimer);
+      __qcLocks[key] = {
+        token:      d.lock_token,
+        pn, rev: rev||"", ecn: ecn||"",
+        hbTimer:    d.lock_token ? setInterval(()=>_qcHeartbeat(key), QC_LOCK_HB_MS) : null,
+        retryTimer: null,
+      };
+      _qcSetLockBanner($section, "success",
+        `<i class="fa-solid fa-circle-check me-1"></i>Az ellenőrzési jog nálad van.`
+      );
+      _qcSetConfirmDisabled($section, false);
+    }
+    // Ha még mindig lockolt: banner marad, retry fut tovább
+  } catch(e){}
+}
+
+async function _qcHeartbeat(key){
+  const lk = __qcLocks[key];
+  if(!lk || !lk.token) return;
+  try{
+    const res = await fetch("/api/bartender/qc_heartbeat",{
+      method: "POST", credentials: "same-origin",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({pn: lk.pn, rev: lk.rev, ecn: lk.ecn, lock_token: lk.token})
+    });
+    if(res.status === 409){
+      // Lock elveszett
+      clearInterval(lk.hbTimer);
+      delete __qcLocks[key];
+    }
+  } catch(e){}
+}
+
+function qcReleaseLock(key){
+  const lk = __qcLocks[key];
+  if(!lk) return;
+  if(lk.hbTimer)    clearInterval(lk.hbTimer);
+  if(lk.retryTimer) clearInterval(lk.retryTimer);
+  delete __qcLocks[key];
+
+  if(!lk.token) return;  // soha nem volt aktív lock token → nincs mit törölni a DB-ben
+
+  const payload = JSON.stringify({
+    pn: lk.pn, rev: lk.rev, ecn: lk.ecn, lock_token: lk.token
+  });
+  if(navigator.sendBeacon){
+    navigator.sendBeacon("/api/bartender/qc_unlock",
+      new Blob([payload], {type:"application/json"}));
+  } else {
+    fetch("/api/bartender/qc_unlock",{
+      method:"POST", credentials:"same-origin", keepalive:true,
+      headers:{"Content-Type":"application/json"}, body:payload
+    }).catch(()=>{});
+  }
+}
+
+// Oldal bezárásakor / navigáláskor minden QC lock elengedése
+window.addEventListener("beforeunload", function(){
+  Object.keys(__qcLocks).forEach(key=>{
+    const lk = __qcLocks[key];
+    if(!lk?.token) return;
+    try{
+      navigator.sendBeacon?.("/api/bartender/qc_unlock",
+        new Blob([JSON.stringify({pn:lk.pn,rev:lk.rev,ecn:lk.ecn,lock_token:lk.token})],
+          {type:"application/json"}));
+    } catch(e){}
+  });
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+$(function(){
+  showEmptyState(true);
+  // Auto-keresés email linkből (?pn=&rev=&ecn=) – pl. QC javítás-visszajelzés gomb
+  (function(){
+    const p = new URLSearchParams(window.location.search);
+    const pn = (p.get("pn") || "").trim();
+    if (!pn) return;
+    $("#filterPN").val(pn);
+    $("#filterREV").val((p.get("rev") || "").trim());
+    $("#filterECN").val((p.get("ecn") || "").trim());
+    triggerSearch();
+  })();
+  $("#filterPN,#filterREV,#filterECN").on("keydown",e=>{if(e.key==="Enter")triggerSearch();});
+  $("#searchBtn").on("click",triggerSearch);
+  $("#clearBtn").on("click",function(){
+    $("#filterPN,#filterREV,#filterECN").val("").removeClass("has-value");
+    __filters={pn:"",rev:"",ecn:""};resetGallery();showEmptyState(true);$(this).addClass("d-none");$("#filterPN").focus();
+  });
+  $("#loadMoreBtn").on("click",()=>loadGallery(false));
+  $("#expandAllBtn").on("click",function(){
+    $(".pn-section").each(function(){
+      const $s=$(this);
+      if($s.is(":hidden")) return;  // szűrt (elrejtett) sectionöket kihagyjuk
+      $s.addClass("open").find(".pn-cards").removeClass("collapsed");
+      if(!$s.data("loaded")){
+        $s.data("loaded",true);
+        const d=$s.data("pn-item");
+        if(d){
+          loadPreviewForPN(d,$s);
+          qcAcquireLock($s, d.pn, d.rev||"", d.ecn||"");
+        }
+      }
+    });
+  });
+  $("#collapseAllBtn").on("click",function(){
+    $(".pn-section.open").each(function(){
+      const $s=$(this);
+      const d=$s.data("pn-item");
+      if(d){
+        const key=_qcLockKey(d.pn, d.rev||"", d.ecn||"");
+        qcReleaseLock(key);
+        _qcSetLockBanner($s, null, "");
+      }
+    });
+    $(".pn-section").removeClass("open");
+    $(".pn-cards").addClass("collapsed");
+  });
+
+  // Ellenőrzött PN szűrő
+  $("#hideConfirmedChk").on("change", applyConfirmedFilter);
+
+  // ── Összes PN modal ─────────────────────────────────────────────────────
+  $("#allPNBtn").on("click",function(){
+    __bSearch="";$("#pnBrowserSearch").val("");
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("pnBrowserModal")).show();
+    browserLoad();
+  });
+  $("#pnBrowserSearch").on("input",function(){
+    clearTimeout(__bTimer);
+    __bTimer=setTimeout(()=>{__bSearch=$(this).val().trim();browserLoad();},350);
+  });
+  $(document).on("click","#pnBrowserBody tr[data-pn]",function(){
+    const pn=$(this).data("pn")||"",rev=$(this).data("rev")||"",ecn=$(this).data("ecn")||"";
+    bootstrap.Modal.getInstance(document.getElementById("pnBrowserModal"))?.hide();
+    $("#filterPN").val(pn).addClass("has-value");
+    $("#filterREV").val(rev||"").toggleClass("has-value",!!rev);
+    $("#filterECN").val(ecn||"").toggleClass("has-value",!!ecn);
+    __filters.pn=pn;__filters.rev=rev||"";__filters.ecn=ecn||"";
+    $("#clearBtn").removeClass("d-none");showEmptyState(false);loadGallery(true);
+  });
+
+  // ── Confirm modal ────────────────────────────────────────────────────────
+  $("#confirmModalYesBtn").on("click",async function(){
+    if(!__confirmTarget)return;
+    bootstrap.Modal.getInstance(document.getElementById("confirmModal"))?.hide();
+    const {pn,rev,ecn,$section,undo}=__confirmTarget;
+    __confirmTarget=null;
+    try{
+      const j=await doConfirm(pn,rev,ecn,undo);
+      if(!j.ok){showMsg(j.error||"Hiba történt","error");return;}
+      if(undo){
+        applyRevoked($section, j.revoked_by||"", "");
+      } else {
+        applyConfirmed($section,j.confirmed_by,"");
+      }
+    }catch(err){showMsg("Hálózati hiba: "+err.message,"error");}
+  });
+
+  // ── Hiba bejelentés modal ────────────────────────────────────────────────
+  $("#bugReportSendBtn").on("click",function(){
+    const msg=$("#bugReportTextarea").val().trim();
+    if(!msg){$("#bugReportErr").text("Kérjük írd le a hibát.");return;}
+    $("#bugReportErr").text("");
+    $("#bugConfirmPNLabel").text($("#bugReportPNLabel").text());
+    $("#bugConfirmPreview").text(msg.length>120?msg.slice(0,120)+"…":msg);
+    bootstrap.Modal.getInstance(document.getElementById("bugReportModal"))?.hide();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById("bugConfirmModal")).show();
+  });
+
+  $("#bugConfirmYesBtn").on("click",async function(){
+    if(!__bugTarget)return;
+    bootstrap.Modal.getInstance(document.getElementById("bugConfirmModal"))?.hide();
+    const {pn,rev,ecn,updated_by}=__bugTarget;
+    const message=$("#bugReportTextarea").val().trim();
+    __bugTarget=null;
+    try{
+      const res=await fetch("/api/bartender/bug_report",{
+        method:"POST",credentials:"same-origin",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({pn,rev,ecn,message,updated_by})
+      });
+      const j=await res.json().catch(()=>({}));
+      if(j.ok) showMsg("Hiba bejelentve. Köszönjük!","success");
+      else     showMsg(j.error||"Küldési hiba","error");
+    }catch(err){showMsg("Hálózati hiba: "+err.message,"error");}
+  });
+
+  document.getElementById("bugConfirmModal").addEventListener("hidden.bs.modal",function(){
+    if(__bugTarget){
+      bootstrap.Modal.getOrCreateInstance(document.getElementById("bugReportModal")).show();
+    }
+  });
+});
+</script>
+
+<script>
+// ── "Javítások" nézet + frissülő badge ───────────────────────────────────────
+let __onlyFixed = false;
+$("#fixedViewBtn").on("click", function(){
+  __onlyFixed = !__onlyFixed;
+  $(this).toggleClass("btn-success", __onlyFixed).toggleClass("btn-outline-success", !__onlyFixed);
+  try { showEmptyState(false); } catch(e) {}
+  loadGallery(true);
+});
+async function updateFixedBadge(){
+  try{
+    const r = await fetch('/api/bartender/qc_fixed_count', {credentials:'same-origin', cache:'no-store'});
+    if (!r.ok) return;
+    const j = await r.json();
+    const n = (j && j.count) ? j.count : 0;
+    const b = document.getElementById('fixedBadge');
+    if (b){ b.textContent = n; b.style.display = n > 0 ? '' : 'none'; }
+  }catch(e){}
+}
+updateFixedBadge();
+setInterval(updateFixedBadge, 15000);
+</script>
+
+{% endblock %}

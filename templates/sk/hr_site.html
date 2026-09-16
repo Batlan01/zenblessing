@@ -1,0 +1,172 @@
+{% set active = 'sk' %}
+{% extends lang ~ '/base.html' %}
+
+{% block title %}HR – Nahrávanie pracovníkov z Excelu{% endblock %}
+{% block page_title %}HR – Import zamestnancov z Excelu{% endblock %}
+{% block extra_head %}
+<style>
+.file-label.btn-outline-primary{
+  border-width: 2px;
+}
+.file-label.btn-outline-primary:hover{
+  filter: brightness(1.05);
+}
+.file-label.btn-outline-primary:focus-within{
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+</style>
+{% endblock %}
+{% block page_header_right %}
+  <a href="{{ url_for('human_resources.hr_home', lang='hu') }}">
+    <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar" width="32" height="20">
+  </a>
+  <a class="ms-2" href="{{ url_for('human_resources.hr_home', lang='sk') }}">
+    <img src="{{ url_for('static', filename='flags/sk.png') }}" alt="Slovenský" width="32" height="20">
+  </a>
+{% endblock %}
+{% block content %}
+<div class="container my-4">
+
+  <div class="card p-3 mb-3">
+    <div class="d-flex flex-wrap align-items-center gap-3">
+      <div>
+        <label class="btn btn-outline-primary file-label mb-0">
+          <input id="excelInput" type="file" accept=".xlsx,.xls,.csv" hidden>
+          <i class="fa-solid fa-file-arrow-up me-2"></i> Vybrať Excel
+        </label>
+      </div>
+      <div id="fileInfo" class="text-muted"></div>
+      <div class="ms-auto">
+        <button id="btnCommit" class="btn btn-primary" disabled>Nahrať Excel</button>
+      </div>
+    </div>
+    <div class="mt-2 small text-secondary">
+      Tip: prvý riadok nech je hlavička. Podporované formáty: .xlsx, .xls, .csv
+    </div>
+  </div>
+
+  <div id="dbColsWrap" class="mb-2" style="display:none;">
+    <div class="small text-secondary mb-1">Stĺpce tabuľky Workers (DB):</div>
+    <div id="dbCols"></div>
+  </div>
+
+  <div class="card p-0">
+    <div class="table-responsive" style="max-height:60vh;">
+      <table class="table table-sm table-dark table-striped mb-0">
+        <thead id="tblHead"><tr><th class="text-center text-secondary py-3">Žiadny náhľad – vyber súbor Excel/CSV.</th></tr></thead>
+        <tbody id="tblBody"></tbody>
+      </table>
+    </div>
+    <div id="rowCount" class="p-2 small text-secondary"></div>
+  </div>
+</div>
+
+<style>
+  .file-label{display:inline-block;padding:.6rem 1rem;border:1px dashed rgba(255,255,255,.3);border-radius:.5rem;cursor:pointer}
+  .pill{display:inline-block;background:#0b1830;border:1px solid rgba(255,255,255,.1);padding:.35rem .6rem;border-radius:999px;margin-right:.4rem;font-size:.85rem;color:#cbd5e1}
+</style>
+
+<script>
+  // Lang-aware endpoints
+  const PREVIEW_URL = "/{{ lang }}/human_resources/preview";
+  const COMMIT_URL  = "/{{ lang }}/human_resources/commit";
+
+  let uploadToken = null;
+
+  function showAlert(msg, type="danger"){
+    const id = "al_"+Math.random().toString(36).slice(2);
+    const el = document.createElement("div");
+    el.id = id;
+    el.className = `alert alert-${type} mt-2`;
+    el.role = "alert";
+    el.innerText = msg;
+    document.querySelector(".container").prepend(el);
+    setTimeout(()=>{ el.remove() }, 6000);
+  }
+
+  function renderTable(columns, rows){
+    const thead = document.getElementById("tblHead");
+    thead.innerHTML = "";
+    const tr = document.createElement("tr");
+    columns.forEach(c => {
+      const th = document.createElement("th");
+      th.textContent = c;
+      tr.appendChild(th);
+    });
+    thead.appendChild(tr);
+
+    const tbody = document.getElementById("tblBody");
+    tbody.innerHTML = "";
+    rows.forEach(r => {
+      const row = document.createElement("tr");
+      r.forEach(cell => {
+        const td = document.createElement("td");
+        td.textContent = cell;
+        row.appendChild(td);
+      });
+      tbody.appendChild(row);
+    });
+  }
+
+  function renderDbCols(cols){
+    const wrap = document.getElementById("dbColsWrap");
+    const box = document.getElementById("dbCols");
+    if (!cols || !cols.length){ wrap.style.display = "none"; return; }
+    box.innerHTML = "";
+    cols.forEach(c => {
+      const s = document.createElement("span");
+      s.className = "pill";
+      s.textContent = c;
+      box.appendChild(s);
+    });
+    wrap.style.display = "";
+  }
+
+  document.getElementById("excelInput").addEventListener("change", function(){
+    const f = this.files && this.files[0];
+    if(!f){ return; }
+
+    document.getElementById("fileInfo").textContent = `${f.name} (${Math.round(f.size/1024)} kB)`;
+    const fd = new FormData();
+    fd.append("file", f);
+
+    uploadToken = null;
+    const btn = document.getElementById("btnCommit");
+    btn.disabled = true;
+
+    fetch(PREVIEW_URL, { method: "POST", body: fd })
+      .then(r => r.json().then(j => ({ok:r.ok, j})))
+      .then(({ok, j}) => {
+        if(!ok || !j.ok){ throw new Error(j.error || "Neznáma chyba"); }
+        uploadToken = j.token;
+        renderTable(j.columns, j.preview);
+        document.getElementById("rowCount").textContent =
+          `Náhľad: ${j.preview.length} / ${j.total_rows} riadkov (max 200 zobrazených)`;
+        renderDbCols(j.db_columns || []);
+        btn.disabled = false;
+      })
+      .catch(e => showAlert(e.message || "Chyba pri nahrávaní."));
+  });
+
+  document.getElementById("btnCommit").addEventListener("click", function(){
+    if(!uploadToken){ return; }
+    const btn = this;
+    btn.disabled = true; btn.textContent = "Nahrávanie prebieha…";
+    const fd = new URLSearchParams(); fd.set("token", uploadToken);
+
+    fetch(COMMIT_URL, {
+      method: "POST",
+      headers: {"Content-Type":"application/x-www-form-urlencoded"},
+      body: fd.toString()
+    })
+    .then(r => r.json().then(j => ({ok:r.ok, j})))
+    .then(({ok, j}) => {
+      if(!ok || !j.ok){ throw new Error(j.error || "Neúspešné nahratie."); }
+      showAlert(`Úspešné nahratie. Vložené riadky: ${j.inserted}.`, "success");
+    })
+    .catch(e => showAlert(e.message || "Serverová chyba."))
+    .finally(()=>{ btn.disabled = false; btn.textContent = "Nahrať Excel"; });
+  });
+</script>
+{% endblock %}

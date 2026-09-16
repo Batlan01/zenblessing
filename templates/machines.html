@@ -1,0 +1,31 @@
+{% extends lang ~ '/base.html' %}
+{% block title %}Domain Deploy – Gépek{% endblock %}
+{% block page_title %}Domain Deploy – Gépek{% endblock %}
+
+{% block content %}
+<div class="container-fluid my-3">
+  <div class="card"><div class="table-responsive">
+    <table class="table table-sm table-striped align-middle mb-0">
+      <thead><tr><th>Gép</th><th>OU</th><th>Csoportok</th><th>OS</th><th>IP</th><th>Leltár</th><th>Legutóbb</th><th></th></tr></thead>
+      <tbody>
+        {% for m in machines %}
+        <tr>
+          <td class="fw-semibold">{{ m.hostname }}</td>
+          <td class="small text-muted">{{ m.ad_ou }}</td>
+          <td class="small">
+            {% for g in m.ad_groups_list %}<span class="badge bg-info text-dark me-1 mb-1">{{ g }}</span>{% endfor %}
+          </td>
+          <td class="small">{{ m.os_info }}</td>
+          <td class="small">{{ m.ip }}</td>
+          <td class="small"><a href="{{ url_for('deploy.inventory_page', lang=lang, host=m.hostname) }}">{{ m.inv_count }} prog.</a></td>
+          <td class="small text-muted">{{ m.last_seen }}</td>
+          <td><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('deploy.logs_page', lang=lang, host=m.hostname) }}">Napló</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-3">Még egy gép sem jelentkezett be.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+</div>
+{% endblock %}

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8" />
+  <title>Prihlásenie</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <title>Prihlásenie</title>
+</head>
+<body class="login-page">
+  <div class="login-container">
+    <!-- LOGÓ + ZÁSZLÓK EGY SORBAN -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div style="flex: 1; text-align: left;">
+          <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" style="height: 60px;">
+        </div>
+        <div style="text-align: right;">
+          <a href="{{ url_for('auth.login', lang='hu') }}">
+            <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar" style="width: 24px; height: 16px; margin-right: 5px;">
+          </a>
+          <a href="{{ url_for('auth.login', lang='sk') }}">
+            <img src="{{ url_for('static', filename='flags/sk.png') }}" alt="Slovenský" style="width: 24px; height: 16px;">
+          </a>
+        </div>
+      </div>
+
+    <h2>Prihlásenie</h2>
+    <h4>Windows/RDS prihlásenie</h4>
+    <h4>NIE GRMS</h4>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-messages">
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    <form method="POST">
+      <label for="username">Používatelské meno</label>
+      <input type="text" id="username" name="username" required autofocus>
+
+      <label for="password">Heslo</label>
+      <input type="password" id="password" name="password" required>
+      <button type="submit">Prihlásit sa</button>
+    </form>
+  </div>
+</body>
+</html>
