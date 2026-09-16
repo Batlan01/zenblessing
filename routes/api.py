@@ -81,7 +81,10 @@ def _export_statusz(hatekonysag_pct, config):
 def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: dict):
     """
     Formázott XLSX munkafüzet építő.
-    users_data : {user_nev: [[WO, PN, start, end, (eff_time,) qty, comp_qty, prod, elvart, eltelt, kulonbs], ...]}
+    users_data : day  -> {user: [[WO, PN, start, end, eff_ora, qty, comp_qty, prod,
+                                  elvart, eltelt, kulonbs, statusz], ...]}
+                 month-> {user: [[WO, PN, start, end, qty, comp_qty, prod,
+                                  elvart, eltelt, kulonbs], ...]}
     date_label : megjelenítési dátum string (pl. "2026-04-01" vagy "2026-04")
     mode       : "day" | "month"  (day-nél van Effective Time oszlop extra)
     cfg        : EXPORT_CONFIG dict
@@ -129,19 +132,41 @@ def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: di
         else:
             return cfg["statusz_rossz"]
 
-    # day módban: [WO, PN, start, end, eff_time, qty, comp_qty, prod, elvart, eltelt, kulonbs]
+    # day módban: [WO, PN, start, end, eff_ora, qty, comp_qty, prod, elvart, eltelt, kulonbs, statusz]
     # month módban: [WO, PN, start, end, qty, comp_qty, prod, elvart, eltelt, kulonbs]
     is_day = (mode == "day")
+
+    def _sheet_title(name, used):
+        """Excel lapnév: max 31 karakter, tiltott jelek nélkül, egyedi."""
+        base = "".join(ch for ch in str(name or "—") if ch not in "[]:*?/\\").strip()[:31] or "—"
+        title, n = base, 2
+        while title.lower() in used:
+            suffix = f"~{n}"
+            title = base[:31 - len(suffix)] + suffix
+            n += 1
+        used.add(title.lower())
+        return title
 
     wb = openpyxl.Workbook()
 
     # ── Összesítő lap ──────────────────────────────────────────────────────
+    if is_day:
+        # A "Hatékonyság" szó a Felhasználói haladás oldalon effektív/összes időt
+        # jelent. Itt norma-teljesítésről van szó (elvárt/eltelt), ezért külön néven.
+        sum_headers = ["Dolgozó", "WO db", "Aznapi effektív (ó)", "Elvárt idő (ó)",
+                       "Eltelt idő (ó)", "Különbség (ó)", "Elvárthoz képest (%)", "Lap"]
+        sum_col_widths = [26, 8, 18, 16, 16, 16, 20, 10]
+    else:
+        sum_headers = ["Dolgozó", "WO db", "Elvárt idő (ó)", "Eltelt idő (ó)",
+                       "Különbség (ó)", "Elvárthoz képest (%)", "Lap"]
+        sum_col_widths = [26, 8, 16, 16, 16, 20, 10]
+
     ws_sum = wb.active
     ws_sum.title = "Összesítő"
     ws_sum.sheet_view.showGridLines = False
     ws_sum.freeze_panes = "A5"
 
-    ws_sum.merge_cells("A1:F1")
+    ws_sum.merge_cells(f"A1:{get_column_letter(len(sum_headers))}1")
     ws_sum["A1"] = f"Teljesítmény összesítő  –  {date_label}"
     ws_sum["A1"].font      = _font(14, True, cfg["szin_fejlec_szoveg"])
     ws_sum["A1"].fill      = _fill(cfg["szin_fejlec_hatter"])
@@ -149,14 +174,12 @@ def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: di
     ws_sum.row_dimensions[1].height = 30
 
     from datetime import datetime as _dt
-    ws_sum.merge_cells("A2:H2")
+    ws_sum.merge_cells(f"A2:{get_column_letter(len(sum_headers))}2")
     ws_sum["A2"] = f"Generálva: {_dt.now().strftime('%Y-%m-%d %H:%M')}"
     ws_sum["A2"].font      = Font(name="Arial", size=9, italic=True, color="888888")
     ws_sum["A2"].alignment = _center()
     ws_sum.row_dimensions[3].height = 5
 
-    sum_headers = ["Dolgozó", "WO db", "Elvárt idő (ó)", "Eltelt idő (ó)",
-                   "Különbség (ó)", "Lap"]
     ws_sum.row_dimensions[4].height = 22
     for ci, h in enumerate(sum_headers, 1):
         c = ws_sum.cell(4, ci, h)
@@ -165,19 +188,40 @@ def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: di
         c.alignment = _center()
         c.border = _border()
 
-    sum_col_widths = [26, 8, 16, 16, 16, 10]
     for i, w in enumerate(sum_col_widths, 1):
         ws_sum.column_dimensions[get_column_letter(i)].width = w
 
     summary_rows = []
 
     # ── Dolgozónkénti lapok ────────────────────────────────────────────────
+    used_titles = set()
     for worker, rows in users_data.items():
-        ws = wb.create_sheet(title=worker[:31])
+        sheet_title = _sheet_title(worker, used_titles)
+        ws = wb.create_sheet(title=sheet_title)
         ws.sheet_view.showGridLines = False
         ws.freeze_panes = "A6"
 
-        ws.merge_cells("A1:I1")
+        # Fejléc (5. sor)
+        # col_defs: (fejléc, szélesség, adat_index) — az adat_index a row_data tömb indexe
+        if is_day:
+            col_defs = [
+                ("WO szám",             10,  0), ("Part Number",    18,  1),
+                ("Kezdés",              18,  2), ("Befejezés",      18,  3),
+                ("Rendelési db",        13,  5), ("Elvégzett db",   13,  6),
+                ("Elvárt idő (ó)",      15,  8), ("Eltelt idő (ó)", 15,  9),
+                ("Aznapi effektív (ó)", 19,  4), ("Különbség (ó)",  15, 10),
+                ("Státusz",             26, 11),
+            ]
+        else:
+            col_defs = [
+                ("WO szám",        10,  0), ("Part Number",    18,  1),
+                ("Kezdés",         18,  2), ("Befejezés",      18,  3),
+                ("Rendelési db",   13,  4), ("Elvégzett db",   13,  5),
+                ("Elvárt idő (ó)", 15,  7), ("Eltelt idő (ó)", 15,  8),
+                ("Különbség (ó)",  15,  9),
+            ]
+
+        ws.merge_cells(f"A1:{get_column_letter(len(col_defs))}1")
         ws["A1"] = f"{worker}  –  {date_label}"
         ws["A1"].font      = _font(13, True, cfg["szin_fejlec_szoveg"])
         ws["A1"].fill      = _fill(cfg["szin_fejlec_hatter"])
@@ -186,18 +230,30 @@ def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: di
 
         # Indexek mode szerint
         if is_day:
+            i_eff = 4
             i_qty, i_cqty, i_prod, i_elvart, i_eltelt, i_kulonbs = 5, 6, 7, 8, 9, 10
         else:
+            i_eff = None
             i_qty, i_cqty, i_prod, i_elvart, i_eltelt, i_kulonbs = 4, 5, 6, 7, 8, 9
 
         elvart_ossz  = sum(float(r[i_elvart] or 0) for r in rows)
         eltelt_ossz  = sum(float(r[i_eltelt] or 0) for r in rows)
         kulonbs_ossz = sum(float(r[i_kulonbs] or 0) for r in rows)
-        hatekonysag  = round(elvart_ossz / eltelt_ossz * 100, 1) if eltelt_ossz else 0.0
+        eff_ossz     = sum(float(r[i_eff] or 0) for r in rows) if i_eff is not None else 0.0
+        # Az EXPORT_CONFIG küszöbei eltelt/elvárt arányra vannak megírva
+        # (<=100% = az elvártnál gyorsabb). Korábban ez fordítva volt számolva,
+        # de sehol nem jelent meg, így nem tűnt fel.
+        hatekonysag  = round(eltelt_ossz / elvart_ossz * 100, 1) if elvart_ossz else 0.0
 
-        stat_labels = ["WO darab", "Elvárt össz. (ó)", "Eltelt össz. (ó)", "Különbség (ó)"]
-        stat_values = [str(len(rows)), f"{elvart_ossz:.2f}", f"{eltelt_ossz:.2f}",
-                       f"{kulonbs_ossz:+.2f}"]
+        if is_day:
+            stat_labels = ["WO darab", "Aznapi effektív (ó)", "Elvárt össz. (ó)",
+                           "Eltelt össz. (ó)", "Különbség (ó)"]
+            stat_values = [str(len(rows)), f"{eff_ossz:.2f}", f"{elvart_ossz:.2f}",
+                           f"{eltelt_ossz:.2f}", f"{kulonbs_ossz:+.2f}"]
+        else:
+            stat_labels = ["WO darab", "Elvárt össz. (ó)", "Eltelt össz. (ó)", "Különbség (ó)"]
+            stat_values = [str(len(rows)), f"{elvart_ossz:.2f}", f"{eltelt_ossz:.2f}",
+                           f"{kulonbs_ossz:+.2f}"]
         for ci, (lbl, val) in enumerate(zip(stat_labels, stat_values), 1):
             lc = ws.cell(2, ci*2-1, lbl)
             vc = ws.cell(2, ci*2, val)
@@ -212,24 +268,6 @@ def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: di
         ws.row_dimensions[2].height = 20
         ws.row_dimensions[3].height = 4
 
-        # Fejléc (5. sor)
-        # col_defs: (fejléc, szélesség, adat_index) — az adat_index a row_data tömb indexe
-        if is_day:
-            col_defs = [
-                ("WO szám",        10,  0), ("Part Number",    18,  1),
-                ("Kezdés",         18,  2), ("Befejezés",      18,  3),
-                ("Rendelési db",   13,  5), ("Elvégzett db",   13,  6),
-                ("Elvárt idő (ó)", 15,  8), ("Eltelt idő (ó)", 15,  9),
-                ("Különbség (ó)",  15, 10),
-            ]
-        else:
-            col_defs = [
-                ("WO szám",        10,  0), ("Part Number",    18,  1),
-                ("Kezdés",         18,  2), ("Befejezés",      18,  3),
-                ("Rendelési db",   13,  4), ("Elvégzett db",   13,  5),
-                ("Elvárt idő (ó)", 15,  7), ("Eltelt idő (ó)", 15,  8),
-                ("Különbség (ó)",  15,  9),
-            ]
         ws.row_dimensions[5].height = 22
         for ci, (hdr, width, _) in enumerate(col_defs, 1):
             c = ws.cell(5, ci, hdr)
@@ -246,6 +284,7 @@ def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: di
         elvart_ci   = data_indices.index(i_elvart)  + 1
         eltelt_ci   = data_indices.index(i_eltelt)  + 1
         kulonbs_ci  = data_indices.index(i_kulonbs) + 1
+        eff_ci      = (data_indices.index(i_eff) + 1) if i_eff is not None else None
         elvart_excel_col = get_column_letter(elvart_ci)
         eltelt_excel_col = get_column_letter(eltelt_ci)
 
@@ -254,8 +293,11 @@ def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: di
             ws.row_dimensions[er].height = 18
             bg = cfg["szin_alternalo_sor"] if ri % 2 == 0 else "FFFFFF"
 
-            kulonbs_val = float(row_data[i_kulonbs] or 0)
-            diff_bg, diff_fg = _diff_szin(kulonbs_val)
+            # Folyamatban lévő sornál nincs elvárt/eltelt/különbség -> ne fessük
+            # zöldre, mintha norma alatt teljesített volna.
+            kulonbs_raw = row_data[i_kulonbs]
+            has_diff = kulonbs_raw is not None
+            diff_bg, diff_fg = _diff_szin(float(kulonbs_raw or 0)) if has_diff else (bg, "000000")
 
             for ci, (_, _, data_idx) in enumerate(col_defs, 1):
                 c = ws.cell(er, ci)
@@ -264,7 +306,7 @@ def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: di
                 if ci == kulonbs_ci:  # Különbség
                     c.value         = row_data[data_idx]
                     c.number_format = "+0.00;-0.00;0.00"
-                    c.font          = _font(10, True, diff_fg)
+                    c.font          = _font(10, True, diff_fg) if has_diff else _font(10)
                     c.fill          = _fill(diff_bg)
                     c.alignment     = _center()
                 elif data_idx in (2, 3):  # dátumok
@@ -273,7 +315,7 @@ def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: di
                     c.font          = _font(9)
                     c.fill          = _fill(bg)
                     c.alignment     = _center()
-                elif ci in (elvart_ci, eltelt_ci):  # idők
+                elif ci in (elvart_ci, eltelt_ci) or (eff_ci and ci == eff_ci):  # idők
                     c.value         = row_data[data_idx]
                     c.number_format = "0.00"
                     c.font          = _font(10)
@@ -298,7 +340,7 @@ def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: di
             if ci in (qty_ci, cqty_ci):
                 c.value = f"=SUM({col_l}6:{col_l}{tr-1})"
                 c.number_format = "#,##0"
-            elif ci in (elvart_ci, eltelt_ci):
+            elif ci in (elvart_ci, eltelt_ci) or (eff_ci and ci == eff_ci):
                 c.value = f"=SUM({col_l}6:{col_l}{tr-1})"
                 c.number_format = "0.00"
             elif ci == kulonbs_ci:
@@ -321,9 +363,10 @@ def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: di
 
         summary_rows.append({
             "worker": worker, "wo_db": len(rows),
+            "eff": eff_ossz,
             "elvart": elvart_ossz, "eltelt": eltelt_ossz,
             "kulonbs": kulonbs_ossz, "hatekon": hatekonysag,
-            "sheet": worker[:31],
+            "sheet": sheet_title,
         })
 
     # ── Összesítő lap feltöltése ───────────────────────────────────────────
@@ -331,20 +374,34 @@ def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: di
         bg = cfg["szin_alternalo_sor"] if ri % 2 == 0 else "FFFFFF"
         diff_bg, diff_fg = _diff_szin(row["kulonbs"])
 
-        row_vals = [
-            row["worker"], row["wo_db"],
-            round(row["elvart"], 2), round(row["eltelt"], 2),
-            round(row["kulonbs"], 2), row["sheet"],
-        ]
-        fmts = [None, "#,##0", "0.00", "0.00", "+0.00;-0.00;0.00", None]
+        if is_day:
+            row_vals = [
+                row["worker"], row["wo_db"], round(row["eff"], 2),
+                round(row["elvart"], 2), round(row["eltelt"], 2),
+                round(row["kulonbs"], 2), row["hatekon"], row["sheet"],
+            ]
+            fmts = [None, "#,##0", "0.00", "0.00", "0.00", "+0.00;-0.00;0.00", "0.0", None]
+            diff_ci = 6
+        else:
+            row_vals = [
+                row["worker"], row["wo_db"],
+                round(row["elvart"], 2), round(row["eltelt"], 2),
+                round(row["kulonbs"], 2), row["hatekon"], row["sheet"],
+            ]
+            fmts = [None, "#,##0", "0.00", "0.00", "+0.00;-0.00;0.00", "0.0", None]
+            diff_ci = 5
 
         ws_sum.row_dimensions[ri].height = 18
         for ci, (val, fmt) in enumerate(zip(row_vals, fmts), 1):
             c = ws_sum.cell(ri, ci, val)
             c.border = _border()
             if fmt: c.number_format = fmt
-            if ci == 5:
+            norma_ci = diff_ci + 1
+            if ci == diff_ci:
                 c.font = _font(10, True, diff_fg); c.fill = _fill(diff_bg)
+            elif ci == norma_ci and row["hatekon"]:
+                nbg, nfg = _eff_szin(row["hatekon"])
+                c.font = _font(10, True, nfg); c.fill = _fill(nbg)
             else:
                 c.font = _font(10); c.fill = _fill(bg)
             c.alignment = _center() if ci > 1 else _left()
@@ -358,10 +415,14 @@ def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: di
         ws_sum.cell(tsr, 1).fill      = _fill(cfg["szin_osszesito_hatter"])
         ws_sum.cell(tsr, 1).alignment = _center()
         ws_sum.cell(tsr, 1).border    = _border()
-        for ci, fmt, func in [
-            (2, "#,##0", "SUM"), (3, "0.00", "SUM"), (4, "0.00", "SUM"),
-            (5, "+0.00;-0.00;0.00", "SUM"),
-        ]:
+        total_cols_sum = (
+            [(2, "#,##0", "SUM"), (3, "0.00", "SUM"), (4, "0.00", "SUM"),
+             (5, "0.00", "SUM"), (6, "+0.00;-0.00;0.00", "SUM"), (7, "0.0", "AVERAGE")]
+            if is_day else
+            [(2, "#,##0", "SUM"), (3, "0.00", "SUM"), (4, "0.00", "SUM"),
+             (5, "+0.00;-0.00;0.00", "SUM"), (6, "0.0", "AVERAGE")]
+        )
+        for ci, fmt, func in total_cols_sum:
             cl = get_column_letter(ci)
             c  = ws_sum.cell(tsr, ci)
             c.value         = f"={func}({cl}5:{cl}{tsr-1})"
@@ -370,8 +431,9 @@ def _build_export_workbook(users_data: dict, date_label: str, mode: str, cfg: di
             c.fill          = _fill(cfg["szin_osszesito_hatter"])
             c.alignment     = _center()
             c.border        = _border()
-        ws_sum.cell(tsr, 6).fill   = _fill(cfg["szin_osszesito_hatter"])
-        ws_sum.cell(tsr, 6).border = _border()
+        last_ci = len(sum_headers)
+        ws_sum.cell(tsr, last_ci).fill   = _fill(cfg["szin_osszesito_hatter"])
+        ws_sum.cell(tsr, last_ci).border = _border()
 
     if "Sheet" in wb.sheetnames and len(wb.sheetnames) > 1:
         wb.remove(wb["Sheet"])
@@ -848,103 +910,97 @@ def devices_api():
 
 @api_bp.route('/users_progress', methods=['GET'])
 def users_progress_data():
-    from services.db import get_db
-    conn = get_db()
-    cursor = conn.cursor(dictionary=True)
+    """
+    Napi dolgozói statisztika.
 
-    selected_date = request.args.get('date')
+    Ugyanazt a sorhalmazt használja, mint a dashboard "Összeszerelési
+    állapotok" táblája és a napi Excel export (services/workday.py), ezért
+    a három felület számai összehasonlíthatók.
+    """
+    from services.db import get_db
+    from services import workday
+
+    selected_date = (request.args.get('date') or '').strip()
     if not selected_date:
         return jsonify({"error": "No date provided. Please select a date."}), 400
 
+    # Opcionális állomásszűrő – így a statisztika ugyanarra a körre szűkíthető,
+    # amit a dashboard táblája mutat.
+    station = (request.args.get('station') or '').strip().upper() or None
+    if station and station not in workday.ASSEMBLY_STATIONS:
+        station = None
+
+    conn = get_db()
+    cursor = conn.cursor(dictionary=True)
     try:
-        # 1) Összes idő: login → logout, max 15:00-ig számolunk.
-        #    Ha nincs logout (pl. nem kattintott kilépésre), 15:00-t feltételezünk.
-        #    Ez lefedi a 6:00–14:00 és a 7:00–15:00 műszakokat egyaránt.
-        all_time_query = """
-            SELECT w.name AS user,
-                   GREATEST(
-                       TIMESTAMPDIFF(
-                           SECOND,
-                           MIN(ws.login_date),
-                           LEAST(
-                               COALESCE(
-                                   MAX(CASE WHEN DATE(ws.logout_date) = %s THEN ws.logout_date END),
-                                   CONCAT(%s, ' 15:00:00')
-                               ),
-                               CONCAT(%s, ' 15:00:00')
-                           )
-                       ),
-                       0
-                   ) AS duration
-            FROM workers w
-            LEFT JOIN workerworkstation ws ON w.ID = ws.worker_id
-            WHERE DATE(ws.login_date) = %s
-            GROUP BY w.name
-        """
-        cursor.execute(all_time_query, (selected_date, selected_date, selected_date, selected_date))
-        all_time_results = cursor.fetchall()
-        # Mindenki aki azon a napon bejelentkezett
-        all_time_dict = {row['user']: int(row['duration'] or 0) for row in all_time_results}
+        rows = workday.fetch_day_rows(cursor, selected_date, station=station, order="ASC")
+        logins = workday.fetch_login_seconds(cursor, selected_date)
 
-        # 2) Effektív idő: csak Completed WO-k összege (ez marad, mert közte nem tudható a db)
-        effective_time_query = """
-            SELECT
-                w.name AS user,
-                SUM(
-                    CASE
-                        WHEN DATE(ww.start_time) = %s AND DATE(ww.end_time) = %s THEN
-                            TIMESTAMPDIFF(SECOND,
-                                GREATEST(ww.start_time, CONCAT(%s, ' 00:00:00')),
-                                LEAST(ww.end_time, CONCAT(%s, ' 23:59:59'))
-                            )
-                        ELSE 0
-                    END
-                ) AS effective_time,
-                COUNT(DISTINCT ww.id) AS total_wo
-            FROM workers w
-            LEFT JOIN workstationworkorder ww ON w.ID = ww.worker_id
-            WHERE ww.status = 'Completed'
-            AND DATE(ww.start_time) = %s
-            GROUP BY w.name
-        """
-        cursor.execute(effective_time_query, (selected_date, selected_date, selected_date, selected_date, selected_date))
-        effective_time_results = cursor.fetchall()
-        eff_dict = {row['user']: row for row in effective_time_results}
-
-        results = []
-        # Az all_time_dict-ből indulunk: mindenki megjelenik aki bejelentkezett,
-        # akkor is ha nem volt aznap Completed WO-ja (pl. hosszú multi-napos WO)
-        for user, all_time in all_time_dict.items():
-            eff_row = eff_dict.get(user)
-            effective_time = int(eff_row['effective_time'] or 0) if eff_row else 0
-            total_wo = int(eff_row['total_wo'] or 0) if eff_row else 0
-
-            # Biztonsági cap: effektív nem lehet több az összes időnél
-            if effective_time > all_time:
-                effective_time = all_time
-
-            loss_waited = max(all_time - effective_time, 0)
-            efficiency_pct = round(effective_time / all_time * 100, 1) if all_time > 0 else 0.0
-
-            results.append({
-                'user': user,
-                'effective_time': format_time_difference(effective_time),
-                'all_time': format_time_difference(all_time),
-                'loss_waited': format_time_difference(loss_waited),
-                'total_wo': total_wo,
+        # A tényleges összesítés a services/workday.py-ban van, hogy a napi
+        # export és a statisztika ugyanazt a számítást használja.
+        results = [
+            {
+                'user': a['user'],
+                'worker_id': a['worker_id'],
+                'effective_time': format_time_difference(a['effective_seconds']),
+                'all_time': format_time_difference(a['all_seconds']),
+                'loss_waited': format_time_difference(a['loss_seconds']),
+                # total_wo = lezárt munkasorok száma (visszafelé kompatibilis)
+                'total_wo': a['rows_completed'],
+                'wo_active': a['rows_active'],
+                'wo_distinct': a['wo_distinct'],
                 # nyers másodpercek a frontend grafikonhoz
-                'effective_seconds': effective_time,
-                'all_seconds': all_time,
-                'efficiency_pct': efficiency_pct,
-            })
-
-        # Hatékonyság szerint csökkenő sorrend
-        results.sort(key=lambda x: x['efficiency_pct'], reverse=True)
+                'effective_seconds': a['effective_seconds'],
+                'all_seconds': a['all_seconds'],
+                'completed_seconds': a['completed_seconds'],
+                'active_seconds': a['active_seconds'],
+                'overlap_seconds': a['overlap_seconds'],
+                'efficiency_pct': a['efficiency_pct'],
+                'no_login_record': a['no_login_record'],
+                'assumed_logout': a['assumed_logout'],
+                'capped': a['capped'],
+            }
+            for a in workday.aggregate_workers(rows, logins)
+        ]
         return jsonify(results)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
-        cursor.close()
+        try:
+            cursor.close()
+        except Exception:
+            pass
+
+
+def _wo_norm_map(cursor, work_ids):
+    """
+    work_id -> {'PN', 'QTY', 'PROD_TIME'}
+
+    A WO SAJÁT darabszámával. Korábban ez a map PN-re volt kulcsolva, így ha
+    két munkarendelés ugyanarra a PN-re szólt eltérő darabszámmal, véletlen-
+    szerűen az egyikük QTY-ja került minden sor elvárt idejébe.
+    """
+    ids = tuple({int(x) for x in work_ids if x is not None})
+    if not ids:
+        return {}
+    placeholders = ','.join(['%s'] * len(ids))
+    cursor.execute(
+        "SELECT wo.ID AS work_id, wo.PN AS PN, MIN(wo.QTY) AS QTY, MIN(td.PROD) AS PROD_TIME "
+        "FROM workorders wo "
+        "LEFT JOIN t_dump td ON wo.PN = td.`PART.NBR` "
+        "WHERE wo.ID IN (" + placeholders + ") "
+        "GROUP BY wo.ID, wo.PN",
+        ids,
+    )
+    return {
+        row['work_id']: {
+            'PN': row.get('PN'),
+            'QTY': safe_float(row.get('QTY')),
+            'PROD_TIME': safe_float(row.get('PROD_TIME')),
+        }
+        for row in (cursor.fetchall() or [])
+    }
+
 
 @api_bp.route('/users_progress_month', methods=['GET'])
 def users_progress_month():
@@ -961,11 +1017,15 @@ def users_progress_month():
     try:
         month_start = datetime(int(year), int(month), 1)
         next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
-        month_end = next_month - timedelta(days=1)
+        # A hónap vége KIZÁRÓLAGOS határ. Korábban (next_month - 1 nap) volt,
+        # ami a hónap utolsó napjának 00:00:00-ja -> az utolsó nap gyakorlatilag
+        # kimaradt az exportból.
+        month_end = next_month
 
         effective_time_query = """
             SELECT 
                 w.name AS user,
+                ww.work_id,
                 wo.WO,
                 wo.PN,
                 ww.start_time,
@@ -973,33 +1033,16 @@ def users_progress_month():
                 ww.QTY AS completed_qty,
                 TIMESTAMPDIFF(SECOND, GREATEST(ww.start_time, %s), LEAST(ww.end_time, %s)) AS effective_time
             FROM workers w
-            LEFT JOIN workstationworkorder ww ON w.ID = ww.worker_id
+            JOIN workstationworkorder ww ON w.ID = ww.worker_id
             LEFT JOIN workorders wo ON ww.work_id = wo.ID
-            WHERE ww.status = 'Completed' AND ww.start_time BETWEEN %s AND %s
+            WHERE ww.status = 'Completed'
+              AND ww.start_time >= %s AND ww.start_time < %s
         """
         cursor.execute(effective_time_query, (month_start, month_end, month_start, month_end))
         effective_time_results = cursor.fetchall()
 
-        # Csak a szükséges PN-ekre szűrünk — nem kérjük le az egész táblát
-        needed_pns_m = tuple({str(row['PN']) for row in effective_time_results if row.get('PN')})
-        if needed_pns_m:
-            placeholders_m = ','.join(['%s'] * len(needed_pns_m))
-            qty_prod_time_query = (
-                "SELECT wo.PN, wo.QTY, td.PROD AS PROD_TIME "
-                "FROM workorders wo "
-                "LEFT JOIN t_dump td ON wo.PN = td.`PART.NBR` "
-                "WHERE wo.PN IN (" + placeholders_m + ")"
-            )
-            cursor.execute(qty_prod_time_query, needed_pns_m)
-        else:
-            cursor.execute("SELECT NULL AS PN, NULL AS QTY, NULL AS PROD_TIME WHERE 1=0")
-
-        qty_prod_time_results = {
-            row['PN']: {
-                'QTY': safe_float(row['QTY']),
-                'PROD_TIME': safe_float(row['PROD_TIME'])
-            } for row in cursor.fetchall()
-        }
+        # A WO SAJÁT darabszáma kell, nem a PN-hez tartozó bármelyiké.
+        wo_map = _wo_norm_map(cursor, [row.get('work_id') for row in effective_time_results])
 
         users_data = {}
         for row in effective_time_results:
@@ -1007,8 +1050,9 @@ def users_progress_month():
             PN = row['PN']
             start_time = safe_datetime(row['start_time'])
             end_time = safe_datetime(row['end_time'])
-            qty = qty_prod_time_results.get(PN, {}).get('QTY', 0.0)
-            prod_time = qty_prod_time_results.get(PN, {}).get('PROD_TIME', 0.0)
+            wo_info = wo_map.get(row.get('work_id')) or {}
+            qty = wo_info.get('QTY', 0.0)
+            prod_time = wo_info.get('PROD_TIME', 0.0)
             completed_qty = safe_float(row['completed_qty'])
             expected_time = qty * prod_time * 3600
             elapsed_time = (end_time - start_time).total_seconds() if end_time and start_time else 0
@@ -1043,100 +1087,80 @@ def users_progress_month():
 
 @api_bp.route('/users_progress_day', methods=['GET'])
 def users_progress_day():
+    """
+    Napi Excel export.
+
+    Pontosan ugyanazokat a sorokat exportálja, amiket a /api/users_progress
+    statisztika és a dashboard táblája is a naphoz sorol (services/workday.py).
+    """
     import logging
     _log = logging.getLogger("api.export_day")
     from services.db import get_db
+    from services import workday
 
-    date = request.args.get('date')
+    date = (request.args.get('date') or '').strip()
     if not date:
         return jsonify({"error": "Date must be provided."}), 400
+
+    station = (request.args.get('station') or '').strip().upper() or None
+    if station and station not in workday.ASSEMBLY_STATIONS:
+        station = None
 
     conn = None
     cursor = None
     try:
-        _log.info(f"[export_day] Start: date={date}")
+        _log.info(f"[export_day] Start: date={date} station={station or '-'}")
         conn = get_db()
         cursor = conn.cursor(dictionary=True)
-        _log.info("[export_day] DB connection OK")
 
-        day_start = datetime.strptime(date, "%Y-%m-%d")
-        day_end = day_start + timedelta(days=1)
+        rows = workday.fetch_day_rows(cursor, date, station=station, order="ASC")
+        _log.info(f"[export_day] day rows: {len(rows)}")
 
-        effective_time_query = """
-            SELECT 
-                w.name AS user,
-                wo.WO,
-                wo.PN,
-                ww.start_time,
-                ww.end_time,
-                ww.QTY AS completed_qty,
-                TIMESTAMPDIFF(SECOND, GREATEST(ww.start_time, %s), LEAST(ww.end_time, %s)) AS effective_time
-            FROM workers w
-            LEFT JOIN workstationworkorder ww ON w.ID = ww.worker_id
-            LEFT JOIN workorders wo ON ww.work_id = wo.ID
-            WHERE ww.status = 'Completed' AND ww.start_time BETWEEN %s AND %s
-        """
-        cursor.execute(effective_time_query, (day_start, day_end, day_start, day_end))
-        effective_time_results = cursor.fetchall()
-        _log.info(f"[export_day] effective_time rows: {len(effective_time_results)}")
-
-        # Csak a szükséges PN-ekre szűrünk — nem kérjük le az egész táblát
-        needed_pns = tuple({str(row['PN']) for row in effective_time_results if row.get('PN')})
-        _log.info(f"[export_day] needed PNs: {len(needed_pns)}")
-
-        if needed_pns:
-            placeholders = ','.join(['%s'] * len(needed_pns))
-            qty_prod_time_query = (
-                "SELECT wo.PN, wo.QTY, td.PROD AS PROD_TIME "
-                "FROM workorders wo "
-                "LEFT JOIN t_dump td ON wo.PN = td.`PART.NBR` "
-                "WHERE wo.PN IN (" + placeholders + ")"
-            )
-            cursor.execute(qty_prod_time_query, needed_pns)
-        else:
-            cursor.execute("SELECT NULL AS PN, NULL AS QTY, NULL AS PROD_TIME WHERE 1=0")
-
-        qty_prod_time_results = {
-            row['PN']: {
-                'QTY': safe_float(row['QTY']),  
-                'PROD_TIME': safe_float(row['PROD_TIME'])
-            } for row in cursor.fetchall()
-        }
-        _log.info(f"[export_day] qty_prod_time rows: {len(qty_prod_time_results)}")
+        wo_map = _wo_norm_map(cursor, [r.get("work_id") for r in rows])
+        _log.info(f"[export_day] work orders: {len(wo_map)}")
 
         users_data = {}
-        for row in effective_time_results:
-            user = row['user']
-            PN = row['PN']
-            start_time = safe_datetime(row['start_time'])
-            end_time = safe_datetime(row['end_time'])
-            effective_time = row.get('effective_time', 0)
-            qty = qty_prod_time_results.get(PN, {}).get('QTY', 0.0)
-            prod_time = qty_prod_time_results.get(PN, {}).get('PROD_TIME', 0.0)
-            completed_qty = safe_float(row['completed_qty'])
-            expected_time = qty * prod_time * 3600
-            elapsed_time = (end_time - start_time).total_seconds() if end_time and start_time else 0
-            difference = expected_time - elapsed_time
+        for r in rows:
+            if not r.get("counts_as_effective"):
+                continue
+            info = wo_map.get(r.get("work_id")) or {}
+            qty = info.get('QTY', 0.0)
+            prod_time = info.get('PROD_TIME', 0.0)
+            completed_qty = safe_float(r.get('done_qty'))
 
-            users_data.setdefault(user, []).append([
-                row["WO"], PN, start_time, end_time, effective_time,
+            start_time = r.get('start_time')
+            end_time = r.get('end_time')
+
+            if r["is_completed"] and start_time and end_time:
+                expected_time = qty * prod_time * 3600
+                elapsed_time = (end_time - start_time).total_seconds()
+                elvart = seconds_to_hour_decimal(expected_time)
+                eltelt = seconds_to_hour_decimal(elapsed_time)
+                kulonbseg = seconds_to_hour_decimal(expected_time - elapsed_time)
+            else:
+                # Még fut: nincs értelmes "eltelt" és "különbség" – üresen hagyjuk,
+                # különben a le nem zárt munka fals norma-előnyként jelenne meg.
+                elvart = eltelt = kulonbseg = None
+
+            users_data.setdefault(r.get('felhasznalo') or '—', []).append([
+                r.get("WO"), r.get("PN"), start_time, end_time,
+                seconds_to_hour_decimal(r.get("eff_seconds") or 0),
                 qty, completed_qty, prod_time,
-                seconds_to_hour_decimal(expected_time), 
-                seconds_to_hour_decimal(elapsed_time), 
-                seconds_to_hour_decimal(difference)
+                elvart, eltelt, kulonbseg,
+                workday.status_detail(r),
             ])
 
         output = BytesIO()
         wb = _build_export_workbook(users_data, date, "day", EXPORT_CONFIG)
         wb.save(output)
         xlsx_bytes = output.getvalue()
-        filename = f"Users_Progress_Day_{date}.xlsx"
+        suffix = f"_{station}" if station else ""
+        filename = f"Users_Progress_Day_{date}{suffix}.xlsx"
         _log.info(f"[export_day] XLSX built: {len(xlsx_bytes)} bytes")
         resp = make_response(xlsx_bytes)
         resp.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
         resp.headers['Content-Length'] = len(xlsx_bytes)
-        _log.info("[export_day] Sending response")
         return resp
 
     except Exception as e:
@@ -1150,6 +1174,7 @@ def users_progress_day():
             if conn: conn.close()
         except Exception: pass
         _log.info("[export_day] DB closed")
+
 
 @api_bp.route('/wo_progress_export', methods=['GET'])
 def wo_progress_export():
@@ -1650,85 +1675,93 @@ def overtime_events():
 # api.py
 @api_bp.route('/assembly_data', methods=['GET'])
 def assembly_data():
+    """
+    Dashboard – "Összeszerelési állapotok" tábla.
+
+    Alapértelmezés: a MAI nap összes munkája az adott állomáson, beleértve a
+    még futó és az előző napról átnyúló munkát is. Korábban a szűrés
+    DATE(start_time) = nap volt, és a válasz egy csupasz, 10 elemre vágott
+    lista – valódi összdarabszám nélkül, ezért a lapozás sem működött.
+
+    Query paraméterek:
+      station   : EMI | MTE | MDI | QC | TEST | SOLD | MOLD
+      date      : YYYY-MM-DD, vagy 'all' (dátumszűrés nélkül)
+      page      : 1-től
+      per_page  : 1..1000, vagy 0 = mind (1000-es felső korláttal)
+    """
+    from services import workday
     try:
-        page = request.args.get('page', 1, type=int) or 1
-        per_page = int(request.args.get('per_page', 10) or 10)
+        page = max(request.args.get('page', 1, type=int) or 1, 1)
+
+        raw_per_page = request.args.get('per_page', 25, type=int)
+        raw_per_page = 25 if raw_per_page is None else raw_per_page
+        # per_page <= 0  ->  "mind", felső korláttal
+        per_page = 1000 if raw_per_page <= 0 else min(raw_per_page, 1000)
         offset = (page - 1) * per_page
 
         req_station = (request.args.get('station') or '').strip().upper()
-        req_date    = (request.args.get('date') or '').strip()  # YYYY-MM-DD
+        if req_station not in workday.ASSEMBLY_STATIONS:
+            user_job_title = ((session.get('user', {}) or {}).get('job_title', '') or '').strip().upper()
+            req_station = user_job_title if user_job_title in workday.ASSEMBLY_STATIONS else "EMI"
 
-        ALL = ["EMI","MTE","MDI","QC","TEST","SOLD","MOLD"]
-        if req_station not in ALL:
-            user_job_title = (session.get('user', {}) or {}).get('job_title', '') or ''
-            user_job_title = user_job_title.strip().upper()
-            req_station = user_job_title if user_job_title in ALL else "EMI"
+        req_date = (request.args.get('date') or '').strip()
+        if req_date.lower() == 'all':
+            req_date = None
+        elif not req_date:
+            # Alapértelmezés: MA. Enélkül a tábla a legutóbbi 10 sort mutatta,
+            # dátumtól függetlenül.
+            req_date = datetime.now().strftime('%Y-%m-%d')
 
         db = get_db()
         cur = db.cursor(dictionary=True)
-
-        where = "WHERE ww.process_id = %s"
-        params = [req_station]
-
-        if req_date:
-            where += " AND DATE(ww.start_time) = %s"
-            params.append(req_date)
-
-        sql = f"""
-            SELECT
-                COALESCE(w.name, '') AS felhasznalo,
-                COALESCE(wo.WO,  '') AS WO,
-                COALESCE(wo.PN,  '') AS PN,
-                DATE_FORMAT(ww.start_time, '%Y-%m-%d %H:%i') AS start_time,
-                DATE_FORMAT(ww.end_time,   '%Y-%m-%d %H:%i') AS end_time,
-
-                COALESCE(ww.status, '') AS status,
-
-                ww.process_id AS current_station,
-                COALESCE(ww.next_station_id,'') AS next_station_id,
-
-                COALESCE(ww.QTY, 0) AS done_qty,
-                COALESCE(wo.QTY, 0) AS total_qty
-
-            FROM workstationworkorder ww
-            LEFT JOIN workers    w  ON w.ID  = ww.worker_id
-            LEFT JOIN workorders wo ON wo.ID = ww.work_id
-            {where}
-            ORDER BY ww.start_time DESC
-            LIMIT %s OFFSET %s
-        """
-
-        params.extend([per_page, offset])
-        cur.execute(sql, tuple(params))
-        rows = cur.fetchall() or []
-        cur.close()
+        try:
+            if req_date:
+                total = workday.count_day_rows(cur, req_date, station=req_station)
+                rows = workday.fetch_day_rows(
+                    cur, req_date, station=req_station, limit=per_page, offset=offset
+                )
+            else:
+                total = workday.count_station_rows(cur, req_station)
+                rows = workday.fetch_station_rows(cur, req_station, per_page, offset)
+        finally:
+            try: cur.close()
+            except Exception: pass
 
         out = []
         for r in rows:
-            st   = (r.get("status") or "").strip()
-            endt = r.get("end_time")
-            curst = (r.get("current_station") or "").strip()
-            nxt  = (r.get("next_station_id") or "").strip()
+            start = r.get("start_time")
+            end = r.get("end_time")
+            out.append({
+                "felhasznalo": r.get("felhasznalo") or "",
+                "WO": r.get("WO") or "",
+                "PN": r.get("PN") or "",
+                "start_time": start.strftime('%Y-%m-%d %H:%M') if start else "",
+                "end_time": end.strftime('%Y-%m-%d %H:%M') if end else "",
+                "status": r.get("status") or "",
+                "current_station": r.get("current_station") or "",
+                "next_station_id": r.get("next_station_id") or "",
+                "done_qty": int(r.get("done_qty") or 0),
+                "total_qty": int(r.get("total_qty") or 0),
+                "status_detail": workday.status_detail(r),
+                "qty_text": workday.qty_text(r),
+                # aznapi, napra vágott munkaidő ezen a soron (mp)
+                "day_seconds": int(r.get("eff_seconds") or 0),
+            })
 
-            # STATUS pill szöveg
-            if (st.upper() == "ACTIVE") or (endt in (None, "", "null")):
-                r["status_detail"] = f"IN: {curst}" if curst else "IN: -"
-            else:
-                r["status_detail"] = f"Completed, sent to {nxt}" if nxt else "Completed"
-
-            # ✅ QTY done/total (mindig)
-            done  = int(r.get("done_qty") or 0)
-            total = int(r.get("total_qty") or 0)
-            r["qty_text"] = f"{done} / {total}" if total else f"{done} / 0"
-
-            out.append(r)
-
-        return jsonify(out)
+        total_pages = max(1, -(-total // per_page)) if per_page else 1
+        return jsonify({
+            "rows": out,
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": total_pages,
+            "date": req_date or "all",
+            "station": req_station,
+        })
 
     except Exception as e:
         print(f"/api/assembly_data error: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 
 @api_bp.route('/update_process_and_refresh', methods=['POST'])
@@ -2495,7 +2528,9 @@ def _can_use_wo_search(u: dict) -> bool:
 
 
 # ===== Incoming (várakozó) - station engedélyek user alapján =====
-_INCOMING_ALLOWED_STATIONS = ["EMI", "MTE", "MDI", "QC", "TEST", "SOLD", "MOLD"]
+from services.workday import ASSEMBLY_STATIONS as _ASSEMBLY_STATIONS
+# Ugyanaz a lista, mint az összeszerelési táblánál – egy helyen karbantartva.
+_INCOMING_ALLOWED_STATIONS = list(_ASSEMBLY_STATIONS)
 
 _INCOMING_EXCEPTION_NAMES = {
     # "NIKOLAS TRENCÍK",

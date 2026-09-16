@@ -2,6 +2,7 @@
 from flask import Blueprint, render_template, session, request, redirect, url_for, flash, jsonify
 from services.db import get_db
 from services import tl_settings
+from services.workday import ASSEMBLY_STATIONS
 from utils.helpers import get_assembly_data
 from datetime import datetime
 from routes.auth import (
@@ -27,16 +28,17 @@ def teamleaders(lang):
     user_obj = session.get("user") or {}
     allowed_assembly = _assembly_allowed_stations_for_user(user_obj)  # station_id scope
 
-    # NEM preloadolunk adatot process_id=ASSEMBLY alapján, mert station_id-t nézünk
+    # NEM preloadolunk adatot: a táblát a frontend az /api/assembly_data-ból
+    # tölti, a lapozást is onnan kapott total/total_pages vezérli. A korábbi
+    # total_pages=1 sehol nem volt használva, csak azt sugallta, hogy a
+    # szerver lapoz.
     assembly_data = []
-    total_pages = 1
 
     return render_template(
         f"{lang}/dashboard.html",
         user=session["user"],
         assembly_data=assembly_data,
         current_page=page,
-        total_pages=total_pages,
         active="teamleaders",
         lang=lang,
         can_wo_search=_can_use_wo_search(user_obj),
@@ -44,42 +46,9 @@ def teamleaders(lang):
         allowed_assembly_stations=allowed_assembly,
     )
 
-def _assembly_allowed_stations_for_user(user=None):
-    user = user or {}
-
-    # Elsődleges: "Egyéb beállítások" oldalon felvett állomás-szabály.
-    override = tl_settings.stations_for(user)
-    if override:
-        return override
-
-    # session user általában dict
-    if isinstance(user, dict):
-        jt = (user.get("job_title") or user.get("title") or "").strip().upper()
-        roles = user.get("roles") or user.get("role") or ""
-        if isinstance(roles, (list, tuple)):
-            roles_txt = " ".join(str(x) for x in roles)
-        else:
-            roles_txt = str(roles)
-        blob = f"{jt} {roles_txt}".upper()
-    else:
-        jt = (getattr(user, "job_title", "") or getattr(user, "title", "") or "").strip().upper()
-        blob = jt
-
-    ALL = ["EMI", "MTE", "MDI", "QC", "TEST", "SOLD", "MOLD"]
-
-    # IT / Manager jelleg -> mindent láthat
-    if "IT" in blob or "MANAGER" in blob or "SUPERVISOR" in blob:
-        return ALL
-
-    # ha konkrét állomás szerepel
-    for s in ALL:
-        if s in blob:
-            return [s]
-
-    # fallback
-    return ["EMI", "MTE", "MDI"]
-
-
+# MEGJEGYZÉS: a korábbi, azonos nevű első definíció törölve – a lentebbi
+# (QUALITY TEAM LEADER ágat is ismerő) változat úgyis felülírta, így soha nem
+# futott le, viszont azt a látszatot keltette, hogy két szabályrendszer van.
 
 
 # ================== OTD: táblák / scope-ok ==================
@@ -218,7 +187,9 @@ def _otd_allowed_scopes_for_user() -> list[str]:
 
 # ================== ASSEMBLY STATUS: station scope + kivételek ==================
 # ================== ASSEMBLY STATUS: station scope + kivételek ==================
-_ASSEMBLY_STATUS_STATIONS = ["EMI", "MTE", "MDI", "QC", "TEST", "SOLD", "MOLD"]
+# Egy helyen definiálva (services/workday.py), hogy a dashboard legördülője,
+# az /api/assembly_data validációja és a jogosultság-szűrés ne csúszhasson szét.
+_ASSEMBLY_STATUS_STATIONS = list(ASSEMBLY_STATIONS)
 
 
 _ASSEMBLY_STATUS_EXCEPTION_NAMES = {
@@ -268,7 +239,7 @@ def _assembly_allowed_stations_for_user(user):
 
         blob = jt
 
-    ALL = ["EMI", "MTE", "MDI", "QC", "TEST", "SOLD", "MOLD"]
+    ALL = list(ASSEMBLY_STATIONS)
 
     # IT / manager: mindent láthat
     if "IT" in blob or "MANAGER" in blob:

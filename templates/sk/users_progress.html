@@ -5,7 +5,6 @@
 
 {% block page_title %}Progres používateľa{% endblock %}
 {% block page_header_right %}
-  <!-- Nyelv ikonok -->
   <a href="{{ url_for('progress.users_progress', lang='hu') }}">
     <img src="{{ url_for('static', filename='flags/hu.png') }}" alt="Magyar" width="32" height="20">
   </a>
@@ -16,149 +15,466 @@
 
 {% block content %}
 
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
-    <div class="flash-messages mb-3">
-      {% for category, message in messages %}
-        <div class="alert alert-{{ category }} d-flex justify-content-between align-items-center" id="flash-message">
-          <span>{{ message }}</span>
-          <button class="btn btn-sm btn-link text-decoration-none" onclick="document.getElementById('flash-message').style.display='none'">✖</button>
-        </div>
-      {% endfor %}
-    </div>
-  {% endif %}
-{% endwith %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
-<!-- Vezérlősáv -->
-<!-- Sötét csoport-panel: SZŰRŐ + TÁBLA -->
+<style>
+  /* ── Összesítő kártyák ── */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .summary-card {
+    background: var(--bs-body-bg, #1e2130);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+  .summary-card .sc-label {
+    font-size: 0.69rem;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    opacity: .5;
+  }
+  .summary-card .sc-value {
+    font-size: 1.55rem;
+    font-weight: 700;
+    line-height: 1.15;
+  }
+  .summary-card .sc-sub { font-size: 0.7rem; opacity: .45; }
+  .sc-blue  .sc-value { color: #4e9fff; }
+  .sc-green .sc-value { color: #3ecf8e; }
+  .sc-amber .sc-value { color: #f5a623; }
+
+  /* ── Grafikon sor ── */
+  .chart-row {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  @media (max-width: 820px) { .chart-row { grid-template-columns: 1fr; } }
+  .chart-panel {
+    background: var(--bs-body-bg, #1e2130);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 0.9rem 1.1rem 1.1rem;
+  }
+  .cp-title {
+    font-size: 0.69rem;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    opacity: .45;
+    margin-bottom: 0.7rem;
+  }
+
+  /* ── Hatékonysági progress sáv ── */
+  .eff-bar-wrap { display: flex; align-items: center; gap: 7px; }
+  .eff-bar-bg {
+    flex: 1; height: 6px; border-radius: 3px;
+    background: rgba(255,255,255,0.08); overflow: hidden;
+  }
+  .eff-bar-fill { height: 100%; border-radius: 3px; transition: width .35s ease; }
+  .eff-pct { font-size: 0.77rem; font-weight: 600; min-width: 38px; text-align: right; }
+
+  /* ── WO badge ── */
+  .wo-badge {
+    display: inline-block; padding: 1px 9px; border-radius: 20px;
+    font-size: 0.74rem; font-weight: 600;
+    background: rgba(78,159,255,0.14); color: #4e9fff;
+  }
+
+  /* ── Tábla ── */
+  #users-progress-table thead th {
+    font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: .06em; opacity: .55; white-space: nowrap;
+  }
+  #users-progress-table tbody td { vertical-align: middle; font-size: 0.87rem; }
+  .td-time { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .td-name { font-weight: 500; }
+
+  /* ── Skeleton ── */
+  .skeleton-cell {
+    height: 13px; border-radius: 4px;
+    background: linear-gradient(90deg,
+      rgba(255,255,255,0.04) 25%,
+      rgba(255,255,255,0.11) 50%,
+      rgba(255,255,255,0.04) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.3s infinite;
+  }
+  @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+  .empty-state { text-align: center; padding: 2.5rem; opacity: .4; }
+</style>
+
+<!-- ══════════════ TOOLBAR ══════════════ -->
 <div class="surface-dark group-block mb-3">
-
-  <!-- Vezérlősáv -->
   <div class="toolbar-pad d-flex flex-wrap gap-2 align-items-center">
-    <input id="search-bar" class="form-control" style="max-width: 260px" placeholder="Vyhľadávanie používateľa…">
-    <input id="date-picker" class="form-control" type="date" style="max-width: 180px">
+    <input id="search-bar" class="form-control" style="max-width:240px" placeholder="Vyhľadávanie používateľa…">
+    <input id="date-picker" class="form-control" type="date" style="max-width:170px">
+    <select id="station-picker" class="form-select" style="max-width:170px">
+      <option value="">Všetky stanice</option>
+      <option value="EMI">EMI</option>
+      <option value="MTE">MTE</option>
+      <option value="MDI">MDI</option>
+      <option value="QC">QC</option>
+      <option value="TEST">TEST</option>
+      <option value="SOLD">SOLD</option>
+      <option value="MOLD">MOLD</option>
+    </select>
     <button id="btn-filter" class="btn btn-primary">Filtrovanie</button>
-
     <div class="toolbar-divider"></div>
-
-    <button id="btn-export-day" class="btn btn-outline-secondary">Denné exporty (XLSX)</button>
-    <button id="btn-export-month" class="btn btn-outline-secondary">Mesačný export (XLSX)</button>
-
+    <button id="btn-export-day" class="btn btn-outline-secondary">⬇ Denný export</button>
+    <button id="btn-export-month" class="btn btn-outline-secondary">⬇ Mesačný export</button>
     <div class="ms-auto small dim" id="status-area"></div>
   </div>
-
-  <!-- finom elválasztó a szűrő és a tábla között -->
-  <div class="soft-sep"></div>
-
-  <!-- Adattábla -->
-  <div class="table-wrap">
-    <table id="users-progress-table" class="table table-sm table-striped align-middle">
-      <thead>
-        <tr>
-          <th style="width: 40%">Používateľ</th>
-          <th style="width: 20%">Efektívny čas</th>
-          <th style="width: 20%">Celkový čas</th>
-          <th style="width: 20%">Strata/Očakávania</th>
-        </tr>
-      </thead>
-      <tbody id="table-body"></tbody>
-    </table>
-  </div>
-
 </div>
 
+<!-- ══════════════ ÖSSZESÍTŐ KÁRTYÁK ══════════════ -->
+<div class="summary-grid">
+  <div class="summary-card sc-blue">
+    <span class="sc-label">Pracovníci</span>
+    <span class="sc-value" id="sc-workers">—</span>
+    <span class="sc-sub">prihlásení</span>
+  </div>
+  <div class="summary-card sc-green">
+    <span class="sc-label">Priem. efektivita</span>
+    <span class="sc-value" id="sc-avg-eff">—</span>
+    <span class="sc-sub">efektívny / celkový</span>
+  </div>
+  <div class="summary-card sc-blue">
+    <span class="sc-label">Dokončené WO</span>
+    <span class="sc-value" id="sc-total-wo">—</span>
+    <span class="sc-sub" id="sc-total-wo-sub">všetky zákazky</span>
+  </div>
+  <div class="summary-card sc-amber">
+    <span class="sc-label">Najlepší</span>
+    <span class="sc-value" id="sc-best">—</span>
+    <span class="sc-sub" id="sc-best-name">—</span>
+  </div>
+</div>
+
+<!-- ══════════════ GRAFIKONOK ══════════════ -->
+<div class="chart-row">
+  <div class="chart-panel">
+    <div class="cp-title">Celkový vs efektívny čas (hod)</div>
+    <canvas id="chart-bar"></canvas>
+  </div>
+  <div class="chart-panel">
+    <div class="cp-title">Rozdelenie efektivity</div>
+    <canvas id="chart-doughnut"></canvas>
+  </div>
+</div>
+
+<!-- ══════════════ TÁBLÁZAT ══════════════ -->
+<div class="surface-dark group-block mb-3">
+  <div class="soft-sep"></div>
+  <div class="table-wrap">
+    <table id="users-progress-table" class="table table-sm table-striped align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:26%">Používateľ</th>
+          <th style="width:17%">Efektívny čas</th>
+          <th style="width:17%">Celkový čas</th>
+          <th style="width:17%">Strata</th>
+          <th style="width:8%" class="text-center">WO</th>
+          <th style="width:15%">Efektivita</th>
+        </tr>
+      </thead>
+      <tbody id="table-body">
+        {% for i in range(4) %}
+        <tr>
+          <td><div class="skeleton-cell" style="width:65%"></div></td>
+          <td><div class="skeleton-cell"></div></td>
+          <td><div class="skeleton-cell"></div></td>
+          <td><div class="skeleton-cell"></div></td>
+          <td><div class="skeleton-cell" style="width:50%;margin:auto"></div></td>
+          <td><div class="skeleton-cell"></div></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="px-3 pb-3 small dim" style="line-height:1.6">
+    <strong>Efektivita</strong> = efektívny čas / celkový čas.
+    <em>Efektívny čas</em> je <strong>zjednotenie</strong> pracovných úsekov dňa –
+    čas súbežne bežiacich WO sa počíta iba raz – a obsahuje aj prebiehajúcu
+    prácu, orezanú na daný deň.
+    Tabuľka sčítava presne tie riadky, ktoré pre rovnaký deň a stanicu
+    zobrazuje tabuľka „Montážne stavy“ na dashboarde.
+    <br>
+    Stĺpec <em>„Elvárthoz képest (%)“</em> v Exceli je INÝ ukazovateľ: uplynutý
+    čas voči normočasu (pod 100% = rýchlejšie, než sa očakávalo).
+    <span id="legend-flags"></span>
+  </div>
+</div>
 
 <script>
-  // --- kis segédek
-  function setStatus(msg) { document.getElementById('status-area').textContent = msg || ''; }
+// ─── Segédek ───────────────────────────────────
+function setStatus(msg) { document.getElementById('status-area').textContent = msg || ''; }
 
-  function formatHMS(seconds) {
-    if (!seconds || seconds <= 0) return "0 hours 0 minutes 0 seconds";
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    return `${h} hours ${m} minutes ${s} seconds`;
-  }
+// Helyi idő szerinti mai dátum (a toISOString UTC-t ad, ezért éjfél után
+// két órán át még az előző napot töltötte be).
+function todayStr() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
 
-  // kereső mező — debounce
-  let debounceTimer = null;
-  document.getElementById('search-bar').addEventListener('input', () => {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(applyTextFilter, 150);
-  });
+function selectedStation() {
+  return document.getElementById('station-picker')?.value || '';
+}
 
-  function applyTextFilter() {
+function hm(seconds) {
+  const s = Math.max(0, Math.round(seconds || 0));
+  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`;
+}
+
+// Miért tér el a szám attól, amit a felhasználó várna? Tegyük láthatóvá.
+function rowFlags(row) {
+  const out = [];
+  if (row.overlap_seconds > 60)
+    out.push({ icon: '⧉', title: `Súbežne bežiace WO: prekryv ${hm(row.overlap_seconds)} (počítané raz)` });
+  if (row.wo_active > 0)
+    out.push({ icon: '⏳', title: `${row.wo_active} prebiehajúcich prác, z toho sa počíta ${hm(row.active_seconds)}` });
+  if (row.assumed_logout)
+    out.push({ icon: 'ⓘ', title: 'Chýba odhlásenie – celkový čas sa počíta do odhadovaného konca zmeny' });
+  if (row.no_login_record)
+    out.push({ icon: '⚑', title: 'Pre tento deň chýba záznam o prihlásení' });
+  if (row.capped)
+    out.push({ icon: '✂', title: 'Efektívny čas bol dlhší ako prihlásený čas, preto bol orezaný' });
+  return out;
+}
+
+function effColor(pct) {
+  if (pct >= 75) return '#3ecf8e';
+  if (pct >= 50) return '#f5a623';
+  return '#f46a6a';
+}
+
+// Kereső debounce
+let debTimer = null;
+document.getElementById('search-bar').addEventListener('input', () => {
+  clearTimeout(debTimer);
+  debTimer = setTimeout(() => {
     const q = document.getElementById('search-bar').value.toLowerCase();
-    document.querySelectorAll('#table-body tr').forEach(tr => {
-      const name = tr.querySelector('td')?.textContent.toLowerCase() || '';
-      tr.style.display = name.includes(q) ? '' : 'none';
+    document.querySelectorAll('#table-body tr[data-name]').forEach(tr => {
+      tr.style.display = tr.dataset.name.includes(q) ? '' : 'none';
     });
-  }
+  }, 150);
+});
 
-  // adatok betöltése adott napra
-  async function loadDataForDate(dateStr) {
-    if (!dateStr) { alert("Vyberte si dátum!"); return; }
-    setStatus('Načítava sa...');
-    try {
-      const res = await fetch(`/api/users_progress?date=${encodeURIComponent(dateStr)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+// ─── Chart.js ──────────────────────────────────
+let barChart = null, doughnutChart = null;
 
-      const tbody = document.getElementById('table-body');
-      tbody.innerHTML = '';
+function buildBarChart(data) {
+  const ctx = document.getElementById('chart-bar').getContext('2d');
+  if (barChart) barChart.destroy();
 
-      data.forEach(row => {
-        // backend már formázott stringeket ad; ha szám jönne, fallback a formatHMS-re
-        const eff = (typeof row.effective_time === 'string') ? row.effective_time : formatHMS(row.effective_time);
-        const all = (typeof row.all_time === 'string') ? row.all_time : formatHMS(row.all_time);
-        const loss = row.loss_waited || "0 hours 0 minutes 0 seconds";
-
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${row.user}</td>
-          <td>${eff}</td>
-          <td>${all}</td>
-          <td>${loss}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-
-      applyTextFilter();
-      setStatus(`Výsledky: ${data.length}`);
-    } catch (e) {
-      console.error(e);
-      setStatus('Chyba pri načítaní.');
-      alert('Hiba történt az adatok betöltésekor.');
+  barChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.user.split(' ')[0]),
+      datasets: [
+        {
+          label: 'Celkový čas (h)',
+          data: data.map(d => +(d.all_seconds / 3600).toFixed(2)),
+          backgroundColor: 'rgba(78,159,255,0.22)',
+          borderColor: 'rgba(78,159,255,0.65)',
+          borderWidth: 1, borderRadius: 4,
+        },
+        {
+          label: 'Efektívny (h)',
+          data: data.map(d => +(d.effective_seconds / 3600).toFixed(2)),
+          backgroundColor: 'rgba(62,207,142,0.5)',
+          borderColor: 'rgba(62,207,142,0.85)',
+          borderWidth: 1, borderRadius: 4,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: 'rgba(255,255,255,0.55)', boxWidth: 11, font: { size: 11 } } },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y} h` } }
+      },
+      scales: {
+        x: { ticks: { color: 'rgba(255,255,255,0.4)', font: { size: 10 }, maxRotation: 40 }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: { beginAtZero: true, ticks: { color: 'rgba(255,255,255,0.4)', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.07)' } }
+      }
     }
+  });
+}
+
+function buildDoughnutChart(data) {
+  const ctx = document.getElementById('chart-doughnut').getContext('2d');
+  if (doughnutChart) doughnutChart.destroy();
+
+  const high = data.filter(d => d.efficiency_pct >= 75).length;
+  const mid  = data.filter(d => d.efficiency_pct >= 50 && d.efficiency_pct < 75).length;
+  const low  = data.filter(d => d.efficiency_pct < 50).length;
+
+  doughnutChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['≥75% dobré', '50–74% stredné', '<50% nízke'],
+      datasets: [{
+        data: [high, mid, low],
+        backgroundColor: ['rgba(62,207,142,0.7)', 'rgba(245,166,35,0.7)', 'rgba(244,106,106,0.7)'],
+        borderColor:     ['#3ecf8e', '#f5a623', '#f46a6a'],
+        borderWidth: 1.5, hoverOffset: 5,
+      }]
+    },
+    options: {
+      responsive: true,
+      cutout: '60%',
+      plugins: {
+        legend: { position: 'bottom', labels: { color: 'rgba(255,255,255,0.55)', boxWidth: 11, padding: 10, font: { size: 11 } } },
+        tooltip: { callbacks: { label: c => ` ${c.label}: ${c.parsed} os.` } }
+      }
+    }
+  });
+}
+
+// ─── Összesítő kártyák ─────────────────────────
+function updateSummary(data) {
+  document.getElementById('sc-workers').textContent = data.length;
+
+  const avg = data.length
+    ? (data.reduce((s, d) => s + d.efficiency_pct, 0) / data.length).toFixed(1) + '%'
+    : '—';
+  document.getElementById('sc-avg-eff').textContent = avg;
+  document.getElementById('sc-total-wo').textContent = data.reduce((s, d) => s + (d.total_wo || 0), 0);
+
+  const active = data.reduce((s, d) => s + (d.wo_active || 0), 0);
+  document.getElementById('sc-total-wo-sub').textContent =
+    active ? `+ ${active} prebieha` : 'všetky zákazky';
+
+  if (data.length) {
+    const best = data[0]; // már rendezett hatékonyság szerint (desc)
+    document.getElementById('sc-best').textContent = best.efficiency_pct + '%';
+    document.getElementById('sc-best-name').textContent = best.user.split(' ')[0];
+  }
+}
+
+// ─── Tábla feltöltés ───────────────────────────
+function fillTable(data) {
+  const tbody = document.getElementById('table-body');
+  tbody.innerHTML = '';
+
+  if (!data.length) {
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state">Pre vybraný deň nie sú údaje.</div></td></tr>`;
+    return;
   }
 
-  // gombok
-  document.getElementById('btn-filter').addEventListener('click', () => {
-    const d = document.getElementById('date-picker').value;
-    loadDataForDate(d);
-  });
+  data.forEach(row => {
+    const pct   = row.efficiency_pct ?? 0;
+    const color = effColor(pct);
+    const tr = document.createElement('tr');
+    tr.dataset.name = (row.user || '').toLowerCase();
+    const flags = rowFlags(row).map(f =>
+      `<span title="${f.title}" style="cursor:help;opacity:.75;margin-left:5px">${f.icon}</span>`).join('');
+    const activeNote = row.active_seconds > 60
+      ? `<div class="sc-sub">z toho beží: ${hm(row.active_seconds)}</div>` : '';
 
-  // napi export: ne legyen dupla – elég átirányítani a letöltő endpointra
-  document.getElementById('btn-export-day').addEventListener('click', () => {
-    const d = document.getElementById('date-picker').value;
-    if (!d) return alert('Válassz dátumot!');
-    window.location.href = `/api/users_progress_day?date=${encodeURIComponent(d)}`;
+    tr.innerHTML = `
+      <td class="td-name">${row.user}${flags}</td>
+      <td class="td-time" style="color:#3ecf8e">${row.effective_time}${activeNote}</td>
+      <td class="td-time" style="color:#4e9fff">${row.all_time}</td>
+      <td class="td-time" style="color:#f46a6a">${row.loss_waited || '—'}</td>
+      <td class="text-center">
+        <span class="wo-badge" title="${row.wo_distinct ?? 0} rôznych čísel WO">${row.total_wo ?? 0}</span>
+        ${row.wo_active ? `<span class="wo-badge" style="background:rgba(245,166,35,.16);color:#f5a623" title="prebieha">+${row.wo_active}</span>` : ''}
+      </td>
+      <td>
+        <div class="eff-bar-wrap">
+          <div class="eff-bar-bg">
+            <div class="eff-bar-fill" style="width:${Math.min(pct,100)}%;background:${color}"></div>
+          </div>
+          <span class="eff-pct" style="color:${color}">${pct}%</span>
+        </div>
+      </td>`;
+    tbody.appendChild(tr);
   });
+}
 
-  // havi export: a backend készíti az xlsx-et – csak átirányítunk
-  document.getElementById('btn-export-month').addEventListener('click', () => {
-    const d = document.getElementById('date-picker').value;
-    if (!d) return alert('Válassz dátumot!');
-    const [year, month] = d.split('-');
-    window.location.href = `/api/users_progress_month?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`;
-  });
+// ─── Fő betöltés ───────────────────────────────
+async function loadDataForDate(dateStr, station) {
+  if (!dateStr) { alert('Vyberte dátum!'); return; }
+  station = station ?? selectedStation();
+  setStatus('Načítava sa…');
 
-  // init – ma
-  document.addEventListener('DOMContentLoaded', () => {
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('date-picker').value = today;
-    loadDataForDate(today);
-  });
+  // skeleton
+  document.getElementById('table-body').innerHTML = Array(4).fill(`
+    <tr>
+      <td><div class="skeleton-cell" style="width:65%"></div></td>
+      <td><div class="skeleton-cell"></div></td><td><div class="skeleton-cell"></div></td>
+      <td><div class="skeleton-cell"></div></td>
+      <td><div class="skeleton-cell" style="width:45%;margin:auto"></div></td>
+      <td><div class="skeleton-cell"></div></td>
+    </tr>`).join('');
+
+  try {
+    let url = `/api/users_progress?date=${encodeURIComponent(dateStr)}`;
+    if (station) url += `&station=${encodeURIComponent(station)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data && data.error) throw new Error(data.error);
+
+    fillTable(data);
+    updateSummary(data);
+    buildBarChart(data);
+    buildDoughnutChart(data);
+    setStatus(`${data.length} pracovníkov${station ? ' · ' + station : ''}`);
+  } catch (e) {
+    console.error(e);
+    setStatus('Chyba pri načítaní.');
+    document.getElementById('table-body').innerHTML =
+      `<tr><td colspan="6"><div class="empty-state">Pri načítaní údajov nastala chyba.</div></td></tr>`;
+  }
+}
+
+// ─── Gombok ────────────────────────────────────
+document.getElementById('btn-filter').addEventListener('click', () =>
+  loadDataForDate(document.getElementById('date-picker').value));
+
+document.getElementById('station-picker').addEventListener('change', () =>
+  loadDataForDate(document.getElementById('date-picker').value));
+
+document.getElementById('btn-export-day').addEventListener('click', () => {
+  const d = document.getElementById('date-picker').value;
+  if (!d) return alert('Vyberte dátum!');
+  // Az export ugyanazt a napot ÉS ugyanazt az állomást kapja, amit a tábla mutat.
+  const st = selectedStation();
+  window.location.href = `/api/users_progress_day?date=${encodeURIComponent(d)}`
+    + (st ? `&station=${encodeURIComponent(st)}` : '');
+});
+
+document.getElementById('btn-export-month').addEventListener('click', () => {
+  const d = document.getElementById('date-picker').value;
+  if (!d) return alert('Vyberte dátum!');
+  const [year, month] = d.split('-');
+  window.location.href = `/api/users_progress_month?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`;
+});
+
+// ─── Init ──────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  const today = todayStr();
+  document.getElementById('date-picker').value = today;
+
+  const legend = document.getElementById('legend-flags');
+  if (legend) legend.innerHTML =
+    '<br>Označenia: ⧉ súbežné WO · ⏳ prebiehajúca práca · '
+    + 'ⓘ odhadovaný koniec zmeny · ⚑ chýba prihlásenie · ✂ orezané.';
+
+  loadDataForDate(today);
+});
 </script>
 
 {% endblock %}

@@ -117,6 +117,16 @@
   <div class="toolbar-pad d-flex flex-wrap gap-2 align-items-center">
     <input id="search-bar" class="form-control" style="max-width:240px" placeholder="Keresés felhasználóra…">
     <input id="date-picker" class="form-control" type="date" style="max-width:170px">
+    <select id="station-picker" class="form-select" style="max-width:170px">
+      <option value="">Minden állomás</option>
+      <option value="EMI">EMI</option>
+      <option value="MTE">MTE</option>
+      <option value="MDI">MDI</option>
+      <option value="QC">QC</option>
+      <option value="TEST">TEST</option>
+      <option value="SOLD">SOLD</option>
+      <option value="MOLD">MOLD</option>
+    </select>
     <button id="btn-filter" class="btn btn-primary">Szűrés</button>
     <div class="toolbar-divider"></div>
     <button id="btn-export-day" class="btn btn-outline-secondary">⬇ Napi export</button>
@@ -140,7 +150,7 @@
   <div class="summary-card sc-blue">
     <span class="sc-label">Befejezett WO</span>
     <span class="sc-value" id="sc-total-wo">—</span>
-    <span class="sc-sub">összes munkarend</span>
+    <span class="sc-sub" id="sc-total-wo-sub">összes munkarend</span>
   </div>
   <div class="summary-card sc-amber">
     <span class="sc-label">Legjobb</span>
@@ -190,11 +200,56 @@
       </tbody>
     </table>
   </div>
+  <div class="px-3 pb-3 small dim" style="line-height:1.6">
+    <strong>Hatékonyság</strong> = effektív idő / összes idő.
+    Az <em>effektív idő</em> az aznapi munkaszakaszok <strong>uniója</strong> –
+    a párhuzamosan futó WO-k ideje egyszer számít –, és a még futó munkát is
+    tartalmazza, a napra vágva.
+    A táblázat ugyanazokat a sorokat összesíti, amiket a dashboard
+    „Összeszerelési állapotok” táblája mutat ugyanerre a napra és állomásra.
+    <br>
+    Az Excel <em>„Elvárthoz képest (%)”</em> oszlopa MÁS mutató: az eltelt idő
+    a normaidőhöz képest (100% alatt = az elvártnál gyorsabb).
+    <span id="legend-flags"></span>
+  </div>
 </div>
 
 <script>
 // ─── Segédek ───────────────────────────────────
 function setStatus(msg) { document.getElementById('status-area').textContent = msg || ''; }
+
+// Helyi idő szerinti mai dátum (a toISOString UTC-t ad, ezért éjfél után
+// két órán át még az előző napot töltötte be).
+function todayStr() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function selectedStation() {
+  return document.getElementById('station-picker')?.value || '';
+}
+
+function hm(seconds) {
+  const s = Math.max(0, Math.round(seconds || 0));
+  return `${Math.floor(s / 3600)}ó ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}p`;
+}
+
+// Miért tér el a szám attól, amit a felhasználó várna? Tegyük láthatóvá.
+function rowFlags(row) {
+  const out = [];
+  if (row.overlap_seconds > 60)
+    out.push({ icon: '⧉', title: `Párhuzamosan futó WO-k: ${hm(row.overlap_seconds)} átfedés (egyszer számolva)` });
+  if (row.wo_active > 0)
+    out.push({ icon: '⏳', title: `${row.wo_active} még futó munka, ebből ${hm(row.active_seconds)} számít bele` });
+  if (row.assumed_logout)
+    out.push({ icon: 'ⓘ', title: 'Nincs kijelentkezés – az összes idő becsült műszakvégig számol' });
+  if (row.no_login_record)
+    out.push({ icon: '⚑', title: 'Nincs bejelentkezési rekord erre a napra' });
+  if (row.capped)
+    out.push({ icon: '✂', title: 'Az effektív idő hosszabb volt a bejelentkezési időnél, ezért levágtuk' });
+  return out;
+}
 
 function effColor(pct) {
   if (pct >= 75) return '#3ecf8e';
@@ -296,6 +351,10 @@ function updateSummary(data) {
   document.getElementById('sc-avg-eff').textContent = avg;
   document.getElementById('sc-total-wo').textContent = data.reduce((s, d) => s + (d.total_wo || 0), 0);
 
+  const active = data.reduce((s, d) => s + (d.wo_active || 0), 0);
+  document.getElementById('sc-total-wo-sub').textContent =
+    active ? `+ ${active} még folyamatban` : 'összes munkarend';
+
   if (data.length) {
     const best = data[0]; // már rendezett hatékonyság szerint (desc)
     document.getElementById('sc-best').textContent = best.efficiency_pct + '%';
@@ -318,12 +377,20 @@ function fillTable(data) {
     const color = effColor(pct);
     const tr = document.createElement('tr');
     tr.dataset.name = (row.user || '').toLowerCase();
+    const flags = rowFlags(row).map(f =>
+      `<span title="${f.title}" style="cursor:help;opacity:.75;margin-left:5px">${f.icon}</span>`).join('');
+    const activeNote = row.active_seconds > 60
+      ? `<div class="sc-sub">ebből futó: ${hm(row.active_seconds)}</div>` : '';
+
     tr.innerHTML = `
-      <td class="td-name">${row.user}</td>
-      <td class="td-time" style="color:#3ecf8e">${row.effective_time}</td>
+      <td class="td-name">${row.user}${flags}</td>
+      <td class="td-time" style="color:#3ecf8e">${row.effective_time}${activeNote}</td>
       <td class="td-time" style="color:#4e9fff">${row.all_time}</td>
       <td class="td-time" style="color:#f46a6a">${row.loss_waited || '—'}</td>
-      <td class="text-center"><span class="wo-badge">${row.total_wo ?? 0}</span></td>
+      <td class="text-center">
+        <span class="wo-badge" title="${row.wo_distinct ?? 0} különböző WO szám">${row.total_wo ?? 0}</span>
+        ${row.wo_active ? `<span class="wo-badge" style="background:rgba(245,166,35,.16);color:#f5a623" title="folyamatban">+${row.wo_active}</span>` : ''}
+      </td>
       <td>
         <div class="eff-bar-wrap">
           <div class="eff-bar-bg">
@@ -337,8 +404,9 @@ function fillTable(data) {
 }
 
 // ─── Fő betöltés ───────────────────────────────
-async function loadDataForDate(dateStr) {
+async function loadDataForDate(dateStr, station) {
   if (!dateStr) { alert('Válassz dátumot!'); return; }
+  station = station ?? selectedStation();
   setStatus('Betöltés…');
 
   // skeleton
@@ -352,15 +420,18 @@ async function loadDataForDate(dateStr) {
     </tr>`).join('');
 
   try {
-    const res = await fetch(`/api/users_progress?date=${encodeURIComponent(dateStr)}`);
+    let url = `/api/users_progress?date=${encodeURIComponent(dateStr)}`;
+    if (station) url += `&station=${encodeURIComponent(station)}`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    if (data && data.error) throw new Error(data.error);
 
     fillTable(data);
     updateSummary(data);
     buildBarChart(data);
     buildDoughnutChart(data);
-    setStatus(`${data.length} dolgozó`);
+    setStatus(`${data.length} dolgozó${station ? ' · ' + station : ''}`);
   } catch (e) {
     console.error(e);
     setStatus('Hiba a betöltésnél.');
@@ -373,10 +444,16 @@ async function loadDataForDate(dateStr) {
 document.getElementById('btn-filter').addEventListener('click', () =>
   loadDataForDate(document.getElementById('date-picker').value));
 
+document.getElementById('station-picker').addEventListener('change', () =>
+  loadDataForDate(document.getElementById('date-picker').value));
+
 document.getElementById('btn-export-day').addEventListener('click', () => {
   const d = document.getElementById('date-picker').value;
   if (!d) return alert('Válassz dátumot!');
-  window.location.href = `/api/users_progress_day?date=${encodeURIComponent(d)}`;
+  // Az export ugyanazt a napot ÉS ugyanazt az állomást kapja, amit a tábla mutat.
+  const st = selectedStation();
+  window.location.href = `/api/users_progress_day?date=${encodeURIComponent(d)}`
+    + (st ? `&station=${encodeURIComponent(st)}` : '');
 });
 
 document.getElementById('btn-export-month').addEventListener('click', () => {
@@ -388,8 +465,14 @@ document.getElementById('btn-export-month').addEventListener('click', () => {
 
 // ─── Init ──────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayStr();
   document.getElementById('date-picker').value = today;
+
+  const legend = document.getElementById('legend-flags');
+  if (legend) legend.innerHTML =
+    '<br>Jelölések: ⧉ párhuzamos WO-k · ⏳ folyamatban lévő munka · '
+    + 'ⓘ becsült műszakvég · ⚑ nincs bejelentkezés · ✂ levágva.';
+
   loadDataForDate(today);
 });
 </script>

@@ -436,6 +436,16 @@ body.dash-has-open .dash-topbar{ display:block; }
 
     
 
+        <div class="d-flex align-items-center gap-2">
+          <label for="assembly-per-page" class="mb-0 small">Riadky:</label>
+          <select id="assembly-per-page" class="form-select form-select-sm" style="width:auto">
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="0">Všetko</option>
+          </select>
+        </div>
+
         <div class="pagination gap-2 mb-0">
           <button class="btn btn-sm btn-outline-secondary" id="prev-btn" onclick="changeAssemblyPage(-1)">← Predchádzajúce</button>
           <span class="small dim" id="page-number">1</span>
@@ -613,7 +623,11 @@ function markPanelSeen(panelKey){
     const h=Math.floor(seconds/3600), m=Math.floor((seconds%3600)/60), s=Math.floor(seconds%60);
     return `${h} hours ${m} minutes ${s} seconds`;
   }
-  function todayStr(){ return new Date().toISOString().slice(0,10); }
+  function todayStr(){
+    const d = new Date();
+    const p = n => String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+  }
   function toInt(x){
     const n = Number(x);
     return Number.isFinite(n) ? n : 0;
@@ -837,8 +851,13 @@ renderBadges();
 
   /* ========== Montážne stavy – dátumszűrés ========== */
   let assemblyPage = 1;
-  let assemblyFilterDate = null;
+  // Alapértelmezés: a MAI nap. Korábban null volt, így a tábla dátumszűrés
+  // nélkül a legutóbbi 10 sort mutatta, miközben a badge "kikapcsolva"-t írt.
+  let assemblyFilterDate = todayStr();
   let assemblyStation = "EMI";
+  let assemblyPerPage = 25;
+  let assemblyTotal = 0;
+  let assemblyTotalPages = 1;
 
   function setAssemblyLoading(on){ setDisplay(document.getElementById('assembly-loader'), on); }
 
@@ -846,11 +865,11 @@ renderBadges();
     const badge = document.getElementById('assembly-filter-state');
     if(!badge) return;
     if(assemblyFilterDate){
-      badge.textContent = 'Filter: zapnutý';
+      badge.textContent = `Filter: ${assemblyFilterDate}`;
       badge.className = 'badge text-bg-success';
     }else{
-      badge.textContent = 'Filter: vypnutý';
-      badge.className = 'badge text-bg-secondary';
+      badge.textContent = 'Filter: všetky dni';
+      badge.className = 'badge text-bg-warning';
     }
   }
 
@@ -1105,8 +1124,13 @@ async function loadAssemblyTable(){
     const stSel = document.getElementById('assembly-station');
     if (stSel) assemblyStation = (stSel.value || assemblyStation).toUpperCase();
 
-    let url = `/api/assembly_data?page=${assemblyPage}&station=${encodeURIComponent(assemblyStation)}`;
-    if (assemblyFilterDate) url += `&date=${encodeURIComponent(assemblyFilterDate)}`;
+    const ppSel = document.getElementById('assembly-per-page');
+    if (ppSel) assemblyPerPage = parseInt(ppSel.value, 10);
+
+    let url = `/api/assembly_data?page=${assemblyPage}&per_page=${assemblyPerPage}`
+            + `&station=${encodeURIComponent(assemblyStation)}`;
+    // dátum nélkül a szerver a mai napot adja; 'all' = dátumszűrés nélkül
+    url += `&date=${encodeURIComponent(assemblyFilterDate || 'all')}`;
 
     const body = document.querySelector('#assembly-table tbody');
     if (!body) return;
@@ -1132,6 +1156,12 @@ async function loadAssemblyTable(){
 
     const rows = Array.isArray(data) ? data : (data?.rows || data?.data || []);
 
+    // Valódi lapozó állapot a szerver metaadataiból
+    assemblyTotal      = Number.isFinite(data?.total) ? data.total : rows.length;
+    assemblyTotalPages = Number.isFinite(data?.total_pages) ? data.total_pages : 1;
+    if (Number.isFinite(data?.page)) assemblyPage = data.page;
+    updateAssemblyPager();
+
     body.innerHTML = rows.map(assemblyRowHTML).join('');
 
     const prioCount = rows.filter(it => {
@@ -1154,7 +1184,26 @@ async function loadAssemblyTable(){
 }
 
 
-  function changeAssemblyPage(ofs){ assemblyPage=Math.max(1, assemblyPage+ofs); loadAssemblyTable(); }
+  function updateAssemblyPager(){
+    const lbl = document.getElementById('page-number');
+    if (lbl){
+      lbl.textContent = assemblyTotal
+        ? `${assemblyPage}. / ${assemblyTotalPages} strana · ${assemblyTotal} riadkov`
+        : 'žiadny výsledok';
+    }
+    const prev = document.getElementById('prev-btn');
+    const next = document.getElementById('next-btn');
+    if (prev) prev.disabled = assemblyPage <= 1;
+    if (next) next.disabled = assemblyPage >= assemblyTotalPages;
+  }
+
+  function changeAssemblyPage(ofs){
+    const target = assemblyPage + ofs;
+    // Nem lapozunk üres oldalra – korábban a "Következő" a végtelenbe vitt.
+    if (target < 1 || target > assemblyTotalPages) return;
+    assemblyPage = target;
+    loadAssemblyTable();
+  }
 
   document.addEventListener('DOMContentLoaded', () => {
     const dateInput = document.getElementById('assembly-date');
@@ -1171,7 +1220,14 @@ async function loadAssemblyTable(){
     }
 
 
-    if (dateInput && !dateInput.value) dateInput.value = todayStr();
+    if (dateInput && !dateInput.value) dateInput.value = assemblyFilterDate || todayStr();
+
+    const ppSel = document.getElementById('assembly-per-page');
+    ppSel?.addEventListener('change', () => {
+      assemblyPerPage = parseInt(ppSel.value, 10);
+      assemblyPage = 1;
+      loadAssemblyTable();
+    });
 
     btnApply?.addEventListener('click', () => {
       const val = dateInput?.value?.trim();
