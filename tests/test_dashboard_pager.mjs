@@ -21,7 +21,8 @@ const els = {
 };
 globalThis.document = { getElementById: (id) => els[id] || null };
 
-let assemblyPage = 1, assemblyTotal = 0, assemblyTotalPages = 1, assemblyFilterDate = null;
+let assemblyPage = 1, assemblyTotal = null, assemblyTotalPages = null,
+    assemblyHasMore = false, assemblyRowCount = 0, assemblyFilterDate = null;
 let loaded = 0;
 const loadAssemblyTable = () => { loaded++; };
 const src = grab('updateAssemblyPager') + '\n' + grab('changeAssemblyPage')
@@ -31,11 +32,14 @@ const mod = await import('data:text/javascript;base64,' + Buffer.from(
   src.replace(/\bassemblyPage\b/g, 'G.assemblyPage')
      .replace(/\bassemblyTotalPages\b/g, 'G.assemblyTotalPages')
      .replace(/\bassemblyTotal\b(?!Pages)/g, 'G.assemblyTotal')
+     .replace(/\bassemblyHasMore\b/g, 'G.assemblyHasMore')
+     .replace(/\bassemblyRowCount\b/g, 'G.assemblyRowCount')
      .replace(/\bassemblyFilterDate\b/g, 'G.assemblyFilterDate')
      .replace(/\bloadAssemblyTable\(\)/g, 'G.loadAssemblyTable()')
 ).toString('base64'));
 
-globalThis.G = { assemblyPage, assemblyTotal, assemblyTotalPages, assemblyFilterDate, loadAssemblyTable };
+globalThis.G = { assemblyPage, assemblyTotal, assemblyTotalPages, assemblyHasMore,
+                 assemblyRowCount, assemblyFilterDate, loadAssemblyTable };
 
 const eq = (got, want, what) => {
   const ok = String(got) === String(want);
@@ -43,8 +47,9 @@ const eq = (got, want, what) => {
   if (!ok) process.exitCode = 1;
 };
 
-console.log('── 27 sor, 25/oldal ──────────────────────────────');
+console.log('── napra szűrve: 27 sor, 25/oldal ────────────');
 G.assemblyTotal = 27; G.assemblyTotalPages = 2; G.assemblyPage = 1;
+G.assemblyHasMore = true; G.assemblyRowCount = 25;
 mod.updateAssemblyPager();
 eq(els['page-number'].textContent, '1. / 2 oldal · 27 sor', 'felirat');
 eq(els['prev-btn'].disabled, true,  'Előző tiltva az 1. oldalon');
@@ -52,7 +57,10 @@ eq(els['next-btn'].disabled, false, 'Következő aktív');
 
 mod.changeAssemblyPage(1);
 eq(G.assemblyPage, 2, 'lapozás előre');
-G.assemblyPage = 2; mod.updateAssemblyPager();
+
+G.assemblyPage = 2; G.assemblyHasMore = false; G.assemblyRowCount = 2;
+mod.updateAssemblyPager();
+eq(els['page-number'].textContent, '2. / 2 oldal · 27 sor', 'utolsó oldal felirata');
 eq(els['next-btn'].disabled, true, 'Következő tiltva az utolsó oldalon');
 
 const before = loaded;
@@ -60,8 +68,21 @@ mod.changeAssemblyPage(1);
 eq(G.assemblyPage, 2, 'nem lép túl az utolsó oldalon');
 eq(loaded, before, 'nem tölt újra feleslegesen');
 
+console.log('── date=all: ismeretlen összdarabszám ────────────');
+G.assemblyTotal = null; G.assemblyTotalPages = null;
+G.assemblyPage = 1; G.assemblyHasMore = true; G.assemblyRowCount = 25;
+mod.updateAssemblyPager();
+eq(els['page-number'].textContent, '1. oldal · 25 sor', 'felirat összdarabszám nélkül');
+eq(els['next-btn'].disabled, false, 'Következő aktív, mert has_more');
+
+G.assemblyPage = 2; G.assemblyHasMore = false; G.assemblyRowCount = 7;
+mod.updateAssemblyPager();
+eq(els['page-number'].textContent, '2. oldal · 7 sor', 'utolsó oldal összdarabszám nélkül');
+eq(els['next-btn'].disabled, true, 'Következő tiltva, nincs több');
+
 console.log('── üres eredmény ─────────────────────────────────');
 G.assemblyTotal = 0; G.assemblyTotalPages = 1; G.assemblyPage = 1;
+G.assemblyHasMore = false; G.assemblyRowCount = 0;
 mod.updateAssemblyPager();
 eq(els['page-number'].textContent, 'nincs találat', 'üres felirat');
 

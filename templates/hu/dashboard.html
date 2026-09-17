@@ -857,8 +857,15 @@ renderBadges();
   let assemblyFilterDate = todayStr();
   let assemblyStation = "EMI";
   let assemblyPerPage = 25;
-  let assemblyTotal = 0;
-  let assemblyTotalPages = 1;
+  let assemblyTotal = null;        // null = nem szamoltuk (date=all)
+  let assemblyTotalPages = null;   // null = nem tudjuk, hany oldal van
+  let assemblyHasMore = false;
+  let assemblyRowCount = 0;
+
+  function escapeHtml(str){
+    return String(str).replace(/[&<>"']/g, c => (
+      {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
 
   function setAssemblyLoading(on){ setDisplay(document.getElementById('assembly-loader'), on); }
 
@@ -1142,7 +1149,10 @@ async function loadAssemblyTable(){
     if (!r.ok){
       const txt = await r.text().catch(()=> "");
       console.error("assembly_data HTTP error:", r.status, txt);
-      body.innerHTML = `<tr><td colspan="6" class="text-danger">API error (${r.status})</td></tr>`;
+      let msg = txt;
+      try { msg = (JSON.parse(txt).error) || txt; } catch(_) {}
+      body.innerHTML = `<tr><td colspan="7" class="text-danger">`
+        + `API hiba (${r.status}): ${escapeHtml(String(msg).slice(0, 400))}</td></tr>`;
       return;
     }
 
@@ -1151,15 +1161,19 @@ async function loadAssemblyTable(){
       data = await r.json();
     } catch(e){
       console.error("assembly_data JSON parse error:", e);
-      body.innerHTML = `<tr><td colspan="6" class="text-danger">JSON parse error</td></tr>`;
+      body.innerHTML = `<tr><td colspan="7" class="text-danger">Hibás válasz a szervertől</td></tr>`;
       return;
     }
 
     const rows = Array.isArray(data) ? data : (data?.rows || data?.data || []);
 
-    // Valódi lapozó állapot a szerver metaadataiból
-    assemblyTotal      = Number.isFinite(data?.total) ? data.total : rows.length;
-    assemblyTotalPages = Number.isFinite(data?.total_pages) ? data.total_pages : 1;
+    // Valódi lapozó állapot a szerver metaadataiból.
+    // date=all esetén a szerver nem számol összdarabszámot (drága lenne a
+    // teljes előzményen), csak azt jelzi, van-e még következő oldal.
+    assemblyTotal      = Number.isFinite(data?.total) ? data.total : null;
+    assemblyTotalPages = Number.isFinite(data?.total_pages) ? data.total_pages : null;
+    assemblyHasMore    = (data?.has_more === true);
+    assemblyRowCount   = rows.length;
     if (Number.isFinite(data?.page)) assemblyPage = data.page;
     updateAssemblyPager();
 
@@ -1188,20 +1202,24 @@ async function loadAssemblyTable(){
   function updateAssemblyPager(){
     const lbl = document.getElementById('page-number');
     if (lbl){
-      lbl.textContent = assemblyTotal
-        ? `${assemblyPage}. / ${assemblyTotalPages} oldal · ${assemblyTotal} sor`
-        : 'nincs találat';
+      if (assemblyTotal === null){
+        // ismeretlen összdarabszám (date=all)
+        lbl.textContent = assemblyRowCount ? `${assemblyPage}. oldal · ${assemblyRowCount} sor` : 'nincs találat';
+      } else {
+        lbl.textContent = assemblyTotal ? `${assemblyPage}. / ${assemblyTotalPages} oldal · ${assemblyTotal} sor` : 'nincs találat';
+      }
     }
     const prev = document.getElementById('prev-btn');
     const next = document.getElementById('next-btn');
     if (prev) prev.disabled = assemblyPage <= 1;
-    if (next) next.disabled = assemblyPage >= assemblyTotalPages;
+    if (next) next.disabled = !assemblyHasMore;
   }
 
   function changeAssemblyPage(ofs){
     const target = assemblyPage + ofs;
     // Nem lapozunk üres oldalra – korábban a "Következő" a végtelenbe vitt.
-    if (target < 1 || target > assemblyTotalPages) return;
+    if (target < 1) return;
+    if (ofs > 0 && !assemblyHasMore) return;
     assemblyPage = target;
     loadAssemblyTable();
   }

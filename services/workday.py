@@ -165,6 +165,35 @@ def fetch_day_rows(
     return out
 
 
+def as_int(value, default: int = 0) -> int:
+    """
+    Biztonságos egész konverzió.
+
+    A QTY oszlopok DECIMAL-ként ('53.00') vagy szövegként is érkezhetnek,
+    amin a nyers int() ValueError-t dob – és az egész végpontot 500-ba viszi
+    egyetlen rossz sor miatt.
+    """
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(float(str(value).strip().replace(",", ".")))
+    except (TypeError, ValueError):
+        return default
+
+
+def fmt_dt(value, fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """Dátum formázása úgy, hogy egy váratlan típus se dobjon kivételt."""
+    if value is None or value == "":
+        return ""
+    if isinstance(value, datetime):
+        return value.strftime(fmt)
+    return str(value)
+
+
 def status_detail(row: dict) -> str:
     """A dashboard státusz-pill szövege – a táblában és az exportban ugyanaz."""
     station = str(row.get("current_station") or "").strip()
@@ -175,9 +204,7 @@ def status_detail(row: dict) -> str:
 
 
 def qty_text(row: dict) -> str:
-    done = int(row.get("done_qty") or 0)
-    total = int(row.get("total_qty") or 0)
-    return f"{done} / {total}"
+    return f"{as_int(row.get('done_qty'))} / {as_int(row.get('total_qty'))}"
 
 
 def merge_seconds(intervals) -> int:
@@ -260,18 +287,14 @@ def fetch_login_seconds(cursor, date_str: str) -> dict:
     return out
 
 
-def count_station_rows(cursor, station: str) -> int:
-    """Dátumszűrés nélküli összdarabszám egy állomásra (date=all eset)."""
-    cursor.execute(
-        "SELECT COUNT(*) AS c FROM workstationworkorder ww WHERE ww.process_id = %s",
-        (station,),
-    )
-    row = cursor.fetchone() or {}
-    return int(row.get("c") or 0)
-
-
 def fetch_station_rows(cursor, station: str, limit: int, offset: int = 0) -> list[dict]:
-    """Dátumszűrés nélküli lista egy állomásra (date=all eset)."""
+    """
+    Dátumszűrés nélküli lista egy állomásra (date=all eset).
+
+    Itt szándékosan NINCS COUNT(*): a teljes előzmény megszámolása a
+    workstationworkorder táblán drága, és semmit nem ad hozzá. A hívó eggyel
+    több sort kér, mint amennyit megjelenít, és abból tudja, van-e még.
+    """
     cursor.execute(
         _ROW_SELECT
         + " WHERE ww.process_id = %s ORDER BY ww.start_time DESC, ww.id DESC LIMIT %s OFFSET %s",

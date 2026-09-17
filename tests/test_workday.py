@@ -81,4 +81,36 @@ for wid, v in out.items():
 assert abs(out[10]["all_seconds"] - 8.533*3600) < 60
 assert out[20]["assumed_end"]  # nincs kijelentkezes -> feltetelezett veg
 
+print("── 6) Nyers ertekek biztonsagos kezelese ───────────────────")
+# Ezek buktattak korabban 500-ba az egesz vegpontot egyetlen rossz soron
+for raw, want in [(5, 5), ("5", 5), ("53.00", 53), (dt.timezone, 0),
+                  (None, 0), ("", 0), ("12,5", 12), ("abc", 0)]:
+    got = W.as_int(raw)
+    print(f"   as_int({raw!r:12}) = {got}")
+    assert got == want, (raw, got, want)
+
+print("   fmt_dt(datetime) =", repr(W.fmt_dt(D(9, 5))))
+print("   fmt_dt(None)     =", repr(W.fmt_dt(None)))
+print("   fmt_dt('szoveg') =", repr(W.fmt_dt("2026-09-17 09:05")))
+assert W.fmt_dt(D(9, 5)) == "2026-09-16 09:05"
+assert W.fmt_dt(None) == "" and W.fmt_dt("") == ""
+
+r = row(1, 1, "X", D(9, 0), None, "ACTIVE", done="0", tot="53.00")
+r["is_completed"] = False
+print("   qty_text decimal szovegbol:", W.qty_text(r))
+assert W.qty_text(r) == "0 / 53"
+
+print("── 7) date=all ag: nincs COUNT(*), +1 sor a has_more-hoz ───")
+class StationCursor(FakeCursor):
+    def execute(s2, sql, params=()):
+        s2.last_sql, s2.last_params = sql, params
+        s2._is_count = "COUNT(*)" in sql
+        assert not s2._is_count, "a date=all ag NEM szamolhat COUNT(*)-ot"
+sc = StationCursor([row(1, 1, "X", D(9, 0), None, "ACTIVE")])
+got = W.fetch_station_rows(sc, "EMI", 26, 0)
+print("   params:", sc.last_params)
+assert sc.last_params == ("EMI", 26, 0)
+assert got[0]["is_completed"] is False
+assert not hasattr(W, "count_station_rows"), "a dragа COUNT(*) helper torolve"
+
 print("\nMINDEN TESZT OK")

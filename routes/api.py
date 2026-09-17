@@ -917,8 +917,10 @@ def users_progress_data():
     állapotok" táblája és a napi Excel export (services/workday.py), ezért
     a három felület számai összehasonlíthatók.
     """
+    import logging
     from services.db import get_db
     from services import workday
+    _log = logging.getLogger("api.users_progress")
 
     selected_date = (request.args.get('date') or '').strip()
     if not selected_date:
@@ -964,7 +966,8 @@ def users_progress_data():
         ]
         return jsonify(results)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        _log.exception("[users_progress] date=%s station=%s", selected_date, station)
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
     finally:
         try:
             cursor.close()
@@ -1164,8 +1167,8 @@ def users_progress_day():
         return resp
 
     except Exception as e:
-        _log.exception(f"[export_day] ERROR: {e}")
-        return jsonify({"error": str(e)}), 500
+        _log.exception("[export_day] date=%s station=%s", date, station)
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
     finally:
         try:
             if cursor: cursor.close()
@@ -1679,17 +1682,24 @@ def assembly_data():
     Dashboard – "Összeszerelési állapotok" tábla.
 
     Alapértelmezés: a MAI nap összes munkája az adott állomáson, beleértve a
-    még futó és az előző napról átnyúló munkát is. Korábban a szűrés
-    DATE(start_time) = nap volt, és a válasz egy csupasz, 10 elemre vágott
-    lista – valódi összdarabszám nélkül, ezért a lapozás sem működött.
+    még futó és az előző napról átnyúló munkát is.
 
     Query paraméterek:
       station   : EMI | MTE | MDI | QC | TEST | SOLD | MOLD
       date      : YYYY-MM-DD, vagy 'all' (dátumszűrés nélkül)
       page      : 1-től
       per_page  : 1..1000, vagy 0 = mind (1000-es felső korláttal)
+
+    Napra szűrve ismerjük a pontos összdarabszámot (total / total_pages).
+    'all' esetén nem számolunk COUNT(*)-ot a teljes előzményen – helyette
+    eggyel több sort kérünk le, és has_more jelzi, hogy van-e még.
     """
+    import logging
     from services import workday
+    _log = logging.getLogger("api.assembly_data")
+
+    page = per_page = 0
+    req_station = req_date = None
     try:
         page = max(request.args.get('page', 1, type=int) or 1, 1)
 
@@ -1708,8 +1718,8 @@ def assembly_data():
         if req_date.lower() == 'all':
             req_date = None
         elif not req_date:
-            # Alapértelmezés: MA. Enélkül a tábla a legutóbbi 10 sort mutatta,
-            # dátumtól függetlenül.
+            # Alapértelmezés: MA. Enélkül a tábla a legutóbbi néhány sort
+            # mutatta, dátumtól függetlenül.
             req_date = datetime.now().strftime('%Y-%m-%d')
 
         db = get_db()
@@ -1720,48 +1730,57 @@ def assembly_data():
                 rows = workday.fetch_day_rows(
                     cur, req_date, station=req_station, limit=per_page, offset=offset
                 )
+                has_more = page * per_page < total
+                total_pages = max(1, -(-total // per_page))
             else:
-                total = workday.count_station_rows(cur, req_station)
-                rows = workday.fetch_station_rows(cur, req_station, per_page, offset)
+                # +1 sor: ebből tudjuk, hogy van-e még következő oldal
+                rows = workday.fetch_station_rows(cur, req_station, per_page + 1, offset)
+                has_more = len(rows) > per_page
+                rows = rows[:per_page]
+                total = None
+                total_pages = None
         finally:
             try: cur.close()
             except Exception: pass
 
         out = []
         for r in rows:
-            start = r.get("start_time")
-            end = r.get("end_time")
             out.append({
                 "felhasznalo": r.get("felhasznalo") or "",
                 "WO": r.get("WO") or "",
                 "PN": r.get("PN") or "",
-                "start_time": start.strftime('%Y-%m-%d %H:%M') if start else "",
-                "end_time": end.strftime('%Y-%m-%d %H:%M') if end else "",
+                "start_time": workday.fmt_dt(r.get("start_time")),
+                "end_time": workday.fmt_dt(r.get("end_time")),
                 "status": r.get("status") or "",
                 "current_station": r.get("current_station") or "",
                 "next_station_id": r.get("next_station_id") or "",
-                "done_qty": int(r.get("done_qty") or 0),
-                "total_qty": int(r.get("total_qty") or 0),
+                "done_qty": workday.as_int(r.get("done_qty")),
+                "total_qty": workday.as_int(r.get("total_qty")),
                 "status_detail": workday.status_detail(r),
                 "qty_text": workday.qty_text(r),
                 # aznapi, napra vágott munkaidő ezen a soron (mp)
-                "day_seconds": int(r.get("eff_seconds") or 0),
+                "day_seconds": workday.as_int(r.get("eff_seconds")),
             })
 
-        total_pages = max(1, -(-total // per_page)) if per_page else 1
         return jsonify({
             "rows": out,
             "page": page,
             "per_page": per_page,
             "total": total,
             "total_pages": total_pages,
+            "has_more": has_more,
             "date": req_date or "all",
             "station": req_station,
         })
 
     except Exception as e:
-        print(f"/api/assembly_data error: {e}")
-        return jsonify({"error": str(e)}), 500
+        # Teljes stacktrace a szerver logba, beszédes üzenet a felületre –
+        # egy csupasz "API error (500)" semmit nem árul el.
+        _log.exception(
+            "[assembly_data] station=%s date=%s page=%s per_page=%s",
+            req_station, req_date, page, per_page,
+        )
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
 
 
 @api_bp.route('/update_process_and_refresh', methods=['POST'])
