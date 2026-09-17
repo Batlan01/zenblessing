@@ -73,18 +73,26 @@ print("  ", W.status_detail(r_run), "|", W.qty_text(r_run))
 assert W.status_detail(r_done) == "Completed, sent to TEST"
 assert W.status_detail(r_run) == "IN: EMI" and W.qty_text(r_run) == "0 / 53"
 
-print("── 5) Elfelejtett kijelentkezés ────────────────────────────")
+print("── 5) Be/kijelentkezesek, elfelejtett kijelentkezes ──────")
 class LoginCursor(FakeCursor):
-    def fetchall(self):
+    def execute(s2, sql, p=()): s2.last_sql, s2.last_params = sql, p
+    def fetchall(s2):
         return [
-            {"worker_id": 10, "name": "Eva",    "first_login": D(5,58), "last_logout": D(14,30)},
-            {"worker_id": 20, "name": "Renáta", "first_login": D(6,0),  "last_logout": None},
+            {"worker_id": 10, "name": "Eva", "device": "RPi-7",
+             "login_date": D(5, 58), "logout_date": D(14, 30)},
+            {"worker_id": 20, "name": "Renáta", "device": "RPi-1",
+             "login_date": D(6, 0), "logout_date": None},
         ]
-out = W.fetch_login_seconds(LoginCursor([]), "2026-09-16")
+# "most" a KOVETKEZO nap -> a lezaratlan munkamenet a muszak vegeig (15:00) szamol
+out = W.fetch_login_sessions(LoginCursor([]), "2026-09-16", now=dt.datetime(2026, 9, 17, 10, 0))
 for wid, v in out.items():
-    print(f"   {v['name']:8s} {v['all_seconds']/3600:5.2f} ó  feltételezett_vég={v['assumed_end']}")
-assert abs(out[10]["all_seconds"] - 8.533*3600) < 60
-assert out[20]["assumed_end"]  # nincs kijelentkezes -> feltetelezett veg
+    total = W.spans_seconds(v["spans"])
+    print(f"   {v['name']:8s} {total/3600:5.2f} ó  munkamenet={len(v['sessions'])} "
+          f"feltételezett_vég={v['sessions'][0]['assumed']}")
+assert abs(W.spans_seconds(out[10]["spans"]) - 8.533 * 3600) < 60
+# korabbi nap + nincs kijelentkezes -> a muszak vegeig (15:00), nem ejfelig
+assert out[20]["sessions"][0]["assumed"]
+assert abs(W.spans_seconds(out[20]["spans"]) - 9 * 3600) < 60
 
 print("── 6) Nyers ertekek biztonsagos kezelese ───────────────────")
 # Ezek buktattak korabban 500-ba az egesz vegpontot egyetlen rossz soron

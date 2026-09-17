@@ -77,16 +77,24 @@ eq(bad["eff_seconds"], 0, "0 másodperc")
 eq(bad["counts_as_effective"], False, "a statisztikából kimarad")
 eq(W.status_detail(bad), "IN: EMI", "de a táblában látszik")
 
-print("\n── Bejelentkezési idők szövegként ─────────────────────────")
+print("\n── Be/kijelentkezések szövegként ──────────────────────────")
 class LoginCur(Cur):
     def execute(s, sql, p=()): s.sql, s.p = sql, p
     def fetchall(s): return [
-        {"worker_id": 1, "name": "Eva",    "first_login": "2026-09-17 05:58:00", "last_logout": "2026-09-17 14:30:00"},
-        {"worker_id": 2, "name": "Renáta", "first_login": "2026-09-17 06:00:00", "last_logout": ""},
+        # ket munkamenet: ebedszunetre kijelentkezett
+        {"worker_id": 1, "name": "Eva", "device": "RPi-7",
+         "login_date": "2026-09-17 05:58:00", "logout_date": "2026-09-17 11:00:00"},
+        {"worker_id": 1, "name": "Eva", "device": "RPi-7",
+         "login_date": "2026-09-17 11:30:00", "logout_date": "2026-09-17 14:30:00"},
+        # meg bent van: ures sztring a kijelentkezes helyen
+        {"worker_id": 2, "name": "Renáta", "device": "RPi-1",
+         "login_date": "2026-09-17 06:00:00", "logout_date": ""},
     ]
-out = W.fetch_login_seconds(LoginCur(), "2026-09-17")
+out = W.fetch_login_sessions(LoginCur(), "2026-09-17", now=dt.datetime(2026, 9, 17, 13, 0))
 eq(len(out), 2, "mindkét dolgozó megvan (a régi kód 0-t adott)")
-eq(round(out[1]["all_seconds"]/3600, 2), 8.53, "Eva összes ideje")
-eq(out[2]["assumed_end"], True, "üres kijelentkezés -> becsült")
+eq(len(out[1]["sessions"]), 2, "Eva két munkamenete külön látszik")
+eq(W.spans_seconds(out[1]["spans"]), 5*3600+2*60 + 3*3600, "a kijelentkezett fél óra nem számít bele")
+eq(out[2]["sessions"][0]["assumed"], True, "üres kijelentkezés -> becsült")
+eq(W.spans_seconds(out[2]["spans"]), int(7 * 3600), "06:00-tól 'most'-ig (13:00)")
 
 print("\nMINDEN TESZT OK")

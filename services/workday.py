@@ -173,6 +173,7 @@ def fetch_day_rows(
     limit: int | None = None,
     offset: int = 0,
     order: str = "DESC",
+    now: datetime | None = None,
 ) -> list[dict]:
     """
     A napot metsző munkasorok, mindhárom felület közös alapadata.
@@ -193,10 +194,10 @@ def fetch_day_rows(
 
     cursor.execute(sql, tuple(params))
     rows = cursor.fetchall() or []
-    return [decorate_row(r, day_start, day_end) for r in rows]
+    return [decorate_row(r, day_start, day_end, now=now) for r in rows]
 
 
-def decorate_row(row: dict, day_start=None, day_end=None) -> dict:
+def decorate_row(row: dict, day_start=None, day_end=None, now=None) -> dict:
     """
     Kiegészíti a nyers sort a származtatott mezőkkel.
 
@@ -228,9 +229,10 @@ def decorate_row(row: dict, day_start=None, day_end=None) -> dict:
             # Még fut. A MAI napon "most"-ig számolunk (a túlóra is beleszámít),
             # egy korábbi napon viszont a műszak végéig – egy ott nyitva
             # felejtett sor különben teljes 24 órát írna arra a napra.
-            now = datetime.now()
+            # A `now` paraméterezhető, hogy a tesztek ne az óraállástól függjenek.
+            ref_now = now or datetime.now()
             effective_end = (
-                min(now, day_end) if now < day_end
+                min(ref_now, day_end) if ref_now < day_end
                 else min(shift_fallback_end(day_start), day_end)
             )
         clip_start = max(start, day_start)
@@ -297,83 +299,155 @@ def qty_text(row: dict) -> str:
     return f"{as_int(row.get('done_qty'))} / {as_int(row.get('total_qty'))}"
 
 
-def merge_seconds(intervals) -> int:
-    """
-    Átfedő intervallumok UNIÓJÁNAK hossza másodpercben.
+# ══════════════════════════════════════════════════════════════════════════
+#  Intervallum-algebra
+#
+#  A napi számok ezen állnak vagy buknak. A definíció:
+#      összes idő = amíg be volt jelentkezve
+#      effektív   = ebből az, amikor volt aktív munkarendelése
+#      veszteség  = ebből az, amikor NEM volt
+#  Vagyis effektív + veszteség = összes, pontosan. Nem két külön mérés,
+#  amit utólag egymáshoz kell igazítani.
+# ══════════════════════════════════════════════════════════════════════════
 
-    Ha valaki egyszerre két WO-n dolgozik (a scan szerint párhuzamosan futnak),
-    a puszta összeadás több effektív időt ad, mint amennyi a műszak hossza –
-    korábban ezt egy néma "cap" takarta el a statisztika oldalon, az Excelben
-    viszont nem, ezért tért el a két szám.
-    """
-    spans = sorted(
-        (s, e) for s, e in intervals if s is not None and e is not None and e > s
+def merge_spans(spans):
+    """Átfedő/érintkező intervallumok uniója, rendezve."""
+    clean = sorted(
+        (s, e) for s, e in spans
+        if s is not None and e is not None and e > s
     )
-    total = 0.0
-    cur_s = cur_e = None
-    for s, e in spans:
-        if cur_e is None:
-            cur_s, cur_e = s, e
-        elif s <= cur_e:
-            cur_e = max(cur_e, e)
+    out = []
+    for s, e in clean:
+        if out and s <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], e))
         else:
-            total += (cur_e - cur_s).total_seconds()
-            cur_s, cur_e = s, e
-    if cur_e is not None:
-        total += (cur_e - cur_s).total_seconds()
-    return int(total)
+            out.append((s, e))
+    return out
 
 
-def fetch_login_seconds(cursor, date_str: str) -> dict:
+def spans_seconds(spans) -> int:
+    return int(sum((e - s).total_seconds() for s, e in spans))
+
+
+def intersect_spans(a, b):
+    """a ∩ b – mindkettő rendezett, nem átfedő listát vár (merge_spans után)."""
+    out, i, j = [], 0, 0
+    while i < len(a) and j < len(b):
+        start = max(a[i][0], b[j][0])
+        end = min(a[i][1], b[j][1])
+        if end > start:
+            out.append((start, end))
+        if a[i][1] < b[j][1]:
+            i += 1
+        else:
+            j += 1
+    return out
+
+
+def subtract_spans(a, b):
+    """a \ b – az a azon részei, amiket b nem fed le."""
+    out = []
+    for start, end in a:
+        cur = start
+        for bs, be in b:
+            if be <= cur or bs >= end:
+                continue
+            if bs > cur:
+                out.append((cur, bs))
+            cur = max(cur, be)
+            if cur >= end:
+                break
+        if cur < end:
+            out.append((cur, end))
+    return out
+
+
+def merge_seconds(intervals) -> int:
+    """Átfedő intervallumok uniójának hossza másodpercben."""
+    return spans_seconds(merge_spans(intervals))
+
+
+# "Nincs kijelentkezés" – ugyanaz a szövegoszlop-probléma, mint az end_time-nál.
+# A kódbázis máshol is így keresi az aktív loginokat (services/tables_core.py).
+_NO_LOGOUT = (
+    "(ws.LOGOUT_DATE IS NULL OR CAST(ws.LOGOUT_DATE AS CHAR) IN "
+    "('', 'null', 'NULL', 'None', '0000-00-00', '0000-00-00 00:00:00'))"
+)
+
+
+def fetch_login_sessions(cursor, date_str: str, now: datetime | None = None) -> dict:
     """
-    Dolgozónkénti "összes idő" (bejelentkezéstől kijelentkezésig).
+    Dolgozónkénti BE/KIJELENTKEZÉSEK, tételesen.
 
-    worker_id -> {'name': str, 'all_seconds': int, 'assumed_end': bool}
+    Korábban csak egy MIN(login)..MAX(logout) ablakot számoltunk, ami két
+    műszak vagy egy ebédszünetnyi kijelentkezés esetén hazudott. Itt minden
+    munkamenet külön szerepel, a napra vágva.
+
+    worker_id -> {
+        'name': str,
+        'sessions': [{'login','logout','seconds','assumed','device'}],
+        'spans': [(datetime, datetime)],     # a napra vágott bejelentkezések
+    }
     """
     day_start, day_end = day_window(date_str)
     fallback_end = shift_fallback_end(day_start)
+    now = now or datetime.now()
 
     cursor.execute(
-        """
-        SELECT w.ID            AS worker_id,
-               w.name          AS name,
-               MIN(ws.login_date)  AS first_login,
-               MAX(ws.logout_date) AS last_logout
+        f"""
+        SELECT ws.WORKER_ID       AS worker_id,
+               w.name             AS name,
+               ws.RASPBERRY_DEVICE AS device,
+               ws.LOGIN_DATE      AS login_date,
+               ws.LOGOUT_DATE     AS logout_date
         FROM workerworkstation ws
-        JOIN workers w ON w.ID = ws.worker_id
-        WHERE ws.login_date >= %s AND ws.login_date < %s
-        GROUP BY w.ID, w.name
+        JOIN workers w ON w.ID = ws.WORKER_ID
+        WHERE ws.LOGIN_DATE IS NOT NULL
+          AND CAST(ws.LOGIN_DATE AS CHAR) <> ''
+          AND ws.LOGIN_DATE < %s
+          AND (
+              (NOT {_NO_LOGOUT} AND ws.LOGOUT_DATE >= %s)
+              OR ({_NO_LOGOUT} AND ws.LOGIN_DATE >= %s)
+          )
+        ORDER BY ws.LOGIN_DATE
         """,
-        (_sql_ts(day_start), _sql_ts(day_end)),
+        tuple(_overlap_params(day_start, day_end)),
     )
 
-    now = datetime.now()
     out = {}
     for row in cursor.fetchall() or []:
-        login = to_dt(row.get("first_login"))
-        logout = to_dt(row.get("last_logout"))
+        login = to_dt(row.get("login_date"))
         if login is None:
             continue
+        logout = to_dt(row.get("logout_date"))
 
-        assumed = False
-        if logout is not None and logout > login:
-            end = min(logout, day_end)
-        else:
-            # Nincs (érvényes) kijelentkezés: műszakvégig számolunk, de a mai
-            # napon nem a jövőbe – legfeljebb "most"-ig.
-            assumed = True
-            end = fallback_end
-            if now < end:
-                end = max(now, login)
+        assumed = logout is None
+        if assumed:
+            # Nincs kijelentkezés: ma "most"-ig, korábbi napon a műszak végéig.
+            logout = min(now, day_end) if now < day_end else min(fallback_end, day_end)
 
-        seconds = int(max((end - login).total_seconds(), 0))
-        out[row["worker_id"]] = {
+        clip_start = max(login, day_start)
+        clip_end = min(logout, day_end)
+        if clip_end <= clip_start:
+            continue
+
+        info = out.setdefault(row["worker_id"], {
             "name": row.get("name") or "",
-            "all_seconds": seconds,
-            "first_login": login,
-            "last_end": end,
-            "assumed_end": assumed,
-        }
+            "sessions": [],
+            "spans": [],
+        })
+        info["sessions"].append({
+            "login": clip_start,
+            "logout": None if assumed else clip_end,
+            "clip_end": clip_end,
+            "seconds": int((clip_end - clip_start).total_seconds()),
+            "assumed": assumed,
+            "device": row.get("device") or "",
+        })
+        info["spans"].append((clip_start, clip_end))
+
+    for info in out.values():
+        info["spans"] = merge_spans(info["spans"])
     return out
 
 
@@ -393,100 +467,100 @@ def fetch_station_rows(cursor, station: str, limit: int, offset: int = 0) -> lis
     return [decorate_row(r) for r in (cursor.fetchall() or [])]
 
 
-def aggregate_workers(rows: list[dict], logins: dict) -> list[dict]:
+def aggregate_workers(rows: list[dict], sessions: dict) -> list[dict]:
     """
-    Dolgozónkénti napi összesítés a fetch_day_rows() sorokból.
+    Dolgozónkénti napi összesítés.
 
-    Ezt használja a /api/users_progress statisztika; tiszta függvény, hogy
-    ugyanaz a számítás tesztelhető legyen adatbázis nélkül is.
+    A definíció – ezen múlik, hogy a számok értelmezhetők-e:
+
+        összes idő = amíg be volt jelentkezve            (login munkamenetek uniója)
+        effektív   = ebből az, amikor volt aktív WO-ja   (login ∩ munka)
+        veszteség  = ebből az, amikor nem volt            (login \\ munka)
+
+    Így effektív + veszteség = összes, mindig. Nincs többé néma "cap", és nem
+    két, egymástól független mérés, ami nem jön ki egymással.
+
+    Tiszta függvény: adatbázis nélkül tesztelhető.
     """
-    per_worker = {}
+    by_worker = {}
 
     def bucket(worker_id, name):
-        b = per_worker.get(worker_id)
+        b = by_worker.get(worker_id)
         if b is None:
-            b = per_worker[worker_id] = {
-                "user": name,
-                "spans": [],
-                "completed_seconds": 0,
-                "active_seconds": 0,
-                "raw_seconds": 0,
-                "rows_completed": 0,
-                "rows_active": 0,
-                "wo_numbers": set(),
+            b = by_worker[worker_id] = {
+                "user": name, "rows": [], "work_spans_raw": [],
+                "rows_completed": 0, "rows_active": 0, "wo_numbers": set(),
             }
         if not b["user"] and name:
             b["user"] = name
         return b
 
     for r in rows:
+        b = bucket(r.get("worker_id"), r.get("felhasznalo") or "")
+        b["rows"].append(r)
         if not r.get("counts_as_effective"):
             continue
-        b = bucket(r.get("worker_id"), r.get("felhasznalo") or "")
-        b["spans"].append((r["clip_start"], r["clip_end"]))
-        b["raw_seconds"] += r["eff_seconds"]
+        b["work_spans_raw"].append((r["clip_start"], r["clip_end"]))
         if r.get("WO"):
             b["wo_numbers"].add(str(r["WO"]))
         if r["is_completed"]:
-            b["completed_seconds"] += r["eff_seconds"]
             b["rows_completed"] += 1
         else:
-            b["active_seconds"] += r["eff_seconds"]
             b["rows_active"] += 1
 
     # Aki bejelentkezett, de aznap nem volt munkasora, az is látszódjon.
-    for worker_id, info in logins.items():
+    for worker_id, info in sessions.items():
         bucket(worker_id, info.get("name") or "")
 
     out = []
-    for worker_id, b in per_worker.items():
-        login_info = logins.get(worker_id) or {}
-        all_time = int(login_info.get("all_seconds") or 0)
+    for worker_id, b in by_worker.items():
+        info = sessions.get(worker_id) or {}
+        login_spans = list(info.get("spans") or [])
+        work_spans = merge_spans(b["work_spans_raw"])
 
-        # Átfedés = mennyivel ad többet a sorok puszta összege az uniónál.
-        # (Még a bejelentkezési ablakra vágás ELŐTT, hogy csak a valódi
-        # párhuzamos munkát mutassa, ne a levágás veszteségét.)
-        overlap = max(b["raw_seconds"] - merge_seconds(b["spans"]), 0)
+        # Párhuzamosan futó WO-k: ennyivel ad többet a puszta összeg az uniónál.
+        overlap = max(
+            int(sum((e - s2).total_seconds() for s2, e in b["work_spans_raw"]))
+            - spans_seconds(work_spans),
+            0,
+        )
 
-        # A munkaszakaszokat a bejelentkezési ablakra is levágjuk: egy előző
-        # napról nyitva felejtett sor különben egész napnyi munkát hozna.
-        spans = b["spans"]
-        win_start, win_end = login_info.get("first_login"), login_info.get("last_end")
-        if win_start and win_end:
-            spans = [
-                (max(sp, win_start), min(ep, win_end))
-                for sp, ep in spans
-                if min(ep, win_end) > max(sp, win_start)
-            ]
+        no_login_record = not login_spans
+        if no_login_record and work_spans:
+            # Nincs bejelentkezési rekord (pl. műszakon átnyúló munka): a mért
+            # munka legyen egyben a "bejelentkezett" idő is, különben 0%-ot
+            # mutatnánk arra, aki bizonyíthatóan dolgozott.
+            login_spans = work_spans
 
-        # Átfedő (párhuzamosan futó) WO-k uniója – nem egyszerű összeg.
-        effective = merge_seconds(spans)
+        eff_spans = intersect_spans(login_spans, work_spans)
+        loss_spans = subtract_spans(login_spans, work_spans)
+        outside_spans = subtract_spans(work_spans, login_spans)
 
-        # Nincs login rekord (pl. műszakon átnyúló munka): a mért munka legyen
-        # egyben az "összes idő" is, hogy ne 0%-ot mutassunk.
-        if all_time <= 0:
-            all_time = effective
-
-        capped = effective > all_time
-        if capped:
-            effective = all_time
+        all_seconds = spans_seconds(login_spans)
+        effective = spans_seconds(eff_spans)
+        loss = spans_seconds(loss_spans)
 
         out.append({
             "worker_id": worker_id,
             "user": b["user"],
+            "all_seconds": all_seconds,
             "effective_seconds": effective,
-            "all_seconds": all_time,
-            "loss_seconds": max(all_time - effective, 0),
-            "completed_seconds": b["completed_seconds"],
-            "active_seconds": b["active_seconds"],
+            "loss_seconds": loss,
+            # Munka a bejelentkezett időn KÍVÜL: nem tüntetjük el, de a
+            # hatékonyságba sem számít bele.
+            "outside_seconds": spans_seconds(outside_spans),
             "overlap_seconds": overlap,
             "rows_completed": b["rows_completed"],
             "rows_active": b["rows_active"],
             "wo_distinct": len(b["wo_numbers"]),
-            "efficiency_pct": round(effective / all_time * 100, 1) if all_time > 0 else 0.0,
-            "no_login_record": not bool(login_info),
-            "assumed_logout": bool(login_info.get("assumed_end")),
-            "capped": capped,
+            "efficiency_pct": round(effective / all_seconds * 100, 1) if all_seconds else 0.0,
+            "no_login_record": no_login_record,
+            "assumed_logout": any(x.get("assumed") for x in (info.get("sessions") or [])),
+            "sessions": info.get("sessions") or [],
+            "login_spans": login_spans,
+            "eff_spans": eff_spans,
+            "loss_spans": loss_spans,
+            "work_rows": b["rows"],
         })
 
     out.sort(key=lambda x: (x["efficiency_pct"], x["effective_seconds"]), reverse=True)

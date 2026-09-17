@@ -913,9 +913,14 @@ def users_progress_data():
     """
     Napi dolgozói statisztika.
 
-    Ugyanazt a sorhalmazt használja, mint a dashboard "Összeszerelési
-    állapotok" táblája és a napi Excel export (services/workday.py), ezért
-    a három felület számai összehasonlíthatók.
+    A számok definíciója (lásd services/workday.aggregate_workers):
+        összes idő = amíg be volt jelentkezve
+        effektív   = ebből az, amikor volt aktív munkarendelése
+        veszteség  = ebből az, amikor nem volt
+    effektív + veszteség = összes, pontosan.
+
+    A válasz a részleteket is tartalmazza (be/kijelentkezések, munkablokkok),
+    hogy a felületen vissza lehessen keresni, honnan jön egy szám.
     """
     import logging
     from services.db import get_db
@@ -926,8 +931,7 @@ def users_progress_data():
     if not selected_date:
         return jsonify({"error": "No date provided. Please select a date."}), 400
 
-    # Opcionális állomásszűrő – így a statisztika ugyanarra a körre szűkíthető,
-    # amit a dashboard táblája mutat.
+    # Opcionális állomásszűrő – ugyanaz a kör, amit a dashboard táblája mutat.
     station = (request.args.get('station') or '').strip().upper() or None
     if station and station not in workday.ASSEMBLY_STATIONS:
         station = None
@@ -936,34 +940,76 @@ def users_progress_data():
     cursor = conn.cursor(dictionary=True)
     try:
         rows = workday.fetch_day_rows(cursor, selected_date, station=station, order="ASC")
-        logins = workday.fetch_login_seconds(cursor, selected_date)
+        sessions = workday.fetch_login_sessions(cursor, selected_date)
 
-        # A tényleges összesítés a services/workday.py-ban van, hogy a napi
-        # export és a statisztika ugyanazt a számítást használja.
-        results = [
-            {
+        hm = workday.fmt_dt
+        results = []
+        for a in workday.aggregate_workers(rows, sessions):
+            results.append({
                 'user': a['user'],
                 'worker_id': a['worker_id'],
+
+                # formázott értékek (visszafelé kompatibilis mezőnevek)
                 'effective_time': format_time_difference(a['effective_seconds']),
                 'all_time': format_time_difference(a['all_seconds']),
                 'loss_waited': format_time_difference(a['loss_seconds']),
-                # total_wo = lezárt munkasorok száma (visszafelé kompatibilis)
+
+                'effective_seconds': a['effective_seconds'],
+                'all_seconds': a['all_seconds'],
+                'loss_seconds': a['loss_seconds'],
+                'outside_seconds': a['outside_seconds'],
+                'overlap_seconds': a['overlap_seconds'],
+                'efficiency_pct': a['efficiency_pct'],
+
                 'total_wo': a['rows_completed'],
                 'wo_active': a['rows_active'],
                 'wo_distinct': a['wo_distinct'],
-                # nyers másodpercek a frontend grafikonhoz
-                'effective_seconds': a['effective_seconds'],
-                'all_seconds': a['all_seconds'],
-                'completed_seconds': a['completed_seconds'],
-                'active_seconds': a['active_seconds'],
-                'overlap_seconds': a['overlap_seconds'],
-                'efficiency_pct': a['efficiency_pct'],
+
                 'no_login_record': a['no_login_record'],
                 'assumed_logout': a['assumed_logout'],
-                'capped': a['capped'],
-            }
-            for a in workday.aggregate_workers(rows, logins)
-        ]
+
+                # ── Részletek: ebből áll össze a fenti három szám ──
+                'sessions': [
+                    {
+                        'login': hm(x['login']),
+                        'logout': hm(x['logout']) if x['logout'] else '',
+                        'seconds': x['seconds'],
+                        'assumed': x['assumed'],
+                        'device': x['device'],
+                    }
+                    for x in a['sessions']
+                ],
+                'work_blocks': [
+                    {
+                        'wo': r.get('WO') or '',
+                        'pn': r.get('PN') or '',
+                        'station': r.get('current_station') or '',
+                        'start': hm(r.get('clip_start')),
+                        'end': hm(r.get('clip_end')),
+                        'seconds': r.get('eff_seconds') or 0,
+                        'completed': bool(r.get('is_completed')),
+                        'qty': workday.qty_text(r),
+                    }
+                    for r in a['work_rows'] if r.get('counts_as_effective')
+                ],
+                # A napi sáv rétegei: bejelentkezve / ebből dolgozott / ebből állt
+                'login_blocks': [
+                    {'start': hm(s0), 'end': hm(e0),
+                     'seconds': int((e0 - s0).total_seconds())}
+                    for s0, e0 in a['login_spans']
+                ],
+                'active_blocks': [
+                    {'start': hm(s0), 'end': hm(e0),
+                     'seconds': int((e0 - s0).total_seconds())}
+                    for s0, e0 in a['eff_spans']
+                ],
+                'idle_blocks': [
+                    {'start': hm(s0), 'end': hm(e0),
+                     'seconds': int((e0 - s0).total_seconds())}
+                    for s0, e0 in a['loss_spans']
+                ],
+            })
+
         return jsonify(results)
     except Exception as e:
         _log.exception("[users_progress] date=%s station=%s", selected_date, station)
