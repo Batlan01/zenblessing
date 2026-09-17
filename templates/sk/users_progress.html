@@ -59,6 +59,12 @@
     font-size: .69rem; text-transform: uppercase; letter-spacing: .07em;
     opacity: .45; margin-bottom: .7rem;
   }
+  /* A Chart.js maintainAspectRatio:false mellett a szülő magasságához igazítja
+     a canvast. Ha viszont a szülő magasságát maga a canvas határozza meg, a
+     kettő körbeér, és a grafikon minden újrarajzolásnál magasabb lesz.
+     Ezért kap a canvas FIX magasságú konténert. */
+  .chart-box { position: relative; height: 260px; width: 100%; }
+  .chart-box > canvas { display: block; }
 
   /* ── Napi sáv ── */
   .daybar { position: relative; height: 16px; border-radius: 4px;
@@ -147,6 +153,7 @@
       <option value="SOLD">SOLD</option>
       <option value="MOLD">MOLD</option>
     </select>
+    <button id="btn-refresh" class="btn btn-outline-secondary" title="Znovu načítať údaje">⟳ Obnoviť</button>
     <button id="btn-filter" class="btn btn-primary">Filtrovanie</button>
     <div class="toolbar-divider"></div>
     <button id="btn-export-day" class="btn btn-outline-secondary">⬇ Denný export</button>
@@ -187,7 +194,7 @@
 <!-- ══════════════ GRAFIKON ══════════════ -->
 <div class="chart-panel">
   <div class="cp-title">Efektívny čas a strata podľa pracovníka (hod)</div>
-  <canvas id="chart-bar" height="90"></canvas>
+  <div class="chart-box"><canvas id="chart-bar"></canvas></div>
 </div>
 
 <!-- ══════════════ TÁBLÁZAT ══════════════ -->
@@ -361,7 +368,11 @@ function buildBarChart(data) {
       ]
     },
     options: {
-      responsive: true, maintainAspectRatio: false,
+      responsive: true,
+      // a fix magasságú .chart-box konténerhez igazodik, nem nő korlátlanul
+      maintainAspectRatio: false,
+      animation: false,
+      resizeDelay: 120,
       plugins: {
         legend: { labels: { color: 'rgba(255,255,255,.55)', boxWidth: 11, font: { size: 11 } } },
         tooltip: {
@@ -566,7 +577,8 @@ async function loadDataForDate(dateStr, station) {
     updateSummary(data);
     // A grafikon hibája soha ne vigye magával a táblázatot.
     try { buildBarChart(data); } catch (err) { console.error('chart:', err); }
-    setStatus(`${data.length} pracovníkov${station ? ' · ' + station : ''}`);
+    const now = new Date().toLocaleTimeString('hu-HU', { hour12: false });
+    setStatus(`${data.length} pracovníkov${station ? ' · ' + station : ''} · Obnovené: ${now}`);
   } catch (e) {
     console.error(e);
     setStatus('Chyba pri načítaní.');
@@ -580,6 +592,11 @@ document.getElementById('btn-filter').addEventListener('click', () =>
   loadDataForDate(document.getElementById('date-picker').value));
 
 document.getElementById('station-picker').addEventListener('change', () =>
+  loadDataForDate(document.getElementById('date-picker').value));
+
+// Az oldal NEM frissül magától – a számok egy pillanatképet mutatnak.
+// A még futó munkarendelések ideje csak ennek a gombnak a hatására nő tovább.
+document.getElementById('btn-refresh').addEventListener('click', () =>
   loadDataForDate(document.getElementById('date-picker').value));
 
 document.getElementById('btn-export-day').addEventListener('click', () => {
