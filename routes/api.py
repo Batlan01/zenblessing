@@ -1131,8 +1131,11 @@ def users_progress_day():
             prod_time = info.get('PROD_TIME', 0.0)
             completed_qty = safe_float(r.get('done_qty'))
 
-            start_time = r.get('start_time')
-            end_time = r.get('end_time')
+            # A DB szövegként tárolja az időpontokat – az értelmezett
+            # változat kell, különben az Excel cella szöveg lenne, és a
+            # kivonás is elszállna.
+            start_time = r.get('start_dt')
+            end_time = r.get('end_dt')
 
             if r["is_completed"] and start_time and end_time:
                 expected_time = qty * prod_time * 3600

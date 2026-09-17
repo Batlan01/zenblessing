@@ -48,14 +48,19 @@ for r in got:
     print(f"   {r['felhasznalo']:8s} {str(r['clip_start'])[11:16]}–{str(r['clip_end'])[11:16]} "
           f"= {r['eff_seconds']/3600:5.2f} ó  completed={r['is_completed']}")
 assert len(got) == 2, "az átnyúló munkának is látszania kell"
+# Egy korabbi napon nyitva felejtett sor nem irhat 24 orat arra a napra
+assert got[0]["eff_seconds"] <= 15 * 3600, "nyitott sor a muszak vegeig szamol"
 assert got[1]["clip_start"] == D(0,0) and got[1]["clip_end"] == D(2,30)
 
 print("── 3) A lekérdezés paraméterei ─────────────────────────────")
 cur = FakeCursor([], count=42)
-print("   count =", W.count_day_rows(cur, "2026-09-16", station="EMI"))
+print("   count =", W.count_day_rows(cur, "2026-09-17", station="EMI"))
 print("   params =", cur.last_params)
-assert cur.last_params[0] == dt.datetime(2026,9,17)      # day_end (kizárólagos)
-assert cur.last_params[1] == dt.datetime(2026,9,16)      # day_start
+# A hatarokat sztringkent adjuk at: az idopont-oszlopok szoveget tarolnak,
+# ISO formatumnal a szoveges osszehasonlitas sorrendje = idorend.
+assert cur.last_params[0] == "2026-09-18 00:00:00"   # day_end (kizarolagos)
+assert cur.last_params[1] == "2026-09-17 00:00:00"   # day_start
+assert cur.last_params[2] == "2026-09-10 00:00:00"   # nyitott sorok also hatara
 assert cur.last_params[3] == "EMI"
 
 print("── 4) Státusz / QTY szöveg ─────────────────────────────────")
@@ -92,8 +97,8 @@ for raw, want in [(5, 5), ("5", 5), ("53.00", 53), (dt.timezone, 0),
 print("   fmt_dt(datetime) =", repr(W.fmt_dt(D(9, 5))))
 print("   fmt_dt(None)     =", repr(W.fmt_dt(None)))
 print("   fmt_dt('szoveg') =", repr(W.fmt_dt("2026-09-17 09:05")))
-assert W.fmt_dt(D(9, 5)) == "2026-09-16 09:05"
-assert W.fmt_dt(None) == "" and W.fmt_dt("") == ""
+assert W.fmt_dt(D(9, 5)) == "2026-09-16 09:05:00"
+assert W.fmt_dt(None) == "" and W.fmt_dt("") == "" and W.fmt_dt("null") == ""
 
 r = row(1, 1, "X", D(9, 0), None, "ACTIVE", done="0", tot="53.00")
 r["is_completed"] = False

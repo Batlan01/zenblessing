@@ -19,7 +19,47 @@ intervalluma METSZI a napot. Így bekerül a több napon átnyúló és a még
 le nem zárt (folyamatban lévő) munka is, a napra vágott idővel.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+
+# A workstationworkorder.start_time / end_time SZÖVEGKÉNT jön vissza
+# ('2026-09-17 07:19:08'), és a "még nincs vége" nem SQL NULL, hanem üres
+# sztring vagy a 'null' szó. A régi kód ezt még kézzel kezelte:
+#     if (st.upper() == "ACTIVE") or (endt in (None, "", "null")):
+# Innentől egy helyen, a to_dt() / _NO_END párossal.
+EMPTY_TIME_VALUES = ("", "null", "NULL", "None", "0000-00-00", "0000-00-00 00:00:00")
+
+_DT_FORMATS = (
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M:%S.%f",
+    "%Y-%m-%dT%H:%M:%S.%f",
+    "%Y-%m-%d",
+)
+
+
+def to_dt(value):
+    """
+    datetime | None – akkor is, ha az oszlop szöveget tárol.
+
+    Ez a modul sehol nem feltételezheti, hogy az adatbázis datetime-ot ad:
+    egy isinstance(x, datetime) ellenőrzés csendben kidobná az összes sort.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    text = str(value).strip()
+    if text in EMPTY_TIME_VALUES:
+        return None
+    for fmt in _DT_FORMATS:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
 
 # Az összeszerelési állomások sorrendje/halmaza (dashboard szűrő).
 ASSEMBLY_STATIONS = ["EMI", "MTE", "MDI", "QC", "TEST", "SOLD", "MOLD"]
@@ -53,12 +93,23 @@ def shift_fallback_end(day_start: datetime) -> datetime:
 
 
 # ── A napot metsző sorok kiválasztása ────────────────────────────────────────
+# "Nincs vége": SQL NULL VAGY üres sztring / 'null' (szövegoszlop esetén).
+# A CAST(... AS CHAR) miatt ez akkor is helyes, ha az oszlop valódi DATETIME.
+_NO_END = (
+    "(ww.end_time IS NULL OR CAST(ww.end_time AS CHAR) IN ('', 'null', 'NULL', "
+    "'None', '0000-00-00', '0000-00-00 00:00:00'))"
+)
+
 # A %s sorrend: day_end, day_start, open_floor
-_DAY_OVERLAP_WHERE = """
-    ww.start_time < %s
+# A határokat sztringként adjuk át: ISO formátumnál a szöveges összehasonlítás
+# sorrendje megegyezik az időrendivel, és az index is használható marad.
+_DAY_OVERLAP_WHERE = f"""
+    ww.start_time IS NOT NULL
+    AND CAST(ww.start_time AS CHAR) <> ''
+    AND ww.start_time < %s
     AND (
-        (ww.end_time IS NOT NULL AND ww.end_time >= %s)
-        OR (ww.end_time IS NULL AND ww.start_time >= %s)
+        (NOT {_NO_END} AND ww.end_time >= %s)
+        OR ({_NO_END} AND ww.start_time >= %s)
     )
 """
 
@@ -83,8 +134,16 @@ _ROW_SELECT = """
 """
 
 
+def _sql_ts(value: datetime) -> str:
+    return value.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _overlap_params(day_start: datetime, day_end: datetime):
-    return [day_end, day_start, day_start - timedelta(days=MAX_OPEN_DAYS)]
+    return [
+        _sql_ts(day_end),
+        _sql_ts(day_start),
+        _sql_ts(day_start - timedelta(days=MAX_OPEN_DAYS)),
+    ]
 
 
 def _where(day_start, day_end, station=None):
@@ -134,35 +193,62 @@ def fetch_day_rows(
 
     cursor.execute(sql, tuple(params))
     rows = cursor.fetchall() or []
+    return [decorate_row(r, day_start, day_end) for r in rows]
 
-    now = datetime.now()
-    out = []
-    for r in rows:
-        r = dict(r)
-        start = r.get("start_time")
-        end = r.get("end_time")
-        if not isinstance(start, datetime):
-            continue
 
-        # Nyitott sor: "most"-ig tart, de legfeljebb a nap végéig.
-        effective_end = end if isinstance(end, datetime) else min(now, day_end)
+def decorate_row(row: dict, day_start=None, day_end=None) -> dict:
+    """
+    Kiegészíti a nyers sort a származtatott mezőkkel.
 
+    FONTOS: soha nem dob el sort. Ha egy időpont értelmezhetetlen, a sor
+    továbbra is megjelenik a táblában, csak 0 másodperccel szerepel a
+    statisztikában – egy rossz érték nem tüntethet el munkát a képernyőről.
+
+      start_dt / end_dt      : értelmezett időpontok (vagy None)
+      is_completed           : a régi tábla szabálya szerint
+      clip_start / clip_end  : a sor aznapi szakasza
+      eff_seconds            : ennek a hossza
+      counts_as_effective    : beleszámít-e az effektív időbe
+    """
+    r = dict(row)
+    start = to_dt(r.get("start_time"))
+    end = to_dt(r.get("end_time"))
+    r["start_dt"] = start
+    r["end_dt"] = end
+
+    # Ugyanaz a szabály, mint a régi táblában: ACTIVE státusz VAGY hiányzó
+    # befejezés -> még fut.
+    status = str(r.get("status") or "").strip().upper()
+    r["is_completed"] = not (status == "ACTIVE" or end is None)
+
+    if day_start is not None and day_end is not None and start is not None:
+        if end is not None:
+            effective_end = end
+        else:
+            # Még fut. A MAI napon "most"-ig számolunk (a túlóra is beleszámít),
+            # egy korábbi napon viszont a műszak végéig – egy ott nyitva
+            # felejtett sor különben teljes 24 órát írna arra a napra.
+            now = datetime.now()
+            effective_end = (
+                min(now, day_end) if now < day_end
+                else min(shift_fallback_end(day_start), day_end)
+            )
         clip_start = max(start, day_start)
         clip_end = min(effective_end, day_end)
         eff = (clip_end - clip_start).total_seconds()
-        eff = eff if eff > 0 else 0.0
-
-        status = str(r.get("status") or "").strip()
-        is_completed = status.upper() == COMPLETED_STATUS and isinstance(end, datetime)
-
         r["clip_start"] = clip_start
         r["clip_end"] = clip_end
-        r["eff_seconds"] = int(eff)
-        r["is_completed"] = is_completed
-        r["counts_as_effective"] = is_completed or COUNT_ACTIVE_AS_EFFECTIVE
-        out.append(r)
+        r["eff_seconds"] = int(eff) if eff > 0 else 0
+    else:
+        r["clip_start"] = None
+        r["clip_end"] = None
+        r["eff_seconds"] = 0
 
-    return out
+    r["counts_as_effective"] = (
+        r["clip_start"] is not None
+        and (r["is_completed"] or COUNT_ACTIVE_AS_EFFECTIVE)
+    )
+    return r
 
 
 def as_int(value, default: int = 0) -> int:
@@ -185,12 +271,16 @@ def as_int(value, default: int = 0) -> int:
         return default
 
 
-def fmt_dt(value, fmt: str = "%Y-%m-%d %H:%M") -> str:
-    """Dátum formázása úgy, hogy egy váratlan típus se dobjon kivételt."""
-    if value is None or value == "":
+def fmt_dt(value, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+    """
+    Megjelenítésre szánt időpont – váratlan típustól sem dob kivételt.
+    Az üres / 'null' értékből üres cella lesz, nem a "null" szó.
+    """
+    parsed = to_dt(value)
+    if parsed is not None:
+        return parsed.strftime(fmt)
+    if value is None or str(value).strip() in EMPTY_TIME_VALUES:
         return ""
-    if isinstance(value, datetime):
-        return value.strftime(fmt)
     return str(value)
 
 
@@ -254,19 +344,19 @@ def fetch_login_seconds(cursor, date_str: str) -> dict:
         WHERE ws.login_date >= %s AND ws.login_date < %s
         GROUP BY w.ID, w.name
         """,
-        (day_start, day_end),
+        (_sql_ts(day_start), _sql_ts(day_end)),
     )
 
     now = datetime.now()
     out = {}
     for row in cursor.fetchall() or []:
-        login = row.get("first_login")
-        logout = row.get("last_logout")
-        if not isinstance(login, datetime):
+        login = to_dt(row.get("first_login"))
+        logout = to_dt(row.get("last_logout"))
+        if login is None:
             continue
 
         assumed = False
-        if isinstance(logout, datetime) and logout > login:
+        if logout is not None and logout > login:
             end = min(logout, day_end)
         else:
             # Nincs (érvényes) kijelentkezés: műszakvégig számolunk, de a mai
@@ -300,16 +390,7 @@ def fetch_station_rows(cursor, station: str, limit: int, offset: int = 0) -> lis
         + " WHERE ww.process_id = %s ORDER BY ww.start_time DESC, ww.id DESC LIMIT %s OFFSET %s",
         (station, int(limit), int(offset)),
     )
-    out = []
-    for r in (cursor.fetchall() or []):
-        r = dict(r)
-        r["is_completed"] = (
-            str(r.get("status") or "").strip().upper() == COMPLETED_STATUS
-            and r.get("end_time") is not None
-        )
-        r["eff_seconds"] = 0
-        out.append(r)
-    return out
+    return [decorate_row(r) for r in (cursor.fetchall() or [])]
 
 
 def aggregate_workers(rows: list[dict], logins: dict) -> list[dict]:
